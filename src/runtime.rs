@@ -7,6 +7,7 @@ use log::{error, info, trace, warn};
 use tokio::sync::{mpsc, RwLock};
 
 use crate::board_mask::BoardMask;
+use crate::decision::session::DecisionState;
 use crate::direction::Direction;
 use crate::strategy::Decision;
 use crate::telemetry::{
@@ -108,6 +109,7 @@ impl LiveGameState {
 #[derive(Clone)]
 struct GameHandle {
     live_state: Arc<RwLock<LiveGameState>>,
+    decision_state: Arc<RwLock<DecisionState>>,
     telemetry_tx: mpsc::Sender<TelemetryEvent>,
 }
 
@@ -137,6 +139,7 @@ impl GameRegistry {
 
                 entry.insert(GameHandle {
                     live_state: Arc::new(RwLock::new(live_state)),
+                    decision_state: Arc::new(RwLock::new(DecisionState::default())),
                     telemetry_tx: telemetry_tx.clone(),
                 });
 
@@ -200,6 +203,15 @@ impl GameRegistry {
                 state.game.id
             );
         }
+    }
+
+    pub(crate) async fn decide(&self, state: &GameState) -> Decision {
+        let Some(handle) = self.handle(&state.game.id) else {
+            warn!("cannot decide for unknown game {}; using stateless fallback", state.game.id);
+            return crate::strategy::choose_move(state);
+        };
+
+        handle.decision_state.write().await.decide(state)
     }
 
     pub(crate) fn record_decision(
