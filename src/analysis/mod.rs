@@ -1,3 +1,3 @@
 mod routes;
 
-pub(crate) use routes::{FoodClaimInfo, FoodRouteInfo, StateAnalysis};
+pub(crate) use routes::{FoodClaimInfo, FoodCompetitorInfo, FoodRouteInfo, StateAnalysis};
