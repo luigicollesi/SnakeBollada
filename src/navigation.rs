@@ -1,8 +1,8 @@
 use std::collections::VecDeque;
 
 use crate::board_mask::BoardMask;
-use crate::{Coord, GameState};
 use crate::strategy::Direction;
+use crate::{Coord, GameState};
 
 #[derive(Debug, Clone)]
 pub(crate) struct NavigationMap {
