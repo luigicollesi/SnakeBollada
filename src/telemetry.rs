@@ -13,7 +13,8 @@ use tokio::sync::mpsc;
 
 use crate::direction::Direction;
 use crate::strategy::{
-    CacheInvalidationReason, Decision, DecisionReason, DirectionOutcomeSummary, STRATEGY_VERSION,
+    CacheInvalidationReason, Decision, DecisionReason, DepthSearchStats, DirectionOutcomeSummary,
+    STRATEGY_VERSION,
 };
 use crate::{Battlesnake, Coord, GameState};
 
@@ -119,12 +120,14 @@ pub(crate) struct SearchRecord {
     pub(crate) cache_invalidation: CacheInvalidationReason,
     pub(crate) elapsed_us: u64,
     pub(crate) safety_reserve_us: u64,
+    pub(crate) runtime_jitter_reserve_us: u64,
     pub(crate) aggression_milli: u16,
     pub(crate) enemy_moves_observed: u16,
     pub(crate) enemy_moves_legal_covered: u16,
     pub(crate) enemy_moves_plausible_covered: u16,
     pub(crate) food_spawn_invalidations: u32,
     pub(crate) food_mutation_invalidations: u32,
+    pub(crate) depth_stats: [DepthSearchStats; 6],
     pub(crate) direction_outcomes: [DirectionOutcomeSummary; 4],
 }
 
@@ -161,12 +164,14 @@ impl DecisionRecord {
                 cache_invalidation: decision.search.cache_invalidation,
                 elapsed_us: decision.search.elapsed_us,
                 safety_reserve_us: decision.search.safety_reserve_us,
+                runtime_jitter_reserve_us: decision.search.runtime_jitter_reserve_us,
                 aggression_milli: decision.search.aggression_milli,
                 enemy_moves_observed: decision.search.enemy_moves_observed,
                 enemy_moves_legal_covered: decision.search.enemy_moves_legal_covered,
                 enemy_moves_plausible_covered: decision.search.enemy_moves_plausible_covered,
                 food_spawn_invalidations: decision.search.food_spawn_invalidations,
                 food_mutation_invalidations: decision.search.food_mutation_invalidations,
+                depth_stats: decision.search.depth_stats,
                 direction_outcomes: decision.search.direction_outcomes,
             },
         }
@@ -205,7 +210,7 @@ impl GameRecord {
         let initial_turn = start.initial_snapshot.turn;
 
         Self {
-            schema_version: 3,
+            schema_version: 4,
             game_id: start.game_id,
             ruleset: start.ruleset,
             timeout_ms: start.timeout_ms,
