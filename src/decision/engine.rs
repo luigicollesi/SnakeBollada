@@ -50,7 +50,12 @@ impl DecisionEngine {
         let root = graph.node(graph.root());
 
         let Some(best) =
-            choose_best_direction(&evaluations, &root.state, ReservedCellPolicy::default())
+            choose_best_direction(
+                &evaluations,
+                &root.state,
+                root.tactical.ours.safe_moves,
+                ReservedCellPolicy::default(),
+            )
         else {
             return choose_move_baseline(state);
         };
@@ -98,10 +103,14 @@ impl DecisionEngine {
 fn choose_best_direction<'a>(
     evaluations: &'a [DirectionEvaluation],
     state: &SimulatedGameState,
+    robust_safe_moves: crate::direction::MoveMask,
     policy: ReservedCellPolicy,
 ) -> Option<&'a DirectionEvaluation> {
     evaluations
         .iter()
+        .filter(|evaluation| {
+            robust_safe_moves.is_empty() || robust_safe_moves.contains(evaluation.direction)
+        })
         .min_by(|left, right| compare_direction(left, right, state, policy))
 }
 
@@ -252,6 +261,48 @@ mod tests {
             DecisionEngine::stateless().decide(&state),
             choose_move_baseline(&state)
         );
+    }
+
+    #[test]
+    fn robust_safe_move_excludes_immediate_head_to_head_risk() {
+        use crate::direction::{Direction, MoveMask};
+
+        let state = state("standard");
+        let normalized = SimulatedGameState::from(&state);
+        let safe = DirectionEvaluation {
+            direction: Direction::Up,
+            routes: vec![],
+            survival: crate::decision::evaluation::DirectionSurvivalSummary {
+                total_routes: 1,
+                death_routes: 0,
+                dead_end_routes: 0,
+                forced_routes: 0,
+                constrained_routes: 0,
+                min_future_mobility: 2,
+                min_reachable_space: 10,
+            },
+            worst_strategic_utility: 0.0,
+            average_strategic_utility: 0.0,
+        };
+        let threatened = DirectionEvaluation {
+            direction: Direction::Right,
+            routes: vec![],
+            survival: safe.survival,
+            worst_strategic_utility: 100.0,
+            average_strategic_utility: 100.0,
+        };
+        let evaluations = vec![threatened, safe];
+        let robust = MoveMask::single(Direction::Up);
+
+        let chosen = choose_best_direction(
+            &evaluations,
+            &normalized,
+            robust,
+            ReservedCellPolicy::default(),
+        )
+        .unwrap();
+
+        assert_eq!(chosen.direction, Direction::Up);
     }
 
     #[test]
