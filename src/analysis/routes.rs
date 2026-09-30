@@ -294,6 +294,17 @@ mod tests {
     }
 
     #[test]
+    fn certainty_is_preserved() {
+        let ours = snake("ours", vec![Coord { x: 1, y: 1 }]);
+        let analysis = StateAnalysis::from_state(
+            &state(ours, vec![], vec![]),
+            ForecastCertainty::FoodProvisional,
+        );
+
+        assert_eq!(analysis.certainty, ForecastCertainty::FoodProvisional);
+    }
+
+    #[test]
     fn one_route_field_serves_multiple_foods() {
         let ours = snake("ours", vec![Coord { x: 1, y: 1 }, Coord { x: 1, y: 0 }]);
         let f1 = Coord { x: 3, y: 1 };
