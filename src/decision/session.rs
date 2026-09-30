@@ -117,7 +117,7 @@ impl DecisionState {
             let Some(direction) = Direction::from_heads(previous_head, current.head) else {
                 continue;
             };
-            let Some(prediction) = root.tracing.for_enemy(&enemy.id) else {
+            let Some(prediction) = root.analysis.tracing.for_enemy(&enemy.id) else {
                 continue;
             };
 
