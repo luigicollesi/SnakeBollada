@@ -8,9 +8,7 @@ use crate::decision::state_key::StateKey;
 use crate::direction::MoveMask;
 use crate::enemy::tracing::{trace, EnemyTracingOutput};
 use crate::simulation::joint_action::JointAction;
-use crate::simulation::resolver::{
-    resolve_turn, ForecastDelta, InstantEvent, ResolveError,
-};
+use crate::simulation::resolver::{resolve_turn, ForecastDelta, InstantEvent, ResolveError};
 use crate::simulation::state::SimulatedGameState;
 
 pub(crate) type NodeId = usize;
@@ -140,8 +138,7 @@ impl FutureGraph {
             };
 
             let after_tactical = Arc::clone(&self.nodes[child].tactical);
-            let transition =
-                analyze_transition(&before_tactical, &resolution, &after_tactical);
+            let transition = analyze_transition(&before_tactical, &resolution, &after_tactical);
 
             edges.push(SearchEdge {
                 joint_action,
@@ -188,9 +185,7 @@ fn build_node(state: SimulatedGameState) -> SearchNode {
 
 #[cfg(test)]
 mod tests {
-    use crate::simulation::state::{
-        AggressionState, RulesContext, SimulatedSnake,
-    };
+    use crate::simulation::state::{AggressionState, RulesContext, SimulatedSnake};
     use crate::Coord;
 
     use super::*;
