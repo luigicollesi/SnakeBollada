@@ -206,9 +206,9 @@ mod tests {
     #[test]
     fn strategy_uses_food_mode_claim_competition() {
         let ours = snake("ours", vec![Coord { x: 0, y: 0 }]);
-        let enemy = snake("enemy", vec![Coord { x: 3, y: 0 }]);
-        let losing_food = Coord { x: 2, y: 0 };
-        let claimable_food = Coord { x: 0, y: 3 };
+        let enemy = snake("enemy", vec![Coord { x: 3, y: 2 }]);
+        let losing_food = Coord { x: 3, y: 0 };
+        let claimable_food = Coord { x: 0, y: 4 };
         let state = state(ours, vec![enemy], vec![losing_food, claimable_food]);
 
         let decision = choose_move(&state);
