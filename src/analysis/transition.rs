@@ -63,8 +63,7 @@ fn derive_hunting_events(
             continue;
         };
 
-        let caused_by_ours =
-            our_body_contributes(&resolution.state, enemy_id, after_enemy);
+        let caused_by_ours = our_body_contributes(&resolution.state, enemy_id, after_enemy);
 
         if after_enemy.legal_moves.is_empty() {
             events.push(InstantEvent::EnemyTrapped {
