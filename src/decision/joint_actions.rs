@@ -246,10 +246,7 @@ mod tests {
 
     #[test]
     fn empty_enemy_move_set_falls_back_to_all_directions() {
-        let state = state(vec![
-            snake("ours", &[(1, 1)]),
-            snake("enemy", &[(5, 5)]),
-        ]);
+        let state = state(vec![snake("ours", &[(1, 1)]), snake("enemy", &[(5, 5)])]);
         let tracing = EnemyTracingOutput {
             enemies: HashMap::from([(
                 "enemy".to_string(),
