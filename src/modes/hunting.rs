@@ -89,9 +89,7 @@ mod tests {
     use crate::analysis::StateAnalysis;
     use crate::enemy::tracing::trace;
     use crate::forecast::ForecastCertainty;
-    use crate::simulation::state::{
-        AggressionState, RulesContext, SimulatedSnake,
-    };
+    use crate::simulation::state::{AggressionState, RulesContext, SimulatedSnake};
 
     use super::*;
 
@@ -128,8 +126,7 @@ mod tests {
             snake("ours", &[(2, 1), (1, 1), (1, 0), (0, 0)]),
             snake("enemy", &[(2, 3), (3, 3)]),
         ]);
-        let analysis =
-            StateAnalysis::from_simulated(&state, ForecastCertainty::Deterministic);
+        let analysis = StateAnalysis::from_simulated(&state, ForecastCertainty::Deterministic);
         let tracing = trace(&state, &analysis);
         let tactical = TacticalStateAnalysis::from_state(&state, &tracing);
 
@@ -148,8 +145,7 @@ mod tests {
             snake("ours", &[(2, 1), (1, 1), (1, 0)]),
             snake("enemy", &[(2, 3), (3, 3), (3, 2)]),
         ]);
-        let analysis =
-            StateAnalysis::from_simulated(&state, ForecastCertainty::Deterministic);
+        let analysis = StateAnalysis::from_simulated(&state, ForecastCertainty::Deterministic);
         let tracing = trace(&state, &analysis);
         let tactical = TacticalStateAnalysis::from_state(&state, &tracing);
 
