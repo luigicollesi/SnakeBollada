@@ -35,11 +35,9 @@ impl DecisionEngine {
         let evaluations = evaluate_graph(&graph, TARGET_DEPTH);
         let root = graph.node(graph.root());
 
-        let Some(best) = choose_best_direction(
-            &evaluations,
-            &root.state,
-            ReservedCellPolicy::default(),
-        ) else {
+        let Some(best) =
+            choose_best_direction(&evaluations, &root.state, ReservedCellPolicy::default())
+        else {
             return choose_move_baseline(state);
         };
 
@@ -76,9 +74,9 @@ fn choose_best_direction<'a>(
     state: &SimulatedGameState,
     policy: ReservedCellPolicy,
 ) -> Option<&'a DirectionEvaluation> {
-    evaluations.iter().min_by(|left, right| {
-        compare_direction(left, right, state, policy)
-    })
+    evaluations
+        .iter()
+        .min_by(|left, right| compare_direction(left, right, state, policy))
 }
 
 fn compare_direction(
@@ -191,10 +189,7 @@ mod tests {
                 Coord { x: 2, y: 0 },
             ],
         );
-        let enemy = snake(
-            "enemy",
-            vec![Coord { x: 5, y: 5 }, Coord { x: 5, y: 4 }],
-        );
+        let enemy = snake("enemy", vec![Coord { x: 5, y: 5 }, Coord { x: 5, y: 4 }]);
 
         GameState {
             game: Game {
