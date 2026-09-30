@@ -384,21 +384,13 @@ mod tests {
         };
 
         assert_eq!(
-            effective_reserved_penalty(
-                ReservedCellPolicy::default(),
-                &normalized,
-                &evaluation,
-            ),
+            effective_reserved_penalty(ReservedCellPolicy::default(), &normalized, &evaluation,),
             0.0
         );
 
         evaluation.reserved_override = false;
         assert_eq!(
-            effective_reserved_penalty(
-                ReservedCellPolicy::default(),
-                &normalized,
-                &evaluation,
-            ),
+            effective_reserved_penalty(ReservedCellPolicy::default(), &normalized, &evaluation,),
             ReservedCellPolicy::default().penalty(&normalized, Direction::Up)
         );
     }
