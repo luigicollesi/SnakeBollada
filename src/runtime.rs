@@ -131,8 +131,7 @@ impl GameRegistry {
                 warn!("duplicate /start for game {game_id}");
             }
             Entry::Vacant(entry) => {
-                let (telemetry_tx, telemetry_rx) =
-                    mpsc::channel(TELEMETRY_CHANNEL_CAPACITY);
+                let (telemetry_tx, telemetry_rx) = mpsc::channel(TELEMETRY_CHANNEL_CAPACITY);
                 let live_state = LiveGameState::from_request(state);
 
                 entry.insert(GameHandle {
@@ -250,9 +249,7 @@ impl GameRegistry {
     }
 
     fn handle(&self, game_id: &str) -> Option<GameHandle> {
-        self.games
-            .get(game_id)
-            .map(|entry| entry.value().clone())
+        self.games.get(game_id).map(|entry| entry.value().clone())
     }
 }
 
@@ -279,14 +276,8 @@ mod tests {
     }
 
     fn state(enemy_head: Coord) -> GameState {
-        let ours = snake(
-            "ours",
-            vec![Coord { x: 1, y: 1 }, Coord { x: 1, y: 0 }],
-        );
-        let enemy = snake(
-            "enemy",
-            vec![enemy_head, Coord { x: 5, y: 4 }],
-        );
+        let ours = snake("ours", vec![Coord { x: 1, y: 1 }, Coord { x: 1, y: 0 }]);
+        let enemy = snake("enemy", vec![enemy_head, Coord { x: 5, y: 4 }]);
 
         GameState {
             game: Game {
