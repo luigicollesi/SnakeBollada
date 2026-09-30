@@ -5,7 +5,8 @@ use std::cmp::Reverse;
 use crate::analysis::{FoodClaimInfo, FoodRouteInfo, StateAnalysis};
 use crate::direction::Direction;
 use crate::forecast::ForecastCertainty;
-use crate::{Coord, GameState};
+use crate::simulation::state::SimulatedGameState;
+use crate::Coord;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct FoodCandidate {
@@ -22,11 +23,15 @@ pub(crate) struct FoodModeOutput {
     pub(crate) candidates: Vec<FoodCandidate>,
 }
 
-pub(crate) fn candidates(state: &GameState, analysis: &StateAnalysis) -> FoodModeOutput {
+pub(crate) fn candidates(
+    state: &SimulatedGameState,
+    analysis: &StateAnalysis,
+    certainty: ForecastCertainty,
+) -> FoodModeOutput {
     let mut expanded = Vec::new();
 
-    for food in state.board.food.iter().copied() {
-        let Some(route) = analysis.route_for(&state.you.id, food) else {
+    for food in state.food.iter().copied() {
+        let Some(route) = analysis.route_for(&state.our_snake_id, food) else {
             continue;
         };
         if !route.reachable {
@@ -40,7 +45,7 @@ pub(crate) fn candidates(state: &GameState, analysis: &StateAnalysis) -> FoodMod
 
         for first_move in route.first_moves.iter() {
             expanded.push(candidate_from_route(
-                analysis, route, claim, first_move, distance,
+                route, claim, first_move, distance, certainty,
             ));
         }
     }
@@ -68,11 +73,11 @@ pub(crate) fn candidates(state: &GameState, analysis: &StateAnalysis) -> FoodMod
 }
 
 fn candidate_from_route(
-    analysis: &StateAnalysis,
     route: &FoodRouteInfo,
     claim: Option<&FoodClaimInfo>,
     first_move: Direction,
     distance: u16,
+    certainty: ForecastCertainty,
 ) -> FoodCandidate {
     FoodCandidate {
         target_food: route.food,
@@ -80,7 +85,7 @@ fn candidate_from_route(
         distance,
         claim_margin: claim.and_then(|value| value.claim_margin),
         contested: claim.is_some_and(|value| value.contested),
-        certainty: analysis.certainty,
+        certainty,
     }
 }
 
@@ -112,6 +117,7 @@ mod tests {
     use crate::direction::Direction;
     use crate::forecast::ForecastCertainty;
     use crate::{Battlesnake, Board, Coord, Game, GameState};
+    use crate::simulation::state::SimulatedGameState;
 
     fn snake(id: &str, body: Vec<Coord>) -> Battlesnake {
         Battlesnake {
@@ -148,7 +154,16 @@ mod tests {
     }
 
     fn analyze(state: &GameState) -> StateAnalysis {
-        StateAnalysis::from_state(state, ForecastCertainty::Deterministic)
+        StateAnalysis::from_state(state)
+    }
+
+    fn candidates_for(state: &GameState) -> FoodModeOutput {
+        let simulated = SimulatedGameState::from(state);
+        candidates(
+            &simulated,
+            &analyze(state),
+            ForecastCertainty::Deterministic,
+        )
     }
 
     #[test]
@@ -157,7 +172,7 @@ mod tests {
         let food = Coord { x: 3, y: 1 };
         let state = state(ours, vec![], vec![food]);
 
-        let output = candidates(&state, &analyze(&state));
+        let output = candidates_for(&state);
 
         assert_eq!(output.candidates.len(), 1);
         assert_eq!(output.candidates[0].target_food, food);
@@ -175,7 +190,7 @@ mod tests {
         ];
         let state = state(ours, vec![], foods);
 
-        let output = candidates(&state, &analyze(&state));
+        let output = candidates_for(&state);
 
         assert!(output.candidates.len() <= 2);
     }
@@ -190,7 +205,7 @@ mod tests {
         ];
         let state = state(ours, vec![], foods);
 
-        let output = candidates(&state, &analyze(&state));
+        let output = candidates_for(&state);
         let directions = output
             .candidates
             .iter()
@@ -211,7 +226,7 @@ mod tests {
         let claimable_food = Coord { x: 0, y: 3 };
         let state = state(ours, vec![enemy], vec![losing_food, claimable_food]);
 
-        let output = candidates(&state, &analyze(&state));
+        let output = candidates_for(&state);
 
         assert_eq!(output.candidates[0].target_food, claimable_food);
         assert_eq!(output.candidates[0].first_move, Direction::Up);
@@ -224,7 +239,7 @@ mod tests {
         let food = Coord { x: 2, y: 2 };
         let state = state(ours, vec![], vec![food]);
 
-        let output = candidates(&state, &analyze(&state));
+        let output = candidates_for(&state);
         let directions = output
             .candidates
             .iter()
@@ -253,7 +268,7 @@ mod tests {
         let food = Coord { x: 4, y: 1 };
         let state = state(ours, vec![wall], vec![food]);
 
-        let output = candidates(&state, &analyze(&state));
+        let output = candidates_for(&state);
 
         assert!(output.candidates.is_empty());
     }
@@ -264,8 +279,8 @@ mod tests {
         let foods = vec![Coord { x: 3, y: 5 }, Coord { x: 5, y: 3 }];
         let state = state(ours, vec![], foods);
 
-        let first = candidates(&state, &analyze(&state));
-        let second = candidates(&state, &analyze(&state));
+        let first = candidates_for(&state);
+        let second = candidates_for(&state);
 
         assert_eq!(first.candidates, second.candidates);
     }
