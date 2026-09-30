@@ -28,6 +28,10 @@ pub(crate) struct Decision {
 }
 
 pub(crate) fn choose_move(state: &GameState) -> Decision {
+    crate::decision::DecisionEngine::stateless().decide(state)
+}
+
+pub(crate) fn choose_move_baseline(state: &GameState) -> Decision {
     let map = NavigationMap::from_state(state);
     let legal_moves = Direction::ALL
         .into_iter()
