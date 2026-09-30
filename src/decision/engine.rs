@@ -8,7 +8,7 @@ use crate::search::budget::SearchBudget;
 use crate::search::graph::FutureGraph;
 use crate::simulation::mobility::MobilityAnalysis;
 use crate::simulation::state::{SimulatedGameState, SimulationSupport};
-use crate::strategy::{choose_move_baseline, Decision, DecisionReason};
+use crate::strategy::{choose_move_baseline, Decision, DecisionReason, SearchMetadata};
 use crate::GameState;
 
 const TARGET_DEPTH: u8 = 3;
@@ -78,6 +78,17 @@ impl DecisionEngine {
             target_food: food_target.map(|candidate| candidate.target_food),
             path_distance: food_target.map(|candidate| candidate.distance),
             reachable_cells,
+            search: SearchMetadata {
+                completed_depth: expansion.completed_depth,
+                nodes: expansion.nodes,
+                edges: expansion.edges,
+                transposition_hits: expansion.transposition_hits,
+                cache_reused: false,
+                elapsed_us: expansion.elapsed_us,
+                safety_reserve_us: expansion.safety_reserve_us,
+                aggression_milli: (root.state.aggression.value.clamp(0.0, 1.0) * 1000.0)
+                    .round() as u16,
+            },
         }
     }
 }
