@@ -352,8 +352,16 @@ fn hunting_value(events: &[InstantEvent]) -> f32 {
 
     for event in events {
         let (enemy, value) = match event {
-            InstantEvent::EnemyForced { enemy, .. } => (enemy.as_str(), 0.25),
-            InstantEvent::EnemyTrapped { enemy } => (enemy.as_str(), 0.60),
+            InstantEvent::EnemyForced {
+                enemy,
+                caused_by_ours: true,
+                ..
+            } => (enemy.as_str(), 0.25),
+            InstantEvent::EnemyTrapped {
+                enemy,
+                caused_by_ours: true,
+            } => (enemy.as_str(), 0.60),
+            InstantEvent::EnemyForced { .. } | InstantEvent::EnemyTrapped { .. } => continue,
             InstantEvent::EnemyKilled {
                 enemy,
                 attribution: EliminationAttribution::OurSnake,
@@ -406,7 +414,10 @@ fn confirms_reserved_override(routes: &[RouteEvaluation]) -> bool {
         route.events.iter().any(|event| {
             matches!(
                 event,
-                InstantEvent::EnemyKilled {
+                InstantEvent::EnemyTrapped {
+                    caused_by_ours: true,
+                    ..
+                } | InstantEvent::EnemyKilled {
                     attribution: EliminationAttribution::OurSnake,
                     ..
                 } | InstantEvent::HeadToHeadWon { .. }
@@ -604,6 +615,7 @@ mod tests {
             initial_move: Direction::Left,
             events: vec![InstantEvent::EnemyTrapped {
                 enemy: "enemy".to_string(),
+                caused_by_ours: true,
             }],
             survival,
             died: false,
@@ -628,6 +640,17 @@ mod tests {
     }
 
     #[test]
+    fn noncausal_forcing_does_not_receive_hunting_credit() {
+        let events = vec![InstantEvent::EnemyForced {
+            enemy: "enemy".to_string(),
+            remaining_moves: 1,
+            caused_by_ours: false,
+        }];
+
+        assert_eq!(hunting_value(&events), 0.0);
+    }
+
+    #[test]
     fn environment_kill_does_not_receive_hunting_credit() {
         let events = vec![InstantEvent::EnemyKilled {
             enemy: "enemy".to_string(),
@@ -644,9 +667,11 @@ mod tests {
             InstantEvent::EnemyForced {
                 enemy: "enemy".to_string(),
                 remaining_moves: 1,
+                caused_by_ours: true,
             },
             InstantEvent::EnemyTrapped {
                 enemy: "enemy".to_string(),
+                caused_by_ours: true,
             },
             InstantEvent::EnemyKilled {
                 enemy: "enemy".to_string(),
