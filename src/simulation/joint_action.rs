@@ -1,0 +1,60 @@
+use std::collections::BTreeMap;
+
+use crate::direction::Direction;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct JointAction {
+    moves: BTreeMap<String, Direction>,
+}
+
+impl JointAction {
+    pub(crate) fn new() -> Self {
+        Self {
+            moves: BTreeMap::new(),
+        }
+    }
+
+    pub(crate) fn with_move(mut self, snake_id: impl Into<String>, direction: Direction) -> Self {
+        self.moves.insert(snake_id.into(), direction);
+        self
+    }
+
+    pub(crate) fn direction_for(&self, snake_id: &str) -> Option<Direction> {
+        self.moves.get(snake_id).copied()
+    }
+
+    pub(crate) fn len(&self) -> usize {
+        self.moves.len()
+    }
+
+    pub(crate) fn is_empty(&self) -> bool {
+        self.moves.is_empty()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn stores_one_move_per_snake() {
+        let action = JointAction::new()
+            .with_move("ours", Direction::Up)
+            .with_move("enemy", Direction::Left);
+
+        assert_eq!(action.len(), 2);
+        assert!(!action.is_empty());
+        assert_eq!(action.direction_for("ours"), Some(Direction::Up));
+        assert_eq!(action.direction_for("enemy"), Some(Direction::Left));
+    }
+
+    #[test]
+    fn newer_move_replaces_previous_move_for_same_snake() {
+        let action = JointAction::new()
+            .with_move("enemy", Direction::Up)
+            .with_move("enemy", Direction::Right);
+
+        assert_eq!(action.len(), 1);
+        assert_eq!(action.direction_for("enemy"), Some(Direction::Right));
+    }
+}
