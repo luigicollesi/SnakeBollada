@@ -94,7 +94,6 @@ pub(crate) fn analyze(
 mod tests {
     use crate::analysis::StateAnalysis;
     use crate::enemy::tracing::trace;
-    use crate::forecast::ForecastCertainty;
     use crate::simulation::state::{AggressionState, RulesContext, SimulatedSnake};
 
     use super::*;
