@@ -18,6 +18,7 @@ mod analysis;
 mod board_mask;
 mod decision;
 mod direction;
+mod enemy;
 mod forecast;
 mod logic;
 mod modes;
