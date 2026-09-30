@@ -3,7 +3,7 @@
 use std::collections::HashMap;
 
 use crate::board_mask::BoardMask;
-use crate::direction::{Direction, MoveMask};
+use crate::direction::MoveMask;
 use crate::enemy::tracing::EnemyTracingOutput;
 use crate::simulation::mobility::MobilityAnalysis;
 use crate::simulation::state::SimulatedGameState;
@@ -158,6 +158,7 @@ impl TacticalStateAnalysis {
 #[cfg(test)]
 mod tests {
     use crate::analysis::StateAnalysis;
+    use crate::direction::Direction;
     use crate::enemy::tracing::trace;
     use crate::forecast::ForecastCertainty;
     use crate::simulation::state::{AggressionState, RulesContext, SimulatedSnake};
