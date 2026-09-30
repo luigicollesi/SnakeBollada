@@ -92,6 +92,14 @@ pub(crate) struct TacticalStateAnalysis {
 impl TacticalStateAnalysis {
     pub(crate) fn from_state(state: &SimulatedGameState, tracing: &EnemyTracingOutput) -> Self {
         let mobility = MobilityAnalysis::from_state(state);
+        Self::from_parts(state, tracing, &mobility)
+    }
+
+    pub(crate) fn from_parts(
+        state: &SimulatedGameState,
+        tracing: &EnemyTracingOutput,
+        mobility: &MobilityAnalysis,
+    ) -> Self {
         let threat_map = ThreatMap::from_state(state, tracing);
 
         let deterministic_moves = mobility.deterministic_moves_for(state, &state.our_snake_id);
