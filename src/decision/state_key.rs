@@ -27,6 +27,7 @@ impl StateKey {
         let mut snakes = state
             .snakes
             .iter()
+            .filter(|snake| snake.alive)
             .map(|snake| SnakeStateKey {
                 id: snake.id.clone(),
                 health: snake.health,
@@ -110,6 +111,20 @@ mod tests {
         right.food.reverse();
         right.hazards.reverse();
         right.snakes.reverse();
+
+        assert_eq!(StateKey::from_state(&left), StateKey::from_state(&right));
+    }
+
+    #[test]
+    fn dead_snakes_do_not_change_future_key() {
+        let left = sample_state();
+        let mut right = sample_state();
+        right.snakes.push(SimulatedSnake {
+            id: "dead".to_string(),
+            health: 0,
+            body: vec![Coord { x: 2, y: 2 }],
+            alive: false,
+        });
 
         assert_eq!(StateKey::from_state(&left), StateKey::from_state(&right));
     }
