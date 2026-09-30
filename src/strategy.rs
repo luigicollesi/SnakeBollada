@@ -203,7 +203,6 @@ mod tests {
         assert_eq!(decision.reason, DecisionReason::NearestSafeFood);
     }
 
-
     #[test]
     fn strategy_uses_food_mode_claim_competition() {
         let ours = snake("ours", vec![Coord { x: 0, y: 0 }]);
