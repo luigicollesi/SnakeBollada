@@ -33,9 +33,11 @@ pub(crate) enum InstantEvent {
     EnemyForced {
         enemy: String,
         remaining_moves: u8,
+        caused_by_ours: bool,
     },
     EnemyTrapped {
         enemy: String,
+        caused_by_ours: bool,
     },
     EnemyKilled {
         enemy: String,
