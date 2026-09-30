@@ -1,6 +1,6 @@
 # SPEC — Survival Mode
 
-**Status:** V1 implementado; avaliação multi-turn com FutureGraph pendente  
+**Status:** Implementado V1 — avaliação E2E multi-turn integrada  
 **Branch alvo:** `dev`  
 **Depende de:** `decision-making.md`
 
@@ -16,12 +16,14 @@ Implementado em `dev`:
 - eventos `SelfConstrained` e `SelfDeadEnd` derivados por transição;
 - morte continua sendo evento terminal do `TurnResolver`.
 
-Pendente do FutureGraph:
+Integração multi-turn concluída:
 
-- cálculo real de second-order mobility a partir dos sucessores;
-- composição de snapshots por rotas root → leaf de profundidade 3+;
-- agregação de risco por direção no Decision Engine;
-- detecção multi-turn de convergência para forced/dead-end.
+- snapshots são compostos automaticamente em rotas root → leaf;
+- second-order mobility usa os sucessores reais do FutureGraph e mantém a pior mobilidade plausível ao longo da rota;
+- risco por direção agrega death/dead-end/forced/constrained sem misturar siblings;
+- Survival é comparado lexicograficamente antes de borda/quina e antes de Food/Hunting;
+- se existe um movimento robustamente seguro no turno atual, opções imediatamente ameaçadas por head-to-head não entram na comparação estratégica;
+- avaliação de uma depth só é aceita se expansão e traversal E2E terminarem dentro do deadline.
 
 ## 1. Objetivo
 
