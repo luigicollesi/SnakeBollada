@@ -242,10 +242,8 @@ fn classify_decision_reason(
         return DecisionReason::SurvivalCritical;
     }
 
-    let route_count = best.routes.len().max(1) as f32;
-    let average_food = best.routes.iter().map(|route| route.food_value).sum::<f32>() / route_count;
-    let average_hunting =
-        best.routes.iter().map(|route| route.hunting_value).sum::<f32>() / route_count;
+    let average_food = best.average_food_value;
+    let average_hunting = best.average_hunting_value;
     let aggression = state.aggression.value.clamp(0.0, 1.0);
     let food_contribution = average_food * (1.0 - aggression);
     let hunting_contribution = average_hunting * aggression;
@@ -324,6 +322,10 @@ fn summarize_direction_outcomes(
             min_reachable_space: evaluation.survival.min_reachable_space,
             worst_utility_milli: utility_milli(evaluation.worst_strategic_utility),
             average_utility_milli: utility_milli(evaluation.average_strategic_utility),
+            average_food_milli: utility_milli(evaluation.average_food_value),
+            average_hunting_milli: utility_milli(evaluation.average_hunting_value),
+            average_leaf_food_milli: utility_milli(evaluation.average_leaf_food_potential),
+            average_leaf_hunting_milli: utility_milli(evaluation.average_leaf_hunting_potential),
             reserved_override: evaluation.reserved_override,
         };
     }
@@ -536,6 +538,10 @@ mod tests {
             },
             worst_strategic_utility: 0.0,
             average_strategic_utility: 0.0,
+            average_food_value: 0.0,
+            average_hunting_value: 0.0,
+            average_leaf_food_potential: 0.0,
+            average_leaf_hunting_potential: 0.0,
             reserved_override: false,
         };
         let threatened = DirectionEvaluation {
@@ -544,6 +550,10 @@ mod tests {
             survival: safe.survival,
             worst_strategic_utility: 100.0,
             average_strategic_utility: 100.0,
+            average_food_value: 0.0,
+            average_hunting_value: 0.0,
+            average_leaf_food_potential: 0.0,
+            average_leaf_hunting_potential: 0.0,
             reserved_override: false,
         };
         let evaluations = vec![threatened, safe];
@@ -579,6 +589,10 @@ mod tests {
             },
             worst_strategic_utility: 0.0,
             average_strategic_utility: 0.0,
+            average_food_value: 0.0,
+            average_hunting_value: 0.0,
+            average_leaf_food_potential: 0.0,
+            average_leaf_hunting_potential: 0.0,
             reserved_override: true,
         };
 
@@ -613,6 +627,10 @@ mod tests {
             },
             worst_strategic_utility: 0.0,
             average_strategic_utility: 0.0,
+            average_food_value: 0.0,
+            average_hunting_value: 0.0,
+            average_leaf_food_potential: 0.0,
+            average_leaf_hunting_potential: 0.0,
             reserved_override: false,
         };
         let dangerous = DirectionEvaluation {
@@ -629,6 +647,10 @@ mod tests {
             },
             worst_strategic_utility: 100.0,
             average_strategic_utility: 100.0,
+            average_food_value: 0.0,
+            average_hunting_value: 0.0,
+            average_leaf_food_potential: 0.0,
+            average_leaf_hunting_potential: 0.0,
             reserved_override: false,
         };
 
