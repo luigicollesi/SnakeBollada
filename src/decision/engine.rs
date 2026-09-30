@@ -127,6 +127,8 @@ impl DecisionEngine {
                 enemy_moves_observed: 0,
                 enemy_moves_legal_covered: 0,
                 enemy_moves_plausible_covered: 0,
+                food_spawn_invalidations: 0,
+                food_mutation_invalidations: 0,
                 direction_outcomes: summarize_direction_outcomes(&evaluations),
             },
         }
