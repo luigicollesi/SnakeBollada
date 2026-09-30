@@ -7,6 +7,7 @@ use log::{error, info, trace, warn};
 use tokio::sync::{mpsc, RwLock};
 
 use crate::board_mask::BoardMask;
+use crate::prediction::OpponentPredictor;
 use crate::strategy::{Decision, Direction};
 use crate::telemetry::{
     now_ms, run_recorder, DecisionRecord, EndRecord, GameRecordStorage, ObservedMove, StartRecord,
@@ -107,6 +108,7 @@ impl LiveGameState {
 #[derive(Clone)]
 struct GameHandle {
     live_state: Arc<RwLock<LiveGameState>>,
+    predictor: Arc<RwLock<OpponentPredictor>>,
     telemetry_tx: mpsc::Sender<TelemetryEvent>,
 }
 
@@ -136,6 +138,7 @@ impl GameRegistry {
 
                 entry.insert(GameHandle {
                     live_state: Arc::new(RwLock::new(live_state)),
+                    predictor: Arc::new(RwLock::new(OpponentPredictor::default())),
                     telemetry_tx: telemetry_tx.clone(),
                 });
 
@@ -189,6 +192,11 @@ impl GameRegistry {
             observed
         };
 
+        let predictions = {
+            let mut predictor = handle.predictor.write().await;
+            predictor.observe_and_predict(state, &observed_moves)
+        };
+
         let snapshot = TurnSnapshot::from_state(state, observed_moves);
         if let Err(send_error) = handle
             .telemetry_tx
@@ -196,6 +204,16 @@ impl GameRegistry {
         {
             warn!(
                 "dropping turn snapshot telemetry for game {}: {send_error}",
+                state.game.id
+            );
+        }
+
+        if let Err(send_error) = handle
+            .telemetry_tx
+            .try_send(TelemetryEvent::OpponentPredictions(predictions))
+        {
+            warn!(
+                "dropping opponent prediction telemetry for game {}: {send_error}",
                 state.game.id
             );
         }
@@ -232,6 +250,11 @@ impl GameRegistry {
             let live_state = handle.live_state.read().await;
             live_state.derive_observed_moves(state)
         };
+
+        {
+            let mut predictor = handle.predictor.write().await;
+            predictor.resolve_final(&observed_moves);
+        }
 
         let end = EndRecord {
             ended_at_ms: now_ms(),
