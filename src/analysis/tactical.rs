@@ -208,6 +208,22 @@ mod tests {
     }
 
     #[test]
+    fn doomed_enemy_fallback_does_not_create_head_to_head_threats() {
+        let mut enemy = snake("enemy", &[(0, 0)]);
+        enemy.health = 1;
+        let state = state(vec![
+            snake("ours", &[(2, 0), (2, 1), (2, 2)]),
+            enemy,
+        ]);
+        let analysis = StateAnalysis::from_simulated(&state, ForecastCertainty::Deterministic);
+        let tracing = trace(&state, &analysis);
+        let tactical = TacticalStateAnalysis::from_state(&state, &tracing);
+
+        assert!(!tactical.threat_map.is_lethal(Coord { x: 1, y: 0 }));
+        assert!(!tactical.threat_map.is_lethal(Coord { x: 0, y: 1 }));
+    }
+
+    #[test]
     fn shorter_enemy_marks_destination_favorable_not_lethal() {
         let state = state(vec![
             snake("ours", &[(2, 1), (1, 1), (1, 0), (0, 0)]),
