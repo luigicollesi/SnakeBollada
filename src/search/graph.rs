@@ -9,8 +9,9 @@ use crate::analysis::{StateAnalysis, TacticalStateAnalysis};
 use crate::decision::joint_actions::JointActionGenerator;
 use crate::decision::state_key::StateKey;
 use crate::direction::MoveMask;
-use crate::enemy::tracing::{trace, EnemyTracingOutput};
+use crate::enemy::tracing::{trace_with_mobility, EnemyTracingOutput};
 use crate::simulation::joint_action::JointAction;
+use crate::simulation::mobility::MobilityAnalysis;
 use crate::simulation::resolver::{resolve_turn, ForecastDelta, InstantEvent, ResolveError};
 use crate::simulation::state::SimulatedGameState;
 
@@ -37,12 +38,18 @@ pub(crate) struct SearchEdge {
 }
 
 #[derive(Debug, Clone)]
+pub(crate) struct NodeAnalysis {
+    pub(crate) state: Arc<StateAnalysis>,
+    pub(crate) mobility: Arc<MobilityAnalysis>,
+    pub(crate) tracing: Arc<EnemyTracingOutput>,
+    pub(crate) tactical: Arc<TacticalStateAnalysis>,
+}
+
+#[derive(Debug, Clone)]
 pub(crate) struct SearchNode {
     pub(crate) state: SimulatedGameState,
     pub(crate) key: StateKey,
-    pub(crate) analysis: Arc<StateAnalysis>,
-    pub(crate) tracing: Arc<EnemyTracingOutput>,
-    pub(crate) tactical: Arc<TacticalStateAnalysis>,
+    pub(crate) analysis: Arc<NodeAnalysis>,
     pub(crate) children: Vec<SearchEdge>,
 }
 
@@ -306,8 +313,8 @@ impl FutureGraph {
         }
 
         let state = self.nodes[node_id].state.clone();
-        let tracing = Arc::clone(&self.nodes[node_id].tracing);
-        let before_tactical = Arc::clone(&self.nodes[node_id].tactical);
+        let tracing = Arc::clone(&self.nodes[node_id].analysis.tracing);
+        let before_tactical = Arc::clone(&self.nodes[node_id].analysis.tactical);
 
         let our_moves = if before_tactical.ours.deterministic_moves.is_empty() {
             MoveMask::all()
@@ -337,7 +344,7 @@ impl FutureGraph {
                 child
             };
 
-            let after_tactical = Arc::clone(&self.nodes[child].tactical);
+            let after_tactical = Arc::clone(&self.nodes[child].analysis.tactical);
             let transition = analyze_transition(&before_tactical, &resolution, &after_tactical);
 
             edges.push(SearchEdge {
@@ -369,16 +376,25 @@ impl FutureGraph {
 
 fn build_node(state: SimulatedGameState) -> SearchNode {
     let key = StateKey::from_state(&state);
-    let analysis = Arc::new(StateAnalysis::from_simulated(&state));
-    let tracing = Arc::new(trace(&state, &analysis));
-    let tactical = Arc::new(TacticalStateAnalysis::from_state(&state, &tracing));
+    let state_analysis = Arc::new(StateAnalysis::from_simulated(&state));
+    let mobility = Arc::new(MobilityAnalysis::from_state(&state));
+    let tracing = Arc::new(trace_with_mobility(&state, &state_analysis, &mobility));
+    let tactical = Arc::new(TacticalStateAnalysis::from_parts(
+        &state,
+        &tracing,
+        &mobility,
+    ));
+    let analysis = Arc::new(NodeAnalysis {
+        state: state_analysis,
+        mobility,
+        tracing,
+        tactical,
+    });
 
     SearchNode {
         state,
         key,
         analysis,
-        tracing,
-        tactical,
         children: Vec::new(),
     }
 }
