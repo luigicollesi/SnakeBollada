@@ -256,6 +256,10 @@ impl FutureGraph {
         Ok(true)
     }
 
+    pub(crate) fn node_count_at_depth(&self, depth: u8) -> usize {
+        self.nodes_at_depth(depth).len()
+    }
+
     fn nodes_at_depth(&self, depth: u8) -> Vec<NodeId> {
         let mut current = vec![self.root];
 
