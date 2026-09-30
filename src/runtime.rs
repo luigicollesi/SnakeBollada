@@ -233,7 +233,7 @@ impl GameRegistry {
         let record = DecisionRecord::from_decision(turn, decision_time_us, decision);
         if let Err(send_error) = handle
             .telemetry_tx
-            .try_send(TelemetryEvent::OurDecision(record))
+            .try_send(TelemetryEvent::OurDecision(Box::new(record)))
         {
             warn!("dropping decision telemetry for game {game_id}: {send_error}");
         }
