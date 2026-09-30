@@ -7,7 +7,8 @@ use log::{error, info, trace, warn};
 use tokio::sync::{mpsc, RwLock};
 
 use crate::board_mask::BoardMask;
-use crate::strategy::{Decision, Direction};
+use crate::direction::Direction;
+use crate::strategy::Decision;
 use crate::telemetry::{
     now_ms, run_recorder, DecisionRecord, EndRecord, GameRecordStorage, ObservedMove, StartRecord,
     TelemetryEvent, TurnSnapshot,

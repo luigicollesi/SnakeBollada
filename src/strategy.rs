@@ -1,76 +1,10 @@
 use serde::{Deserialize, Serialize};
 
+use crate::direction::Direction;
 use crate::navigation::{food_candidates, reachable_after_move, NavigationMap};
 use crate::{Coord, GameState};
 
 pub(crate) const STRATEGY_VERSION: &str = "basic-v1";
-
-#[derive(Deserialize, Serialize, Debug, Clone, Copy, PartialEq, Eq)]
-#[serde(rename_all = "lowercase")]
-pub(crate) enum Direction {
-    Up,
-    Right,
-    Down,
-    Left,
-}
-
-impl Direction {
-    pub(crate) const ALL: [Direction; 4] = [
-        Direction::Up,
-        Direction::Right,
-        Direction::Down,
-        Direction::Left,
-    ];
-
-    pub(crate) const fn apply(self, coord: Coord) -> Coord {
-        match self {
-            Direction::Up => Coord {
-                x: coord.x,
-                y: coord.y + 1,
-            },
-            Direction::Right => Coord {
-                x: coord.x + 1,
-                y: coord.y,
-            },
-            Direction::Down => Coord {
-                x: coord.x,
-                y: coord.y - 1,
-            },
-            Direction::Left => Coord {
-                x: coord.x - 1,
-                y: coord.y,
-            },
-        }
-    }
-
-    pub(crate) const fn as_str(self) -> &'static str {
-        match self {
-            Direction::Up => "up",
-            Direction::Right => "right",
-            Direction::Down => "down",
-            Direction::Left => "left",
-        }
-    }
-
-    pub(crate) const fn rank(self) -> u8 {
-        match self {
-            Direction::Up => 0,
-            Direction::Right => 1,
-            Direction::Down => 2,
-            Direction::Left => 3,
-        }
-    }
-
-    pub(crate) fn from_heads(previous: Coord, current: Coord) -> Option<Self> {
-        match (current.x - previous.x, current.y - previous.y) {
-            (0, 1) => Some(Direction::Up),
-            (1, 0) => Some(Direction::Right),
-            (0, -1) => Some(Direction::Down),
-            (-1, 0) => Some(Direction::Left),
-            _ => None,
-        }
-    }
-}
 
 #[derive(Deserialize, Serialize, Debug, Clone, Copy, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]

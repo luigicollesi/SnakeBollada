@@ -1,7 +1,7 @@
 use std::collections::VecDeque;
 
 use crate::board_mask::BoardMask;
-use crate::strategy::Direction;
+use crate::direction::Direction;
 use crate::{Coord, GameState};
 
 #[derive(Debug, Clone)]

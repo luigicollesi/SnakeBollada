@@ -11,7 +11,8 @@ use serde_json::Value;
 use tokio::fs;
 use tokio::sync::mpsc;
 
-use crate::strategy::{Decision, DecisionReason, Direction, STRATEGY_VERSION};
+use crate::direction::Direction;
+use crate::strategy::{Decision, DecisionReason, STRATEGY_VERSION};
 use crate::{Battlesnake, Coord, GameState};
 
 #[derive(Deserialize, Serialize, Debug, Clone, Copy, PartialEq, Eq)]
