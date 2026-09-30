@@ -24,6 +24,7 @@ mod logic;
 mod modes;
 mod navigation;
 mod runtime;
+mod search;
 mod simulation;
 mod strategy;
 mod telemetry;
