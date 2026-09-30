@@ -7,7 +7,9 @@ use crate::forecast::ForecastCertainty;
 use crate::modes::survival::{SurvivalRouteAssessment, SurvivalStateSnapshot};
 use crate::search::budget::SearchBudget;
 use crate::search::graph::{FutureGraph, NodeId};
-use crate::simulation::resolver::{ForecastDelta, InstantEvent};
+use crate::simulation::resolver::{
+    EliminationAttribution, ForecastDelta, InstantEvent,
+};
 
 #[derive(Debug, Clone)]
 pub(crate) struct RouteEvaluation {
@@ -240,7 +242,12 @@ fn hunting_value(events: &[InstantEvent]) -> f32 {
         let (enemy, value) = match event {
             InstantEvent::EnemyForced { enemy, .. } => (enemy.as_str(), 0.25),
             InstantEvent::EnemyTrapped { enemy } => (enemy.as_str(), 0.60),
-            InstantEvent::EnemyKilled { enemy, .. } => (enemy.as_str(), 1.0),
+            InstantEvent::EnemyKilled {
+                enemy,
+                attribution: EliminationAttribution::OurSnake,
+                ..
+            } => (enemy.as_str(), 1.0),
+            InstantEvent::EnemyKilled { .. } => continue,
             InstantEvent::HeadToHeadWon { enemy } => (enemy.as_str(), 1.0),
             _ => continue,
         };
@@ -273,9 +280,10 @@ fn confirms_reserved_override(routes: &[RouteEvaluation]) -> bool {
         route.events.iter().any(|event| {
             matches!(
                 event,
-                InstantEvent::EnemyTrapped { .. }
-                    | InstantEvent::EnemyKilled { .. }
-                    | InstantEvent::HeadToHeadWon { .. }
+                InstantEvent::EnemyKilled {
+                    attribution: EliminationAttribution::OurSnake,
+                    ..
+                } | InstantEvent::HeadToHeadWon { .. }
             )
         })
     })
@@ -460,6 +468,17 @@ mod tests {
     }
 
     #[test]
+    fn environment_kill_does_not_receive_hunting_credit() {
+        let events = vec![InstantEvent::EnemyKilled {
+            enemy: "enemy".to_string(),
+            cause: crate::simulation::resolver::EliminationCause::Hazard,
+            attribution: EliminationAttribution::Environment,
+        }];
+
+        assert_eq!(hunting_value(&events), 0.0);
+    }
+
+    #[test]
     fn kill_supersedes_forced_and_trapped_reward_for_same_enemy() {
         let events = vec![
             InstantEvent::EnemyForced {
@@ -472,6 +491,7 @@ mod tests {
             InstantEvent::EnemyKilled {
                 enemy: "enemy".to_string(),
                 cause: crate::simulation::resolver::EliminationCause::HeadToHead,
+                attribution: EliminationAttribution::OurSnake,
             },
         ];
 
