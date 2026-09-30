@@ -49,14 +49,12 @@ impl DecisionEngine {
         let evaluations = evaluate_graph(graph, expansion.completed_depth);
         let root = graph.node(graph.root());
 
-        let Some(best) =
-            choose_best_direction(
-                &evaluations,
-                &root.state,
-                root.tactical.ours.safe_moves,
-                ReservedCellPolicy::default(),
-            )
-        else {
+        let Some(best) = choose_best_direction(
+            &evaluations,
+            &root.state,
+            root.tactical.ours.safe_moves,
+            ReservedCellPolicy::default(),
+        ) else {
             return choose_move_baseline(state);
         };
 
