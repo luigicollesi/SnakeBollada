@@ -35,8 +35,14 @@ impl ThreatMap {
             };
             let moves = tracing
                 .for_enemy(&enemy.id)
-                .map(|set| set.search_moves())
-                .unwrap_or_else(MoveMask::all);
+                .map(|set| {
+                    if !set.plausible_moves.is_empty() {
+                        set.plausible_moves
+                    } else {
+                        set.legal_moves
+                    }
+                })
+                .unwrap_or_else(MoveMask::empty);
 
             for direction in moves.iter() {
                 let target = direction.apply(head);
