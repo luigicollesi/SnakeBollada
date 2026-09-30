@@ -186,6 +186,7 @@ impl DecisionEngine {
                     .as_micros()
                     .try_into()
                     .unwrap_or(u64::MAX),
+                runtime_jitter_reserve_us: extra_reserve_ms.saturating_mul(1000),
                 aggression_milli: (root.state.aggression.value.clamp(0.0, 1.0) * 1000.0).round()
                     as u16,
                 enemy_moves_observed: 0,
