@@ -59,7 +59,7 @@ pub(crate) fn choose_move_baseline(state: &GameState) -> Decision {
         };
     }
 
-    let analysis = StateAnalysis::from_state(state, ForecastCertainty::Deterministic);
+    let analysis = StateAnalysis::from_state(state);
     let food_output = food::candidates(state, &analysis);
 
     if let Some(decision) = choose_food_candidate(&map, state, &legal_moves, &food_output, false) {
