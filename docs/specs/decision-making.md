@@ -1,8 +1,29 @@
 # SPEC — Decision Making & Future Search Graph
 
-**Status:** Planejado  
-**Branch alvo:** `spec/opponent-mobility-v2`  
+**Status:** Implementado V1 — tuning e calibração continuam  
+**Branch alvo:** `dev`  
 **Depende de:** `food-mode.md`, `hunting-mode.md`, `survival-mode.md`, `enemy-tracing.md`
+
+## Estado da implementação
+
+Implementado em `dev`:
+
+- FutureGraph compartilhado com arena de nodes e transposition table por `StateKey`;
+- `NodeAnalysis` único por estado, compartilhando rotas, mobilidade, Enemy Tracing e análise tática;
+- horizonte base de três turnos completos e iterative deepening até seis quando o orçamento permite;
+- budget global cobrindo expansão **e avaliação E2E**; uma profundidade só substitui a anterior quando ambas terminam;
+- estimativa de próxima profundidade baseada em frontier, branching e custo observado;
+- reserva de deadline baseada em timeout, latência e jitter recente da própria partida;
+- avaliação root → leaf isolada por branch, sem somar eventos de siblings;
+- Survival lexicográfico antes de qualquer recompensa;
+- agressividade branch-local para ponderar Food versus Hunting;
+- leaf potential separado de eventos realizados para reduzir horizon blindness;
+- política de bordas/quinas com override apenas para resultado tático causal;
+- rolling horizon por partida com prune, re-root e garbage collection;
+- validação de food antes do lookup, distinguindo `FoodSpawn` e `FoodMutation`;
+- telemetria por depth, direção, cache, Enemy Tracing, jitter e componentes estratégicos.
+
+Rulesets com semântica ainda não simulada integralmente continuam usando o baseline conservador.
 
 ## 1. Objetivo
 
