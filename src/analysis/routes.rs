@@ -80,10 +80,7 @@ pub(crate) struct StateAnalysis {
 }
 
 impl StateAnalysis {
-    pub(crate) fn from_state(
-        state: &GameState,
-        certainty: ForecastCertainty,
-    ) -> Self {
+    pub(crate) fn from_state(state: &GameState, certainty: ForecastCertainty) -> Self {
         let mut routes = HashMap::new();
 
         for snake in &state.board.snakes {
@@ -103,12 +100,7 @@ impl StateAnalysis {
             .food
             .iter()
             .copied()
-            .map(|food| {
-                (
-                    food,
-                    derive_food_claim(state, &routes, food),
-                )
-            })
+            .map(|food| (food, derive_food_claim(state, &routes, food)))
             .collect();
 
         Self {
@@ -118,11 +110,7 @@ impl StateAnalysis {
         }
     }
 
-    pub(crate) fn route_for(
-        &self,
-        snake_id: &str,
-        food: Coord,
-    ) -> Option<&FoodRouteInfo> {
+    pub(crate) fn route_for(&self, snake_id: &str, food: Coord) -> Option<&FoodRouteInfo> {
         self.routes.get(snake_id)?.get(&food)
     }
 
