@@ -153,7 +153,7 @@ mod tests {
     }
 
     fn tactical(state: &SimulatedGameState) -> TacticalStateAnalysis {
-        let analysis = StateAnalysis::from_simulated(state, ForecastCertainty::Deterministic);
+        let analysis = StateAnalysis::from_simulated(state);
         let tracing = trace(state, &analysis);
         TacticalStateAnalysis::from_state(state, &tracing)
     }
