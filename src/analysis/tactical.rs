@@ -160,7 +160,6 @@ mod tests {
     use crate::analysis::StateAnalysis;
     use crate::direction::Direction;
     use crate::enemy::tracing::trace;
-    use crate::forecast::ForecastCertainty;
     use crate::simulation::state::{AggressionState, RulesContext, SimulatedSnake};
     use crate::Coord;
 
