@@ -161,6 +161,10 @@ fn compare_direction(
             .cmp(&left.survival.min_reachable_space)
     })
     .then_with(|| {
+        effective_reserved_penalty(policy, state, left)
+            .total_cmp(&effective_reserved_penalty(policy, state, right))
+    })
+    .then_with(|| {
         right
             .worst_strategic_utility
             .total_cmp(&left.worst_strategic_utility)
@@ -170,12 +174,19 @@ fn compare_direction(
             .average_strategic_utility
             .total_cmp(&left.average_strategic_utility)
     })
-    .then_with(|| {
-        policy
-            .penalty(state, left.direction)
-            .total_cmp(&policy.penalty(state, right.direction))
-    })
     .then_with(|| left.direction.rank().cmp(&right.direction.rank()))
+}
+
+fn effective_reserved_penalty(
+    policy: ReservedCellPolicy,
+    state: &SimulatedGameState,
+    evaluation: &DirectionEvaluation,
+) -> f32 {
+    if evaluation.reserved_override {
+        0.0
+    } else {
+        policy.penalty(state, evaluation.direction)
+    }
 }
 
 fn compare_lower_ratio(
@@ -281,6 +292,7 @@ mod tests {
             },
             worst_strategic_utility: 0.0,
             average_strategic_utility: 0.0,
+            reserved_override: false,
         };
         let threatened = DirectionEvaluation {
             direction: Direction::Right,
@@ -288,6 +300,7 @@ mod tests {
             survival: safe.survival,
             worst_strategic_utility: 100.0,
             average_strategic_utility: 100.0,
+            reserved_override: false,
         };
         let evaluations = vec![threatened, safe];
         let robust = MoveMask::single(Direction::Up);
@@ -301,6 +314,48 @@ mod tests {
         .unwrap();
 
         assert_eq!(chosen.direction, Direction::Up);
+    }
+
+    #[test]
+    fn confirmed_tactical_result_releases_reserved_penalty() {
+        use crate::direction::Direction;
+
+        let normalized = SimulatedGameState::from(&state("standard"));
+        let mut evaluation = DirectionEvaluation {
+            direction: Direction::Up,
+            routes: vec![],
+            survival: crate::decision::evaluation::DirectionSurvivalSummary {
+                total_routes: 1,
+                death_routes: 0,
+                dead_end_routes: 0,
+                forced_routes: 0,
+                constrained_routes: 0,
+                min_future_mobility: 2,
+                min_reachable_space: 10,
+            },
+            worst_strategic_utility: 0.0,
+            average_strategic_utility: 0.0,
+            reserved_override: true,
+        };
+
+        assert_eq!(
+            effective_reserved_penalty(
+                ReservedCellPolicy::default(),
+                &normalized,
+                &evaluation,
+            ),
+            0.0
+        );
+
+        evaluation.reserved_override = false;
+        assert_eq!(
+            effective_reserved_penalty(
+                ReservedCellPolicy::default(),
+                &normalized,
+                &evaluation,
+            ),
+            ReservedCellPolicy::default().penalty(&normalized, Direction::Up)
+        );
     }
 
     #[test]
@@ -322,6 +377,7 @@ mod tests {
             },
             worst_strategic_utility: 0.0,
             average_strategic_utility: 0.0,
+            reserved_override: false,
         };
         let dangerous = DirectionEvaluation {
             direction: Direction::Right,
@@ -337,6 +393,7 @@ mod tests {
             },
             worst_strategic_utility: 100.0,
             average_strategic_utility: 100.0,
+            reserved_override: false,
         };
 
         assert_eq!(
