@@ -271,7 +271,7 @@ mod tests {
             snake("enemy-a", &[(5, 1), (5, 0)]),
             snake("enemy-b", &[(5, 5), (5, 4)]),
         ]);
-        let analysis = StateAnalysis::from_simulated(&state, ForecastCertainty::Deterministic);
+        let analysis = StateAnalysis::from_simulated(&state);
         let tracing = trace(&state, &analysis);
         let mobility = MobilityAnalysis::from_state(&state);
         let our_moves = mobility.deterministic_moves_for(&state, "ours");
