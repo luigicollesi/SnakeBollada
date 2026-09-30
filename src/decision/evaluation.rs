@@ -6,7 +6,7 @@ use crate::direction::Direction;
 use crate::forecast::ForecastCertainty;
 use crate::modes::survival::{SurvivalRouteAssessment, SurvivalStateSnapshot};
 use crate::search::budget::SearchBudget;
-use crate::search::graph::{FutureGraph, NodeId};
+use crate::search::graph::{FutureGraph, NodeId, SearchNode};
 use crate::simulation::resolver::{
     EliminationAttribution, ForecastDelta, InstantEvent,
 };
@@ -19,9 +19,17 @@ pub(crate) struct RouteEvaluation {
     pub(crate) died: bool,
     pub(crate) food_value: f32,
     pub(crate) hunting_value: f32,
+    pub(crate) leaf_food_potential: f32,
+    pub(crate) leaf_hunting_potential: f32,
     pub(crate) strategic_utility: f32,
     pub(crate) certainty: ForecastCertainty,
     pub(crate) final_aggression: f32,
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+struct LeafPotential {
+    food: f32,
+    hunting: f32,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -136,8 +144,7 @@ fn walk_routes(
                     &context.events,
                     survival,
                     context.certainty,
-                    node.state.aggression.value,
-                    &node.state.our_snake_id,
+                    node,
                 ));
             }
         }
@@ -199,26 +206,28 @@ fn finalize_route(
     events: &[InstantEvent],
     survival: SurvivalRouteAssessment,
     certainty: ForecastCertainty,
-    final_aggression: f32,
-    our_snake_id: &str,
+    leaf: &SearchNode,
 ) -> RouteEvaluation {
-    let food_value = events
+    let realized_food = events
         .iter()
         .filter(|event| {
             matches!(
                 event,
-                InstantEvent::AteFood { snake, .. } if snake == our_snake_id
+                InstantEvent::AteFood { snake, .. } if snake == &leaf.state.our_snake_id
             )
         })
         .count() as f32;
+    let realized_hunting = hunting_value(events);
+    let potential = leaf_potential(leaf);
 
-    let hunting_value = hunting_value(events);
+    let food_value = realized_food + potential.food;
+    let hunting_value = realized_hunting + potential.hunting;
     let (food_discount, hunting_discount) = match certainty {
         ForecastCertainty::Deterministic => (1.0, 1.0),
         ForecastCertainty::FoodProvisional => (0.50, 0.80),
     };
 
-    let aggression = final_aggression.clamp(0.0, 1.0);
+    let aggression = leaf.state.aggression.value.clamp(0.0, 1.0);
     let strategic_utility = food_value * food_discount * (1.0 - aggression)
         + hunting_value * hunting_discount * aggression;
 
@@ -229,10 +238,101 @@ fn finalize_route(
         died: survival.died,
         food_value,
         hunting_value,
+        leaf_food_potential: potential.food,
+        leaf_hunting_potential: potential.hunting,
         strategic_utility,
         certainty,
         final_aggression: aggression,
     }
+}
+
+fn leaf_potential(node: &SearchNode) -> LeafPotential {
+    if !node
+        .state
+        .snake(&node.state.our_snake_id)
+        .is_some_and(|snake| snake.alive)
+    {
+        return LeafPotential::default();
+    }
+
+    LeafPotential {
+        food: food_leaf_potential(node),
+        hunting: hunting_leaf_potential(node),
+    }
+}
+
+fn food_leaf_potential(node: &SearchNode) -> f32 {
+    let Some(ours) = node.state.snake(&node.state.our_snake_id) else {
+        return 0.0;
+    };
+
+    let health_pressure = if ours.health <= 20 {
+        1.5
+    } else if ours.health <= 40 {
+        1.25
+    } else {
+        1.0
+    };
+
+    node.state
+        .food
+        .iter()
+        .filter_map(|food| {
+            let route = node.analysis.state.route_for(&node.state.our_snake_id, *food)?;
+            let distance = route.distance?;
+            let claim_factor = node
+                .analysis
+                .state
+                .nearest_competitor_for(&node.state.our_snake_id, *food)
+                .map(|competitor| {
+                    if distance < competitor.eta {
+                        1.0
+                    } else if distance == competitor.eta {
+                        0.5
+                    } else {
+                        0.15
+                    }
+                })
+                .unwrap_or(1.0);
+
+            Some(0.5 * health_pressure * claim_factor / f32::from(distance.saturating_add(1)))
+        })
+        .reduce(f32::max)
+        .unwrap_or(0.0)
+        .min(0.5)
+}
+
+fn hunting_leaf_potential(node: &SearchNode) -> f32 {
+    let Some(ours) = node.state.snake(&node.state.our_snake_id) else {
+        return 0.0;
+    };
+
+    node.analysis
+        .tactical
+        .enemies
+        .values()
+        .filter_map(|enemy| {
+            let snake = node.state.snake(&enemy.snake_id)?;
+            let length_advantage = ours.length() as i32 - snake.length() as i32;
+            if length_advantage < 0 {
+                return Some(0.0);
+            }
+
+            let plausible = f32::from(enemy.plausible_moves.len().max(1));
+            let mobility_pressure = (4.0 - plausible).max(0.0) / 4.0;
+            let space_threshold = (snake.length() as u32).saturating_mul(2).max(1);
+            let space_pressure = if enemy.best_reachable_space < space_threshold {
+                1.0 - enemy.best_reachable_space as f32 / space_threshold as f32
+            } else {
+                0.0
+            };
+            let length_factor = if length_advantage > 0 { 1.0 } else { 0.5 };
+
+            Some((0.35 * mobility_pressure + 0.15 * space_pressure) * length_factor)
+        })
+        .reduce(f32::max)
+        .unwrap_or(0.0)
+        .min(0.5)
 }
 
 fn hunting_value(events: &[InstantEvent]) -> f32 {
@@ -432,6 +532,26 @@ mod tests {
     }
 
     #[test]
+    fn food_beyond_horizon_receives_leaf_potential_without_fake_event() {
+        let graph = FutureGraph::new(state(vec![Coord { x: 4, y: 1 }]));
+        let node = graph.node(graph.root());
+
+        let potential = food_leaf_potential(node);
+
+        assert!(potential > 0.0);
+    }
+
+    #[test]
+    fn hunting_pressure_can_exist_without_realized_hunting_event() {
+        let graph = FutureGraph::new(state(vec![]));
+        let node = graph.node(graph.root());
+
+        let potential = hunting_leaf_potential(node);
+
+        assert!(potential >= 0.0);
+    }
+
+    #[test]
     fn reserved_override_requires_confirmed_tactical_result_on_every_surviving_route() {
         let survival = SurvivalRouteAssessment {
             died: false,
@@ -451,6 +571,8 @@ mod tests {
             died: false,
             food_value: 0.0,
             hunting_value: 0.6,
+            leaf_food_potential: 0.0,
+            leaf_hunting_potential: 0.0,
             strategic_utility: 0.1,
             certainty: ForecastCertainty::Deterministic,
             final_aggression: 0.2,
