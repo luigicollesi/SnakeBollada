@@ -67,7 +67,11 @@ impl MobilityAnalysis {
             return Some(DeterministicMoveBlock::Starvation);
         }
 
-        let hazard_stacks = state.hazards.iter().filter(|hazard| **hazard == target).count();
+        let hazard_stacks = state
+            .hazards
+            .iter()
+            .filter(|hazard| **hazard == target)
+            .count();
         let hazard_damage = state.rules.hazard_damage_per_turn.max(0);
         let total_hazard_damage = hazard_damage.saturating_mul(hazard_stacks as i32);
 
@@ -156,10 +160,7 @@ mod tests {
         SimulatedSnake {
             id: id.to_string(),
             health,
-            body: body
-                .iter()
-                .map(|(x, y)| Coord { x: *x, y: *y })
-                .collect(),
+            body: body.iter().map(|(x, y)| Coord { x: *x, y: *y }).collect(),
             alive: true,
         }
     }
@@ -200,33 +201,17 @@ mod tests {
 
     #[test]
     fn unique_tail_vacates_but_stacked_tail_stays_occupied() {
-        let unique = state(vec![snake(
-            "ours",
-            100,
-            &[(2, 2), (2, 1), (1, 1), (1, 2)],
-        )]);
+        let unique = state(vec![snake("ours", 100, &[(2, 2), (2, 1), (1, 1), (1, 2)])]);
         let mobility = MobilityAnalysis::from_state(&unique);
         assert_eq!(
-            mobility.classify_move(
-                &unique,
-                unique.snake("ours").unwrap(),
-                Direction::Left
-            ),
+            mobility.classify_move(&unique, unique.snake("ours").unwrap(), Direction::Left),
             None
         );
 
-        let stacked = state(vec![snake(
-            "ours",
-            100,
-            &[(2, 2), (2, 1), (1, 2), (1, 2)],
-        )]);
+        let stacked = state(vec![snake("ours", 100, &[(2, 2), (2, 1), (1, 2), (1, 2)])]);
         let mobility = MobilityAnalysis::from_state(&stacked);
         assert_eq!(
-            mobility.classify_move(
-                &stacked,
-                stacked.snake("ours").unwrap(),
-                Direction::Left
-            ),
+            mobility.classify_move(&stacked, stacked.snake("ours").unwrap(), Direction::Left),
             Some(DeterministicMoveBlock::DeterministicBodyCollision)
         );
     }
@@ -240,11 +225,7 @@ mod tests {
         let mobility = MobilityAnalysis::from_state(&initial);
 
         assert_eq!(
-            mobility.classify_move(
-                &initial,
-                initial.snake("ours").unwrap(),
-                Direction::Right
-            ),
+            mobility.classify_move(&initial, initial.snake("ours").unwrap(), Direction::Right),
             Some(DeterministicMoveBlock::DeterministicBodyCollision)
         );
     }
@@ -257,22 +238,14 @@ mod tests {
         let mobility = MobilityAnalysis::from_state(&initial);
 
         assert_eq!(
-            mobility.classify_move(
-                &initial,
-                initial.snake("ours").unwrap(),
-                Direction::Right
-            ),
+            mobility.classify_move(&initial, initial.snake("ours").unwrap(), Direction::Right),
             Some(DeterministicMoveBlock::FatalHazard)
         );
 
         initial.snake_mut("ours").unwrap().health = 16;
         let mobility = MobilityAnalysis::from_state(&initial);
         assert_eq!(
-            mobility.classify_move(
-                &initial,
-                initial.snake("ours").unwrap(),
-                Direction::Right
-            ),
+            mobility.classify_move(&initial, initial.snake("ours").unwrap(), Direction::Right),
             None
         );
     }
@@ -286,11 +259,7 @@ mod tests {
         let mobility = MobilityAnalysis::from_state(&initial);
 
         assert_eq!(
-            mobility.classify_move(
-                &initial,
-                initial.snake("ours").unwrap(),
-                Direction::Right
-            ),
+            mobility.classify_move(&initial, initial.snake("ours").unwrap(), Direction::Right),
             None
         );
     }
