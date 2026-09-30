@@ -94,6 +94,9 @@ impl DecisionEngine {
                 safety_reserve_us: expansion.safety_reserve_us,
                 aggression_milli: (root.state.aggression.value.clamp(0.0, 1.0) * 1000.0).round()
                     as u16,
+                enemy_moves_observed: 0,
+                enemy_moves_legal_covered: 0,
+                enemy_moves_plausible_covered: 0,
                 direction_outcomes: summarize_direction_outcomes(&evaluations),
             },
         }
