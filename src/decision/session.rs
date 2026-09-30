@@ -183,6 +183,38 @@ impl DecisionState {
     }
 }
 
+
+fn push_bounded(values: &mut VecDeque<u64>, value: u64) {
+    if values.len() == RUNTIME_HISTORY_LIMIT {
+        values.pop_front();
+    }
+    values.push_back(value);
+}
+
+fn range(values: &VecDeque<u64>) -> u64 {
+    let Some(minimum) = values.iter().min().copied() else {
+        return 0;
+    };
+    let Some(maximum) = values.iter().max().copied() else {
+        return 0;
+    };
+    maximum.saturating_sub(minimum)
+}
+
+fn normalized_food(food: &[crate::Coord]) -> Vec<crate::Coord> {
+    let mut normalized = food.to_vec();
+    normalized.sort_unstable();
+    normalized.dedup();
+    normalized
+}
+
+fn contains_new_food(previous: &[crate::Coord], actual: &[crate::Coord]) -> bool {
+    let previous = normalized_food(previous);
+    normalized_food(actual)
+        .into_iter()
+        .any(|food| previous.binary_search(&food).is_err())
+}
+
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
