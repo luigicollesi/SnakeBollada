@@ -209,6 +209,29 @@ mod tests {
     }
 
     #[test]
+    fn route_assessment_records_dead_end() {
+        let snapshots = [
+            SurvivalStateSnapshot {
+                alive: true,
+                deterministic_moves: 2,
+                safe_moves: 2,
+                reachable_space: 10,
+            },
+            SurvivalStateSnapshot {
+                alive: true,
+                deterministic_moves: 1,
+                safe_moves: 0,
+                reachable_space: 4,
+            },
+        ];
+
+        let assessment = SurvivalRouteAssessment::from_snapshots(&snapshots, 0).unwrap();
+
+        assert!(assessment.dead_end);
+        assert_eq!(assessment.min_safe_moves, 0);
+    }
+
+    #[test]
     fn death_is_terminally_recorded() {
         let snapshots = [
             SurvivalStateSnapshot {
