@@ -1,3 +1,110 @@
+#![cfg_attr(not(test), allow(dead_code))]
+
+use std::cmp::Reverse;
+
+use crate::analysis::{FoodClaimInfo, FoodRouteInfo, StateAnalysis};
+use crate::direction::Direction;
+use crate::forecast::ForecastCertainty;
+use crate::{Coord, GameState};
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct FoodCandidate {
+    pub(crate) target_food: Coord,
+    pub(crate) first_move: Direction,
+    pub(crate) distance: u16,
+    pub(crate) claim_margin: Option<i16>,
+    pub(crate) contested: bool,
+    pub(crate) certainty: ForecastCertainty,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub(crate) struct FoodModeOutput {
+    pub(crate) candidates: Vec<FoodCandidate>,
+}
+
+pub(crate) fn candidates(state: &GameState, analysis: &StateAnalysis) -> FoodModeOutput {
+    let mut expanded = Vec::new();
+
+    for food in state.board.food.iter().copied() {
+        let Some(route) = analysis.route_for(&state.you.id, food) else {
+            continue;
+        };
+        if !route.reachable {
+            continue;
+        }
+
+        let Some(distance) = route.distance else {
+            continue;
+        };
+        let claim = analysis.claim_for(food);
+
+        for first_move in route.first_moves.iter() {
+            expanded.push(candidate_from_route(
+                analysis,
+                route,
+                claim,
+                first_move,
+                distance,
+            ));
+        }
+    }
+
+    expanded.sort_by_key(candidate_rank);
+
+    let mut selected = Vec::with_capacity(2);
+    for candidate in expanded {
+        if selected
+            .iter()
+            .any(|existing: &FoodCandidate| existing.first_move == candidate.first_move)
+        {
+            continue;
+        }
+
+        selected.push(candidate);
+        if selected.len() == 2 {
+            break;
+        }
+    }
+
+    FoodModeOutput {
+        candidates: selected,
+    }
+}
+
+fn candidate_from_route(
+    analysis: &StateAnalysis,
+    route: &FoodRouteInfo,
+    claim: Option<&FoodClaimInfo>,
+    first_move: Direction,
+    distance: u16,
+) -> FoodCandidate {
+    FoodCandidate {
+        target_food: route.food,
+        first_move,
+        distance,
+        claim_margin: claim.and_then(|value| value.claim_margin),
+        contested: claim.is_some_and(|value| value.contested),
+        certainty: analysis.certainty,
+    }
+}
+
+fn candidate_rank(candidate: &FoodCandidate) -> (u8, u16, Reverse<i16>, u8, Coord) {
+    let claim_class = match candidate.claim_margin {
+        Some(margin) if margin < 0 => 2,
+        Some(0) => 1,
+        _ => 0,
+    };
+    let margin = candidate.claim_margin.unwrap_or(i16::MAX);
+
+    (
+        claim_class,
+        candidate.distance,
+        Reverse(margin),
+        candidate.first_move.rank(),
+        candidate.target_food,
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
@@ -182,3 +289,4 @@ mod tests {
         assert_eq!(candidate.first_move, Direction::Up);
     }
 }
+
