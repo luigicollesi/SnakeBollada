@@ -9,7 +9,8 @@ use crate::search::graph::FutureGraph;
 use crate::simulation::mobility::MobilityAnalysis;
 use crate::simulation::state::{SimulatedGameState, SimulationSupport};
 use crate::strategy::{
-    choose_move_baseline, CacheInvalidationReason, Decision, DecisionReason, SearchMetadata,
+    choose_move_baseline, CacheInvalidationReason, Decision, DecisionReason,
+    DirectionOutcomeSummary, SearchMetadata,
 };
 use crate::GameState;
 
@@ -93,9 +94,50 @@ impl DecisionEngine {
                 safety_reserve_us: expansion.safety_reserve_us,
                 aggression_milli: (root.state.aggression.value.clamp(0.0, 1.0) * 1000.0).round()
                     as u16,
+                direction_outcomes: summarize_direction_outcomes(&evaluations),
             },
         }
     }
+}
+
+fn summarize_direction_outcomes(
+    evaluations: &[DirectionEvaluation],
+) -> [DirectionOutcomeSummary; 4] {
+    let mut outcomes = [
+        DirectionOutcomeSummary::empty(crate::direction::Direction::Up),
+        DirectionOutcomeSummary::empty(crate::direction::Direction::Right),
+        DirectionOutcomeSummary::empty(crate::direction::Direction::Down),
+        DirectionOutcomeSummary::empty(crate::direction::Direction::Left),
+    ];
+
+    for evaluation in evaluations {
+        outcomes[usize::from(evaluation.direction.rank())] = DirectionOutcomeSummary {
+            direction: evaluation.direction,
+            available: true,
+            total_routes: evaluation.survival.total_routes,
+            death_routes: evaluation.survival.death_routes,
+            dead_end_routes: evaluation.survival.dead_end_routes,
+            forced_routes: evaluation.survival.forced_routes,
+            constrained_routes: evaluation.survival.constrained_routes,
+            min_future_mobility: evaluation.survival.min_future_mobility,
+            min_reachable_space: evaluation.survival.min_reachable_space,
+            worst_utility_milli: utility_milli(evaluation.worst_strategic_utility),
+            average_utility_milli: utility_milli(evaluation.average_strategic_utility),
+            reserved_override: evaluation.reserved_override,
+        };
+    }
+
+    outcomes
+}
+
+fn utility_milli(value: f32) -> i32 {
+    if !value.is_finite() {
+        return 0;
+    }
+
+    (value * 1000.0)
+        .round()
+        .clamp(i32::MIN as f32, i32::MAX as f32) as i32
 }
 
 fn choose_best_direction<'a>(
