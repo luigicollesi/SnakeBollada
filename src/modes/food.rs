@@ -116,8 +116,8 @@ mod tests {
     use crate::analysis::StateAnalysis;
     use crate::direction::Direction;
     use crate::forecast::ForecastCertainty;
-    use crate::{Battlesnake, Board, Coord, Game, GameState};
     use crate::simulation::state::SimulatedGameState;
+    use crate::{Battlesnake, Board, Coord, Game, GameState};
 
     fn snake(id: &str, body: Vec<Coord>) -> Battlesnake {
         Battlesnake {
