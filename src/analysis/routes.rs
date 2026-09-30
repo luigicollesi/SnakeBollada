@@ -5,6 +5,7 @@ use std::collections::{HashMap, VecDeque};
 use crate::board_mask::BoardMask;
 use crate::direction::{Direction, MoveMask};
 use crate::forecast::ForecastCertainty;
+use crate::simulation::state::SimulatedGameState;
 use crate::{Coord, GameState};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -23,6 +24,70 @@ pub(crate) struct FoodClaimInfo {
     pub(crate) nearest_enemy: Option<String>,
     pub(crate) claim_margin: Option<i16>,
     pub(crate) contested: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct FoodCompetitorInfo {
+    pub(crate) snake_id: String,
+    pub(crate) eta: u16,
+}
+
+#[derive(Debug, Clone)]
+struct AnalysisSnake {
+    id: String,
+    head: Coord,
+    body: Vec<Coord>,
+}
+
+#[derive(Debug, Clone)]
+struct AnalysisState {
+    width: u16,
+    height: u16,
+    food: Vec<Coord>,
+    snakes: Vec<AnalysisSnake>,
+    our_snake_id: String,
+}
+
+impl AnalysisState {
+    fn from_game_state(state: &GameState) -> Self {
+        Self {
+            width: state.board.width as u16,
+            height: state.board.height as u16,
+            food: state.board.food.clone(),
+            snakes: state
+                .board
+                .snakes
+                .iter()
+                .map(|snake| AnalysisSnake {
+                    id: snake.id.clone(),
+                    head: snake.head,
+                    body: snake.body.clone(),
+                })
+                .collect(),
+            our_snake_id: state.you.id.clone(),
+        }
+    }
+
+    fn from_simulated(state: &SimulatedGameState) -> Self {
+        Self {
+            width: state.width as u16,
+            height: state.height as u16,
+            food: state.food.clone(),
+            snakes: state
+                .snakes
+                .iter()
+                .filter(|snake| snake.alive)
+                .map(|snake| AnalysisSnake {
+                    id: snake.id.clone(),
+                    head: snake
+                        .head()
+                        .expect("alive simulated snake must have a body"),
+                    body: snake.body.clone(),
+                })
+                .collect(),
+            our_snake_id: state.our_snake_id.clone(),
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -81,12 +146,22 @@ pub(crate) struct StateAnalysis {
 
 impl StateAnalysis {
     pub(crate) fn from_state(state: &GameState, certainty: ForecastCertainty) -> Self {
+        Self::from_analysis_state(&AnalysisState::from_game_state(state), certainty)
+    }
+
+    pub(crate) fn from_simulated(
+        state: &SimulatedGameState,
+        certainty: ForecastCertainty,
+    ) -> Self {
+        Self::from_analysis_state(&AnalysisState::from_simulated(state), certainty)
+    }
+
+    fn from_analysis_state(state: &AnalysisState, certainty: ForecastCertainty) -> Self {
         let mut routes = HashMap::new();
 
-        for snake in &state.board.snakes {
+        for snake in &state.snakes {
             let field = build_route_field(state, &snake.id);
             let food_routes = state
-                .board
                 .food
                 .iter()
                 .copied()
@@ -96,7 +171,6 @@ impl StateAnalysis {
         }
 
         let claims = state
-            .board
             .food
             .iter()
             .copied()
@@ -117,22 +191,45 @@ impl StateAnalysis {
     pub(crate) fn claim_for(&self, food: Coord) -> Option<&FoodClaimInfo> {
         self.claims.get(&food)
     }
+
+    pub(crate) fn nearest_competitor_for(
+        &self,
+        snake_id: &str,
+        food: Coord,
+    ) -> Option<FoodCompetitorInfo> {
+        self.routes
+            .iter()
+            .filter(|(candidate_id, _)| candidate_id.as_str() != snake_id)
+            .filter_map(|(candidate_id, foods)| {
+                foods
+                    .get(&food)
+                    .and_then(|route| route.distance)
+                    .map(|eta| FoodCompetitorInfo {
+                        snake_id: candidate_id.clone(),
+                        eta,
+                    })
+            })
+            .min_by(|left, right| {
+                left.eta
+                    .cmp(&right.eta)
+                    .then_with(|| left.snake_id.cmp(&right.snake_id))
+            })
+    }
 }
 
-fn build_route_field(state: &GameState, snake_id: &str) -> SnakeRouteField {
-    let width = state.board.width as u16;
-    let height = state.board.height as u16;
+fn build_route_field(state: &AnalysisState, snake_id: &str) -> SnakeRouteField {
+    let width = state.width;
+    let height = state.height;
     let cells = usize::from(width) * usize::from(height);
     let mut occupied = BoardMask::new(width, height);
 
-    for snake in &state.board.snakes {
+    for snake in &state.snakes {
         for coord in &snake.body {
             occupied.set(*coord, true);
         }
     }
 
     let source = state
-        .board
         .snakes
         .iter()
         .find(|snake| snake.id == snake_id)
@@ -201,20 +298,19 @@ fn build_route_field(state: &GameState, snake_id: &str) -> SnakeRouteField {
 }
 
 fn derive_food_claim(
-    state: &GameState,
+    state: &AnalysisState,
     routes: &HashMap<String, HashMap<Coord, FoodRouteInfo>>,
     food: Coord,
 ) -> FoodClaimInfo {
     let our_eta = routes
-        .get(&state.you.id)
+        .get(&state.our_snake_id)
         .and_then(|foods| foods.get(&food))
         .and_then(|route| route.distance);
 
     let nearest_enemy = state
-        .board
         .snakes
         .iter()
-        .filter(|snake| snake.id != state.you.id)
+        .filter(|snake| snake.id != state.our_snake_id)
         .filter_map(|snake| {
             routes
                 .get(&snake.id)
@@ -257,6 +353,7 @@ mod tests {
     use serde_json::json;
 
     use super::*;
+    use crate::simulation::state::SimulatedGameState;
     use crate::{Battlesnake, Board, Game};
 
     fn snake(id: &str, body: Vec<Coord>) -> Battlesnake {
@@ -316,6 +413,24 @@ mod tests {
 
         assert_eq!(analysis.route_for("ours", f1).unwrap().distance, Some(2));
         assert_eq!(analysis.route_for("ours", f2).unwrap().distance, Some(2));
+    }
+
+    #[test]
+    fn simulated_state_uses_same_route_engine() {
+        let ours = snake("ours", vec![Coord { x: 1, y: 1 }, Coord { x: 1, y: 0 }]);
+        let food = Coord { x: 3, y: 1 };
+        let api_state = state(ours, vec![], vec![food]);
+        let simulated = SimulatedGameState::from(&api_state);
+
+        let api_analysis =
+            StateAnalysis::from_state(&api_state, ForecastCertainty::Deterministic);
+        let simulated_analysis =
+            StateAnalysis::from_simulated(&simulated, ForecastCertainty::Deterministic);
+
+        assert_eq!(
+            api_analysis.route_for("ours", food),
+            simulated_analysis.route_for("ours", food)
+        );
     }
 
     #[test]
@@ -431,6 +546,25 @@ mod tests {
         assert_eq!(claim.nearest_enemy_eta, Some(2));
         assert_eq!(claim.nearest_enemy.as_deref(), Some("enemy-a"));
         assert_eq!(claim.claim_margin, Some(0));
+    }
+
+    #[test]
+    fn competitor_lookup_is_relative_to_requested_snake() {
+        let ours = snake("ours", vec![Coord { x: 0, y: 0 }]);
+        let enemy_a = snake("enemy-a", vec![Coord { x: 4, y: 0 }]);
+        let enemy_b = snake("enemy-b", vec![Coord { x: 4, y: 4 }]);
+        let food = Coord { x: 2, y: 0 };
+        let analysis = StateAnalysis::from_state(
+            &state(ours, vec![enemy_a, enemy_b], vec![food]),
+            ForecastCertainty::Deterministic,
+        );
+
+        let competitor = analysis
+            .nearest_competitor_for("enemy-a", food)
+            .expect("enemy-a should have a competitor");
+
+        assert_eq!(competitor.snake_id, "ours");
+        assert_eq!(competitor.eta, 2);
     }
 
     #[test]
