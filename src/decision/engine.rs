@@ -8,7 +8,7 @@ use crate::search::budget::SearchBudget;
 use crate::search::graph::FutureGraph;
 use crate::simulation::state::{SimulatedGameState, SimulationSupport};
 use crate::strategy::{
-    choose_move_baseline, CacheInvalidationReason, Decision, DecisionReason,
+    choose_move_baseline, CacheInvalidationReason, Decision, DecisionReason, DepthSearchStats,
     DirectionOutcomeSummary, SearchMetadata,
 };
 use crate::GameState;
@@ -39,36 +39,86 @@ impl DecisionEngine {
         let budget = SearchBudget::from_state(state);
         let mut completed_depth = 0_u8;
         let mut evaluations = Vec::new();
-        let mut previous_depth_cost = std::time::Duration::ZERO;
+        let mut depth_stats = [
+            DepthSearchStats::empty(1),
+            DepthSearchStats::empty(2),
+            DepthSearchStats::empty(3),
+            DepthSearchStats::empty(4),
+            DepthSearchStats::empty(5),
+            DepthSearchStats::empty(6),
+        ];
 
         for depth in 1..=MAX_ITERATIVE_DEPTH {
             if budget.expired() {
                 break;
             }
 
+            let frontier_nodes = graph
+                .node_count_at_depth(depth.saturating_sub(1))
+                .try_into()
+                .unwrap_or(u32::MAX);
+
             if depth > TARGET_DEPTH {
-                let estimate = previous_depth_cost
-                    .checked_mul(2)
-                    .unwrap_or(std::time::Duration::MAX)
-                    .max(std::time::Duration::from_millis(1));
+                let previous = depth_stats[usize::from(depth.saturating_sub(2))];
+                let estimate = estimate_next_depth(previous, frontier_nodes);
                 if !budget.can_afford(estimate) {
                     break;
                 }
             }
 
-            let depth_started = std::time::Instant::now();
+            let nodes_before = graph.node_count();
+            let edges_before = graph.edge_count();
+
+            let expansion_started = std::time::Instant::now();
             let Ok(expansion_complete) = graph.expand_depth(depth, &budget) else {
                 return choose_move_baseline(state);
             };
+            let expansion_us = expansion_started
+                .elapsed()
+                .as_micros()
+                .try_into()
+                .unwrap_or(u64::MAX);
+            let new_nodes = graph
+                .node_count()
+                .saturating_sub(nodes_before)
+                .try_into()
+                .unwrap_or(u32::MAX);
+            let edges_generated = graph.edge_count().saturating_sub(edges_before);
+
+            let mut stats = DepthSearchStats {
+                depth,
+                completed: false,
+                frontier_nodes,
+                new_nodes,
+                edges_generated,
+                branching_milli: branching_milli(edges_generated, frontier_nodes),
+                expansion_us,
+                evaluation_us: 0,
+            };
+
             if !expansion_complete {
+                depth_stats[usize::from(depth - 1)] = stats;
                 break;
             }
 
+            let evaluation_started = std::time::Instant::now();
             let Some(depth_evaluations) = evaluate_graph_budgeted(graph, depth, &budget) else {
+                stats.evaluation_us = evaluation_started
+                    .elapsed()
+                    .as_micros()
+                    .try_into()
+                    .unwrap_or(u64::MAX);
+                depth_stats[usize::from(depth - 1)] = stats;
                 break;
             };
+            stats.evaluation_us = evaluation_started
+                .elapsed()
+                .as_micros()
+                .try_into()
+                .unwrap_or(u64::MAX);
+            stats.completed = true;
+            depth_stats[usize::from(depth - 1)] = stats;
 
-            previous_depth_cost = depth_started.elapsed();
             completed_depth = depth;
             evaluations = depth_evaluations;
         }
@@ -134,10 +184,47 @@ impl DecisionEngine {
                 enemy_moves_plausible_covered: 0,
                 food_spawn_invalidations: 0,
                 food_mutation_invalidations: 0,
+                depth_stats,
                 direction_outcomes: summarize_direction_outcomes(&evaluations),
             },
         }
     }
+}
+
+fn branching_milli(edges_generated: u32, frontier_nodes: u32) -> u32 {
+    if frontier_nodes == 0 {
+        return 0;
+    }
+
+    u64::from(edges_generated)
+        .saturating_mul(1000)
+        .saturating_div(u64::from(frontier_nodes))
+        .try_into()
+        .unwrap_or(u32::MAX)
+}
+
+fn estimate_next_depth(previous: DepthSearchStats, next_frontier_nodes: u32) -> std::time::Duration {
+    let previous_cost_us = previous
+        .expansion_us
+        .saturating_add(previous.evaluation_us)
+        .max(1_000);
+
+    if !previous.completed || previous.edges_generated == 0 || previous.frontier_nodes == 0 {
+        return std::time::Duration::from_micros(previous_cost_us.saturating_mul(2));
+    }
+
+    let branching_milli = previous.branching_milli.max(1000);
+    let predicted_edges = u64::from(next_frontier_nodes)
+        .saturating_mul(u64::from(branching_milli))
+        .saturating_div(1000)
+        .max(1);
+    let scaled_cost = u128::from(previous_cost_us)
+        .saturating_mul(u128::from(predicted_edges))
+        .saturating_div(u128::from(previous.edges_generated.max(1)));
+    let with_margin = scaled_cost.saturating_mul(5).saturating_div(4);
+    let estimate_us = with_margin.try_into().unwrap_or(u64::MAX);
+
+    std::time::Duration::from_micros(estimate_us.max(1_000))
 }
 
 fn summarize_direction_outcomes(
