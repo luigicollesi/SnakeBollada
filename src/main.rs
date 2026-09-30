@@ -92,7 +92,7 @@ async fn handle_move(move_req: Json<GameState>, registry: &State<GameRegistry>) 
     registry.observe_turn(&move_req).await;
 
     let started = Instant::now();
-    let decision = strategy::choose_move(&move_req);
+    let decision = registry.decide(&move_req).await;
     let decision_time_us = started.elapsed().as_micros().try_into().unwrap_or(u64::MAX);
 
     registry.record_decision(
