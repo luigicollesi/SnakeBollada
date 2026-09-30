@@ -92,9 +92,7 @@ mod tests {
 
     use crate::direction::{Direction, MoveMask};
     use crate::enemy::tracing::{EnemyMoveSet, EnemyTracingOutput};
-    use crate::simulation::resolver::{
-        EliminationAttribution, EliminationCause, ForecastDelta,
-    };
+    use crate::simulation::resolver::{EliminationAttribution, EliminationCause, ForecastDelta};
     use crate::simulation::state::{
         AggressionState, RulesContext, SimulatedGameState, SimulatedSnake,
     };
