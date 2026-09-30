@@ -7,9 +7,7 @@ use crate::forecast::ForecastCertainty;
 use crate::modes::survival::{SurvivalRouteAssessment, SurvivalStateSnapshot};
 use crate::search::budget::SearchBudget;
 use crate::search::graph::{FutureGraph, NodeId, SearchNode};
-use crate::simulation::resolver::{
-    EliminationAttribution, ForecastDelta, InstantEvent,
-};
+use crate::simulation::resolver::{EliminationAttribution, ForecastDelta, InstantEvent};
 
 #[derive(Debug, Clone)]
 pub(crate) struct RouteEvaluation {
@@ -285,7 +283,10 @@ fn food_leaf_potential(node: &SearchNode) -> f32 {
         .food
         .iter()
         .filter_map(|food| {
-            let route = node.analysis.state.route_for(&node.state.our_snake_id, *food)?;
+            let route = node
+                .analysis
+                .state
+                .route_for(&node.state.our_snake_id, *food)?;
             let distance = route.distance?;
             let claim_factor = node
                 .analysis
