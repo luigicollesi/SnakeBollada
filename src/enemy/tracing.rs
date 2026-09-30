@@ -275,7 +275,7 @@ mod tests {
     }
 
     fn analyze(state: &SimulatedGameState) -> StateAnalysis {
-        StateAnalysis::from_simulated(state, ForecastCertainty::Deterministic)
+        StateAnalysis::from_simulated(state)
     }
 
     #[test]
