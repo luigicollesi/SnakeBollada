@@ -28,7 +28,7 @@ impl DecisionEngine {
         let normalized = SimulatedGameState::from(state);
 
         if normalized.rules.simulation_support() != SimulationSupport::StandardLike {
-            return choose_move_baseline(state);
+            return baseline_fallback(state);
         }
 
         let mut graph = FutureGraph::new(normalized);
@@ -80,7 +80,7 @@ impl DecisionEngine {
 
             let expansion_started = std::time::Instant::now();
             let Ok(expansion_complete) = graph.expand_depth(depth, &budget) else {
-                return choose_move_baseline(state);
+                return baseline_fallback(state);
             };
             let expansion_us = expansion_started
                 .elapsed()
@@ -133,7 +133,7 @@ impl DecisionEngine {
         }
 
         if completed_depth == 0 {
-            return choose_move_baseline(state);
+            return baseline_fallback(state);
         }
 
         let root = graph.node(graph.root());
@@ -144,7 +144,7 @@ impl DecisionEngine {
             root.analysis.tactical.ours.safe_moves,
             ReservedCellPolicy::default(),
         ) else {
-            return choose_move_baseline(state);
+            return baseline_fallback(state);
         };
 
         let food_candidates = food::candidates(
@@ -163,13 +163,17 @@ impl DecisionEngine {
             best.direction,
         );
 
+        let reason = classify_decision_reason(
+            best,
+            &evaluations,
+            &root.state,
+            root.analysis.tactical.ours.safe_moves,
+            ReservedCellPolicy::default(),
+        );
+
         Decision {
             direction: best.direction,
-            reason: if food_target.is_some() {
-                DecisionReason::NearestSafeFood
-            } else {
-                DecisionReason::SurvivalFallback
-            },
+            reason,
             target_food: food_target.map(|candidate| candidate.target_food),
             path_distance: food_target.map(|candidate| candidate.distance),
             reachable_cells,
@@ -199,6 +203,66 @@ impl DecisionEngine {
             },
         }
     }
+}
+
+fn baseline_fallback(state: &GameState) -> Decision {
+    let mut decision = choose_move_baseline(state);
+    if !matches!(
+        decision.reason,
+        DecisionReason::OnlyLegalMove | DecisionReason::NoSafeMove
+    ) {
+        decision.reason = DecisionReason::BaselineFallback;
+    }
+    decision
+}
+
+fn classify_decision_reason(
+    best: &DirectionEvaluation,
+    evaluations: &[DirectionEvaluation],
+    state: &SimulatedGameState,
+    robust_safe_moves: crate::direction::MoveMask,
+    policy: ReservedCellPolicy,
+) -> DecisionReason {
+    let comparable = evaluations
+        .iter()
+        .filter(|evaluation| {
+            robust_safe_moves.is_empty() || robust_safe_moves.contains(evaluation.direction)
+        })
+        .collect::<Vec<_>>();
+
+    if robust_safe_moves.len() == 1 && policy.penalty(state, best.direction) > 0.0 {
+        return DecisionReason::ReservedEscape;
+    }
+
+    let survival_strictly_decisive = comparable
+        .iter()
+        .filter(|candidate| candidate.direction != best.direction)
+        .all(|candidate| survival_compare(best, candidate) == Ordering::Less);
+    if comparable.len() > 1 && survival_strictly_decisive {
+        return DecisionReason::SurvivalCritical;
+    }
+
+    let route_count = best.routes.len().max(1) as f32;
+    let average_food = best.routes.iter().map(|route| route.food_value).sum::<f32>() / route_count;
+    let average_hunting =
+        best.routes.iter().map(|route| route.hunting_value).sum::<f32>() / route_count;
+    let aggression = state.aggression.value.clamp(0.0, 1.0);
+    let food_contribution = average_food * (1.0 - aggression);
+    let hunting_contribution = average_hunting * aggression;
+
+    if hunting_contribution > food_contribution && hunting_contribution > 0.0 {
+        DecisionReason::HuntingTactical
+    } else if food_contribution > 0.0 {
+        DecisionReason::FoodStrategic
+    } else if best.survival.min_future_mobility > 0 || best.survival.min_reachable_space > 0 {
+        DecisionReason::FutureMobility
+    } else {
+        DecisionReason::DeterministicTieBreak
+    }
+}
+
+fn survival_compare(left: &DirectionEvaluation, right: &DirectionEvaluation) -> Ordering {
+    survival_compare(left, right)
 }
 
 fn branching_milli(edges_generated: u32, frontier_nodes: u32) -> u32 {
@@ -445,10 +509,11 @@ mod tests {
     fn unsupported_ruleset_uses_baseline() {
         let state = state("constrictor");
 
-        assert_eq!(
-            DecisionEngine::stateless().decide(&state),
-            choose_move_baseline(&state)
-        );
+        let decision = DecisionEngine::stateless().decide(&state);
+        let baseline = choose_move_baseline(&state);
+
+        assert_eq!(decision.direction, baseline.direction);
+        assert_eq!(decision.reason, DecisionReason::BaselineFallback);
     }
 
     #[test]
