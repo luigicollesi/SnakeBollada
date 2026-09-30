@@ -18,10 +18,7 @@ impl SearchBudget {
         Self::from_state_with_extra_reserve(state, 0)
     }
 
-    pub(crate) fn from_state_with_extra_reserve(
-        state: &GameState,
-        extra_reserve_ms: u64,
-    ) -> Self {
+    pub(crate) fn from_state_with_extra_reserve(state: &GameState, extra_reserve_ms: u64) -> Self {
         let timeout_ms = u64::from(state.game.timeout);
         let reported_latency_ms = state.you.latency.parse::<u64>().unwrap_or(0);
         let percentage_reserve = timeout_ms
