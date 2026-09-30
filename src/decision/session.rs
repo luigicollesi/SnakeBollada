@@ -1,7 +1,7 @@
 use crate::decision::state_key::StateKey;
 use crate::search::graph::FutureGraph;
 use crate::simulation::state::{AggressionState, SimulatedGameState, SimulationSupport};
-use crate::strategy::{choose_move_baseline, Decision};
+use crate::strategy::{choose_move_baseline, CacheInvalidationReason, Decision};
 use crate::GameState;
 
 use super::DecisionEngine;
@@ -27,25 +27,32 @@ impl DecisionState {
         }
 
         let actual_key = StateKey::from_state(&normalized);
-        let mut graph = self
-            .graph
-            .take()
-            .and_then(|mut graph| {
+        let mut cache_reused = false;
+        let mut cache_invalidation = CacheInvalidationReason::None;
+
+        let mut graph = match self.graph.take() {
+            Some(mut graph) => {
                 if graph.node(graph.root()).state.turn >= normalized.turn {
-                    return None;
+                    cache_invalidation = CacheInvalidationReason::TurnMismatch;
+                    FutureGraph::new(normalized)
+                } else if !graph.root_children_match_food(&normalized.food) {
+                    cache_invalidation = CacheInvalidationReason::FoodMismatch;
+                    FutureGraph::new(normalized)
+                } else if let Some(node_id) = graph.find_node_by_key(&actual_key) {
+                    graph.reroot(node_id);
+                    cache_reused = true;
+                    graph
+                } else {
+                    cache_invalidation = CacheInvalidationReason::StateMismatch;
+                    FutureGraph::new(normalized)
                 }
+            }
+            None => FutureGraph::new(normalized),
+        };
 
-                if !graph.root_children_match_food(&normalized.food) {
-                    return None;
-                }
-
-                let node_id = graph.find_node_by_key(&actual_key)?;
-                graph.reroot(node_id);
-                Some(graph)
-            })
-            .unwrap_or_else(|| FutureGraph::new(normalized));
-
-        let decision = DecisionEngine::stateless().decide_with_graph(state, &mut graph);
+        let mut decision = DecisionEngine::stateless().decide_with_graph(state, &mut graph);
+        decision.search.cache_reused = cache_reused;
+        decision.search.cache_invalidation = cache_invalidation;
         graph.retain_chosen_direction(decision.direction);
 
         self.graph = Some(graph);
