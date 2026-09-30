@@ -19,6 +19,18 @@ pub(crate) enum DecisionReason {
     NoSafeMove,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub(crate) struct SearchMetadata {
+    pub(crate) completed_depth: u8,
+    pub(crate) nodes: u32,
+    pub(crate) edges: u32,
+    pub(crate) transposition_hits: u32,
+    pub(crate) cache_reused: bool,
+    pub(crate) elapsed_us: u64,
+    pub(crate) safety_reserve_us: u64,
+    pub(crate) aggression_milli: u16,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct Decision {
     pub(crate) direction: Direction,
@@ -26,6 +38,7 @@ pub(crate) struct Decision {
     pub(crate) target_food: Option<Coord>,
     pub(crate) path_distance: Option<u16>,
     pub(crate) reachable_cells: u32,
+    pub(crate) search: SearchMetadata,
 }
 
 pub(crate) fn choose_move(state: &GameState) -> Decision {
@@ -46,6 +59,7 @@ pub(crate) fn choose_move_baseline(state: &GameState) -> Decision {
             target_food: None,
             path_distance: None,
             reachable_cells: 0,
+            search: SearchMetadata::default(),
         };
     }
 
@@ -57,6 +71,7 @@ pub(crate) fn choose_move_baseline(state: &GameState) -> Decision {
             target_food: None,
             path_distance: None,
             reachable_cells: reachable_after_move(&map, state, direction),
+            search: SearchMetadata::default(),
         };
     }
 
@@ -103,6 +118,7 @@ fn choose_food_candidate(
             target_food: Some(candidate.target_food),
             path_distance: Some(candidate.distance),
             reachable_cells: reachable,
+            search: SearchMetadata::default(),
         });
     }
 
@@ -157,6 +173,7 @@ fn survival_fallback(
         target_food: None,
         path_distance: None,
         reachable_cells: best.1,
+        search: SearchMetadata::default(),
     }
 }
 
