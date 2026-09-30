@@ -1,1 +1,1 @@
-mod routes;
+pub(crate) mod routes;

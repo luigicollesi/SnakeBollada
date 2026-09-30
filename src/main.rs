@@ -19,6 +19,7 @@ mod board_mask;
 mod direction;
 mod forecast;
 mod logic;
+mod modes;
 mod navigation;
 mod runtime;
 mod strategy;
