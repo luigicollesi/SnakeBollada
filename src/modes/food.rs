@@ -40,11 +40,7 @@ pub(crate) fn candidates(state: &GameState, analysis: &StateAnalysis) -> FoodMod
 
         for first_move in route.first_moves.iter() {
             expanded.push(candidate_from_route(
-                analysis,
-                route,
-                claim,
-                first_move,
-                distance,
+                analysis, route, claim, first_move, distance,
             ));
         }
     }
@@ -289,4 +285,3 @@ mod tests {
         assert_eq!(candidate.first_move, Direction::Up);
     }
 }
-
