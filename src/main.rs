@@ -15,6 +15,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
 mod board_mask;
+mod direction;
 mod logic;
 mod navigation;
 mod runtime;
