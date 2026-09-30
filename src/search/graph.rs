@@ -205,7 +205,7 @@ impl FutureGraph {
             }
 
             let layer_started = std::time::Instant::now();
-            let complete = self.expand_depth_layer(depth, budget)?;
+            let complete = self.expand_depth(depth, budget)?;
             if !complete {
                 self.garbage_collect();
                 break;
@@ -229,7 +229,7 @@ impl FutureGraph {
         })
     }
 
-    fn expand_depth_layer(
+    pub(crate) fn expand_depth(
         &mut self,
         depth: u8,
         budget: &SearchBudget,
