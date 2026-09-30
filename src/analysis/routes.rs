@@ -386,9 +386,7 @@ mod tests {
         let ours = snake("ours", vec![Coord { x: 1, y: 1 }, Coord { x: 1, y: 0 }]);
         let f1 = Coord { x: 3, y: 1 };
         let f2 = Coord { x: 1, y: 3 };
-        let analysis = StateAnalysis::from_state(
-            &state(ours, vec![], vec![f1, f2]),
-        );
+        let analysis = StateAnalysis::from_state(&state(ours, vec![], vec![f1, f2]));
 
         assert_eq!(analysis.route_for("ours", f1).unwrap().distance, Some(2));
         assert_eq!(analysis.route_for("ours", f2).unwrap().distance, Some(2));
@@ -402,8 +400,7 @@ mod tests {
         let simulated = SimulatedGameState::from(&api_state);
 
         let api_analysis = StateAnalysis::from_state(&api_state);
-        let simulated_analysis =
-            StateAnalysis::from_simulated(&simulated);
+        let simulated_analysis = StateAnalysis::from_simulated(&simulated);
 
         assert_eq!(
             api_analysis.route_for("ours", food),
@@ -415,9 +412,7 @@ mod tests {
     fn equal_shortest_paths_preserve_all_first_moves() {
         let ours = snake("ours", vec![Coord { x: 1, y: 1 }, Coord { x: 1, y: 0 }]);
         let food = Coord { x: 2, y: 2 };
-        let analysis = StateAnalysis::from_state(
-            &state(ours, vec![], vec![food]),
-        );
+        let analysis = StateAnalysis::from_state(&state(ours, vec![], vec![food]));
         let route = analysis.route_for("ours", food).unwrap();
 
         let mut expected = MoveMask::empty();
@@ -441,9 +436,7 @@ mod tests {
             ],
         );
         let food = Coord { x: 4, y: 1 };
-        let analysis = StateAnalysis::from_state(
-            &state(ours, vec![wall], vec![food]),
-        );
+        let analysis = StateAnalysis::from_state(&state(ours, vec![wall], vec![food]));
 
         let route = analysis.route_for("ours", food).unwrap();
         assert!(!route.reachable);
@@ -462,9 +455,7 @@ mod tests {
                 food,
             ],
         );
-        let analysis = StateAnalysis::from_state(
-            &state(unique, vec![], vec![food]),
-        );
+        let analysis = StateAnalysis::from_state(&state(unique, vec![], vec![food]));
         assert_eq!(analysis.route_for("ours", food).unwrap().distance, Some(1));
 
         let stacked_food = Coord { x: 1, y: 1 };
@@ -477,9 +468,7 @@ mod tests {
                 stacked_food,
             ],
         );
-        let analysis = StateAnalysis::from_state(
-            &state(stacked, vec![], vec![stacked_food]),
-        );
+        let analysis = StateAnalysis::from_state(&state(stacked, vec![], vec![stacked_food]));
         assert!(!analysis.route_for("ours", stacked_food).unwrap().reachable);
     }
 
@@ -496,9 +485,7 @@ mod tests {
                 food,
             ],
         );
-        let analysis = StateAnalysis::from_state(
-            &state(ours, vec![enemy], vec![food]),
-        );
+        let analysis = StateAnalysis::from_state(&state(ours, vec![enemy], vec![food]));
 
         assert!(!analysis.route_for("ours", food).unwrap().reachable);
     }
@@ -509,9 +496,7 @@ mod tests {
         let enemy_a = snake("enemy-a", vec![Coord { x: 4, y: 0 }]);
         let enemy_b = snake("enemy-b", vec![Coord { x: 4, y: 4 }]);
         let food = Coord { x: 2, y: 0 };
-        let analysis = StateAnalysis::from_state(
-            &state(ours, vec![enemy_a, enemy_b], vec![food]),
-        );
+        let analysis = StateAnalysis::from_state(&state(ours, vec![enemy_a, enemy_b], vec![food]));
         let claim = analysis.claim_for(food).unwrap();
 
         assert_eq!(claim.our_eta, Some(2));
@@ -526,9 +511,7 @@ mod tests {
         let enemy_a = snake("enemy-a", vec![Coord { x: 4, y: 0 }]);
         let enemy_b = snake("enemy-b", vec![Coord { x: 4, y: 4 }]);
         let food = Coord { x: 2, y: 0 };
-        let analysis = StateAnalysis::from_state(
-            &state(ours, vec![enemy_a, enemy_b], vec![food]),
-        );
+        let analysis = StateAnalysis::from_state(&state(ours, vec![enemy_a, enemy_b], vec![food]));
 
         let competitor = analysis
             .nearest_competitor_for("enemy-a", food)
@@ -543,9 +526,7 @@ mod tests {
         let ours = snake("ours", vec![Coord { x: 0, y: 0 }]);
         let enemy = snake("enemy", vec![Coord { x: 4, y: 0 }]);
         let food = Coord { x: 2, y: 0 };
-        let analysis = StateAnalysis::from_state(
-            &state(ours, vec![enemy], vec![food]),
-        );
+        let analysis = StateAnalysis::from_state(&state(ours, vec![enemy], vec![food]));
 
         assert!(analysis.claim_for(food).unwrap().contested);
     }
@@ -566,9 +547,7 @@ mod tests {
         );
         let enemy = snake("enemy", vec![Coord { x: 4, y: 1 }]);
         let food = Coord { x: 1, y: 1 };
-        let analysis = StateAnalysis::from_state(
-            &state(ours, vec![enemy], vec![food]),
-        );
+        let analysis = StateAnalysis::from_state(&state(ours, vec![enemy], vec![food]));
         let claim = analysis.claim_for(food).unwrap();
 
         assert_eq!(claim.our_eta, Some(1));
