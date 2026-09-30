@@ -14,13 +14,6 @@ pub(crate) struct NavigationMap {
     pub(crate) lethal_head_danger: BoardMask,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct FoodPathCandidate {
-    pub(crate) food: Coord,
-    pub(crate) distance: u16,
-    pub(crate) first_move: Direction,
-}
-
 impl NavigationMap {
     pub(crate) fn from_state(state: &GameState) -> Self {
         let width = state.board.width as u16;
@@ -76,18 +69,6 @@ impl NavigationMap {
         self.hazards.contains(coord)
     }
 
-    fn cell_count(&self) -> usize {
-        usize::from(self.width) * usize::from(self.height)
-    }
-
-    fn index(&self, coord: Coord) -> Option<usize> {
-        if !self.in_bounds(coord) {
-            return None;
-        }
-
-        Some(coord.y as usize * usize::from(self.width) + coord.x as usize)
-    }
-
     fn populate_head_danger(&mut self, state: &GameState) {
         for enemy in &state.board.snakes {
             if enemy.id == state.you.id || enemy.length < state.you.length {
@@ -107,63 +88,6 @@ impl NavigationMap {
             }
         }
     }
-}
-
-pub(crate) fn food_candidates(
-    map: &NavigationMap,
-    start: Coord,
-    allow_hazards: bool,
-) -> Vec<FoodPathCandidate> {
-    let Some(start_index) = map.index(start) else {
-        return Vec::new();
-    };
-
-    let mut queue = VecDeque::new();
-    let mut distance = vec![u16::MAX; map.cell_count()];
-    let mut first_move = vec![None; map.cell_count()];
-
-    distance[start_index] = 0;
-    queue.push_back(start);
-
-    let mut candidates = Vec::new();
-
-    while let Some(current) = queue.pop_front() {
-        let current_index = map.index(current).expect("queued coordinate is in bounds");
-
-        if current != start && map.is_food(current) {
-            candidates.push(FoodPathCandidate {
-                food: current,
-                distance: distance[current_index],
-                first_move: first_move[current_index]
-                    .expect("food reached from the head has a first move"),
-            });
-        }
-
-        for direction in Direction::ALL {
-            let next = direction.apply(current);
-            let Some(next_index) = map.index(next) else {
-                continue;
-            };
-
-            if map.is_blocked(next) || (!allow_hazards && map.is_hazard(next)) {
-                continue;
-            }
-            if distance[next_index] != u16::MAX {
-                continue;
-            }
-
-            distance[next_index] = distance[current_index].saturating_add(1);
-            first_move[next_index] = if current == start {
-                Some(direction)
-            } else {
-                first_move[current_index]
-            };
-            queue.push_back(next);
-        }
-    }
-
-    candidates.sort_by_key(|candidate| (candidate.distance, candidate.first_move.rank()));
-    candidates
 }
 
 pub(crate) fn reachable_after_move(
