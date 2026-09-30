@@ -24,10 +24,22 @@ impl Direction {
 
     pub(crate) const fn apply(self, coord: Coord) -> Coord {
         match self {
-            Direction::Up => Coord { x: coord.x, y: coord.y + 1 },
-            Direction::Right => Coord { x: coord.x + 1, y: coord.y },
-            Direction::Down => Coord { x: coord.x, y: coord.y - 1 },
-            Direction::Left => Coord { x: coord.x - 1, y: coord.y },
+            Direction::Up => Coord {
+                x: coord.x,
+                y: coord.y + 1,
+            },
+            Direction::Right => Coord {
+                x: coord.x + 1,
+                y: coord.y,
+            },
+            Direction::Down => Coord {
+                x: coord.x,
+                y: coord.y - 1,
+            },
+            Direction::Left => Coord {
+                x: coord.x - 1,
+                y: coord.y,
+            },
         }
     }
 
@@ -167,9 +179,7 @@ fn survival_fallback(
         .iter()
         .copied()
         .filter(|(_, reachable, hazard)| !hazard && *reachable >= state.you.length)
-        .min_by_key(|(direction, reachable, _)| {
-            (std::cmp::Reverse(*reachable), direction.rank())
-        })
+        .min_by_key(|(direction, reachable, _)| (std::cmp::Reverse(*reachable), direction.rank()))
         .or_else(|| {
             evaluations
                 .iter()
