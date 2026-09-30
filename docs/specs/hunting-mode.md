@@ -1,6 +1,6 @@
 # SPEC — Hunting Mode
 
-**Status:** V1 implementado; integração multi-turn com FutureGraph pendente  
+**Status:** Implementado V1 — FutureGraph multi-turn integrado  
 **Branch alvo:** `dev`  
 **Depende de:** `enemy-tracing.md`, `decision-making.md`
 
@@ -15,13 +15,17 @@ Implementado em `dev`:
 - kills e head-to-head continuam exclusivos do `TurnResolver`;
 - eventos de Hunting permanecem específicos da edge/rota.
 
-Pendente do FutureGraph:
+Integração multi-turn concluída:
 
-- redução de mobilidade avaliada ao longo de múltiplas profundidades;
-- seleção profunda de alvos por orçamento;
-- choke/articulation points;
-- desconto por estados `FoodProvisional`;
-- agregação final de valor ofensivo pelo Decision Engine.
+- mobilidade inimiga é reavaliada em cada node do FutureGraph;
+- `EnemyForced`, `EnemyTrapped`, kills e H2H são avaliados na rota E2E;
+- kills carregam atribuição causal (`OurSnake`, outra cobra, ambiente ou autoinduzida);
+- forced/trapped só recebem crédito ofensivo quando a geometria da nossa cobra contribui de forma verificável;
+- estados `FoodProvisional` recebem desconto próprio;
+- leaf hunting potential reconhece pressão no horizonte sem inventar eventos;
+- kill causal supersede benefícios menores do mesmo alvo para evitar double counting.
+
+Pendente para V2: choke/articulation points e modelos probabilísticos de comportamento.
 
 ## 1. Objetivo
 
