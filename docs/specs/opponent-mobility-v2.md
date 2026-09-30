@@ -239,12 +239,13 @@ ENEMY_INTERACTION_RADIUS = 4
 
 Esse valor é uma hipótese de tuning, não uma regra fixa.
 
-## 9. Movimentação própria: dois objetivos principais
+## 9. Movimentação própria: três objetivos principais
 
 A movimentação passa a combinar:
 
 1. sobrevivência/comida;
-2. redução de mobilidade adversária.
+2. redução de mobilidade adversária;
+3. preservação de mobilidade própria via Survivor Mode.
 
 ### 9.1 Food priority
 
@@ -272,6 +273,52 @@ Quando inimigo está dentro do interaction radius:
 - medir seus movimentos plausíveis;
 - avaliar como cada nosso movimento altera esses movimentos;
 - favorecer posições que reduzem saídas.
+
+### 9.3 Survivor Mode
+
+Survivor Mode é ativado quando nossa mobilidade atual ou futura cai abaixo de níveis seguros.
+
+Ele não procura comida nem bloqueio como objetivo principal.
+
+Seu objetivo é:
+
+> mover para a célula que maximize nossa liberdade futura de movimento.
+
+Indicadores iniciais:
+
+```text
+legal_moves <= 2
+ou
+safe_next_moves <= 2
+ou
+reachable_space < our.length * SURVIVAL_SPACE_FACTOR
+ou
+mobility_ratio <= SURVIVOR_MOBILITY_THRESHOLD
+```
+
+Valores iniciais de tuning:
+
+```text
+SURVIVAL_SPACE_FACTOR = 1.5
+SURVIVOR_MOBILITY_THRESHOLD = 0.50
+```
+
+Esses valores devem ser validados por telemetria.
+
+Definir:
+
+```text
+mobility_ratio =
+    safe_next_moves / 4.0
+```
+
+Quando Survivor Mode estiver ativo:
+
+- survival score domina os demais objetivos;
+- containment é despriorizado;
+- comida só permanece prioritária se health estiver crítico;
+- bordas deixam de ser evitadas quando servirem como rota para uma região mais aberta;
+- o movimento escolhido maximiza espaço, saídas futuras e distância de gargalos perigosos.
 
 ## 10. Mobility reduction score
 
@@ -409,15 +456,93 @@ score =
     survival_score
   + food_weight * food_gain
   + space_weight * our_reachable_space
+  + freedom_weight * future_mobility
   + block_weight * mobility_reduction
   + forced_weight * forced_enemies
   + choke_weight * choke_gain
   + territory_weight * contested_control
+  - edge_penalty
   - hazard_penalty
   - lethal_head_penalty
 ```
 
 Os pesos variam conforme contexto.
+
+### 15.1 Future mobility
+
+Para cada movimento nosso:
+
+```text
+future_mobility =
+    safe_moves_after_first_step
+```
+
+Adicionar também uma medida de segunda ordem:
+
+```text
+second_order_mobility =
+    soma das saídas seguras disponíveis
+    a partir dos estados sucessores imediatos
+```
+
+Isso diferencia duas células com o mesmo Flood Fill mas com geometrias muito diferentes.
+
+Exemplo:
+
+```text
+A: reachable=30, next_moves=1
+B: reachable=30, next_moves=3
+
+=> B é preferível em Survivor Mode
+```
+
+### 15.2 Edge avoidance
+
+Célula de borda:
+
+```text
+x == 0
+ou
+y == 0
+ou
+x == width - 1
+ou
+y == height - 1
+```
+
+Fora de Survivor Mode:
+
+- bordas recebem penalidade estratégica muito alta;
+- caminhos equivalentes pelo interior sempre vencem caminhos pela borda;
+- a borda não é considerada parede física;
+- se não existir alternativa interior segura, Survivor Mode é ativado automaticamente antes da decisão final.
+
+Motivo: células de borda reduzem o grau geométrico máximo de 4 para 3; cantos reduzem para 2, diminuindo opções de escape.
+
+Em Survivor Mode:
+
+- `edge_penalty` é fortemente reduzido ou zerado;
+- a borda pode ser usada como rota de fuga;
+- o destino final continua sendo uma região com maior liberdade, e não permanecer na borda.
+
+### 15.3 Edge depth
+
+Além de detectar a borda diretamente, calcular:
+
+```text
+edge_distance =
+    min(x, y, width - 1 - x, height - 1 - y)
+```
+
+Em modo normal:
+
+```text
+edge_distance = 0 -> penalidade alta
+edge_distance = 1 -> penalidade moderada
+edge_distance >= 2 -> sem penalidade relevante
+```
+
+Isso empurra a SnakeBollada para regiões interiores sem criar uma proibição rígida.
 
 ## 16. Dynamic mode blending
 
@@ -428,6 +553,7 @@ Calcular:
 ```text
 food_pressure in [0,1]
 interaction_pressure in [0,1]
+survivor_pressure in [0,1]
 ```
 
 Exemplo:
@@ -438,12 +564,20 @@ food_weight =
 
 block_weight =
     base_block + interaction_pressure * block_bonus
+
+survival_weight =
+    base_survival + survivor_pressure * survival_bonus
+
+edge_penalty =
+    base_edge_penalty * (1 - survivor_pressure)
 ```
 
 Assim:
 
 - comida perto aumenta gradualmente prioridade;
-- inimigo perto aumenta gradualmente contenção.
+- inimigo perto aumenta gradualmente contenção;
+- redução de mobilidade própria aumenta Survivor Mode;
+- quanto maior Survivor Mode, menor a resistência a usar a borda como escape.
 
 ## 17. Ordem de segurança
 
@@ -452,8 +586,9 @@ Nenhuma heurística ofensiva pode ultrapassar os filtros:
 1. morte imediata;
 2. head-to-head desfavorável;
 3. região insuficiente;
-4. comida crítica por health;
-5. só depois containment/blocking.
+4. Survivor Mode quando mobilidade estiver crítica;
+5. comida crítica por health;
+6. só depois containment/blocking.
 
 ## 18. Relevant opponents
 
@@ -570,6 +705,25 @@ Se coverage cair:
 - nosso movimento força 1;
 - falso bloqueio por head-to-head desfavorável não recebe bônus.
 
+### Survivor Mode
+
+- 4 saídas mantém survivor pressure baixo;
+- 2 saídas aumenta survivor pressure;
+- 1 saída ativa Survivor Mode fortemente;
+- dois movimentos com Flood Fill igual escolhem maior future mobility;
+- second-order mobility desempata células equivalentes;
+- containment perde prioridade quando Survivor Mode está ativo;
+- comida crítica por health ainda pode superar fuga puramente espacial.
+
+### Edge avoidance
+
+- célula interior vence borda quando ambas são seguras e equivalentes;
+- borda é evitada fora de Survivor Mode;
+- canto recebe penalidade maior que lateral;
+- ausência de rota interior ativa Survivor Mode;
+- Survivor Mode pode usar borda para chegar a região aberta;
+- Survivor Mode não deve permanecer na borda se houver saída melhor para o interior.
+
 ### Flood Fill
 
 - saída leva a corredor;
@@ -606,7 +760,12 @@ Se coverage cair:
 - simular nossos 4 movimentos;
 - recalcular plausible set dos inimigos relevantes;
 - mobility reduction;
-- forced move score.
+- forced move score;
+- edge distance e edge penalty;
+- future mobility;
+- second-order mobility;
+- survivor pressure;
+- Survivor Mode.
 
 ### Fase 3 — Choke control
 
@@ -653,3 +812,5 @@ Depois de validar a V2:
 - CP-Algorithms — Articulation Points: https://cp-algorithms.com/graph/cutpoints.html
 - Red Blob Games — Flow Field Pathfinding: https://www.redblobgames.com/blog/2024-04-27-flow-field-pathfinding/
 - Codingame Tron Battle — Flood Fill, Voronoi, Minimax: https://www.codingame.com/multiplayer/bot-programming/tron-battle
+- Jasper Van der Jeugt — TronBot: flood fill, free space and adjacent-wall scoring: https://jaspervdj.be/posts/2010-03-01-my-tron-bot.html
+- SquaredX — Rust Battlesnake bot using wall avoidance and flood fill: https://squaredx.dev/posts/building-rust-boa-checker-battlesnake/
