@@ -178,7 +178,7 @@ impl DecisionEngine {
             path_distance: food_target.map(|candidate| candidate.distance),
             reachable_cells,
             search: SearchMetadata {
-                completed_depth: completed_depth,
+                completed_depth,
                 nodes: graph.node_count().try_into().unwrap_or(u32::MAX),
                 edges: graph.edge_count(),
                 transposition_hits: graph.transposition_hits(),
@@ -260,7 +260,48 @@ fn classify_decision_reason(
 }
 
 fn survival_compare(left: &DirectionEvaluation, right: &DirectionEvaluation) -> Ordering {
-    survival_compare(left, right)
+    compare_lower_ratio(
+        left.survival.death_routes,
+        left.survival.total_routes,
+        right.survival.death_routes,
+        right.survival.total_routes,
+    )
+    .then_with(|| {
+        compare_lower_ratio(
+            left.survival.dead_end_routes,
+            left.survival.total_routes,
+            right.survival.dead_end_routes,
+            right.survival.total_routes,
+        )
+    })
+    .then_with(|| {
+        compare_lower_ratio(
+            left.survival.forced_routes,
+            left.survival.total_routes,
+            right.survival.forced_routes,
+            right.survival.total_routes,
+        )
+    })
+    .then_with(|| {
+        compare_lower_ratio(
+            left.survival.constrained_routes,
+            left.survival.total_routes,
+            right.survival.constrained_routes,
+            right.survival.total_routes,
+        )
+    })
+    .then_with(|| {
+        right
+            .survival
+            .min_future_mobility
+            .cmp(&left.survival.min_future_mobility)
+    })
+    .then_with(|| {
+        right
+            .survival
+            .min_reachable_space
+            .cmp(&left.survival.min_reachable_space)
+    })
 }
 
 fn branching_milli(edges_generated: u32, frontier_nodes: u32) -> u32 {
