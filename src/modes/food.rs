@@ -108,7 +108,7 @@ mod tests {
     use serde_json::json;
 
     use super::*;
-    use crate::analysis::routes::StateAnalysis;
+    use crate::analysis::StateAnalysis;
     use crate::direction::Direction;
     use crate::forecast::ForecastCertainty;
     use crate::{Battlesnake, Board, Coord, Game, GameState};
