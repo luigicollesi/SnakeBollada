@@ -2,6 +2,7 @@
 
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::Arc;
+use std::time::Duration;
 
 use crate::analysis::transition::analyze_transition;
 use crate::analysis::{StateAnalysis, TacticalStateAnalysis};
@@ -13,7 +14,19 @@ use crate::simulation::joint_action::JointAction;
 use crate::simulation::resolver::{resolve_turn, ForecastDelta, InstantEvent, ResolveError};
 use crate::simulation::state::SimulatedGameState;
 
+use super::budget::SearchBudget;
+
 pub(crate) type NodeId = usize;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct ExpansionReport {
+    pub(crate) completed_depth: u8,
+    pub(crate) nodes: u32,
+    pub(crate) edges: u32,
+    pub(crate) transposition_hits: u32,
+    pub(crate) elapsed_us: u64,
+    pub(crate) safety_reserve_us: u64,
+}
 
 #[derive(Debug, Clone)]
 pub(crate) struct SearchEdge {
@@ -167,6 +180,99 @@ impl FutureGraph {
             .sum();
     }
 
+    pub(crate) fn expand_iteratively(
+        &mut self,
+        minimum_target_depth: u8,
+        maximum_depth: u8,
+        budget: &SearchBudget,
+    ) -> Result<ExpansionReport, SearchError> {
+        let mut completed_depth = 0_u8;
+        let mut previous_layer_elapsed = Duration::ZERO;
+
+        for depth in 1..=maximum_depth {
+            if budget.expired() {
+                break;
+            }
+
+            if depth > minimum_target_depth {
+                let estimate = previous_layer_elapsed
+                    .checked_mul(2)
+                    .unwrap_or(Duration::MAX)
+                    .max(Duration::from_millis(1));
+                if !budget.can_afford(estimate) {
+                    break;
+                }
+            }
+
+            let layer_started = std::time::Instant::now();
+            let complete = self.expand_depth_layer(depth, budget)?;
+            if !complete {
+                self.garbage_collect();
+                break;
+            }
+
+            previous_layer_elapsed = layer_started.elapsed();
+            completed_depth = depth;
+        }
+
+        Ok(ExpansionReport {
+            completed_depth,
+            nodes: self.nodes.len().try_into().unwrap_or(u32::MAX),
+            edges: self.edge_count,
+            transposition_hits: self.transposition_hits,
+            elapsed_us: budget.elapsed().as_micros().try_into().unwrap_or(u64::MAX),
+            safety_reserve_us: budget
+                .safety_reserve()
+                .as_micros()
+                .try_into()
+                .unwrap_or(u64::MAX),
+        })
+    }
+
+    fn expand_depth_layer(
+        &mut self,
+        depth: u8,
+        budget: &SearchBudget,
+    ) -> Result<bool, SearchError> {
+        let parents = self.nodes_at_depth(depth.saturating_sub(1));
+
+        for node_id in parents {
+            if budget.expired() {
+                return Ok(false);
+            }
+
+            if !self.expand_node_budgeted(node_id, Some(budget))? {
+                return Ok(false);
+            }
+        }
+
+        Ok(true)
+    }
+
+    fn nodes_at_depth(&self, depth: u8) -> Vec<NodeId> {
+        let mut current = vec![self.root];
+
+        for _ in 0..depth {
+            let mut next = Vec::new();
+            let mut seen = HashSet::new();
+
+            for node_id in current {
+                for edge in &self.nodes[node_id].children {
+                    if seen.insert(edge.child) {
+                        next.push(edge.child);
+                    }
+                }
+            }
+
+            current = next;
+            if current.is_empty() {
+                break;
+            }
+        }
+
+        current
+    }
+
     pub(crate) fn expand_to_depth(&mut self, target_depth: u8) -> Result<(), SearchError> {
         let mut queue = VecDeque::from([(self.root, 0_u8)]);
         let mut expanded = HashSet::new();
@@ -187,8 +293,16 @@ impl FutureGraph {
     }
 
     fn expand_node(&mut self, node_id: NodeId) -> Result<(), SearchError> {
+        self.expand_node_budgeted(node_id, None).map(|_| ())
+    }
+
+    fn expand_node_budgeted(
+        &mut self,
+        node_id: NodeId,
+        budget: Option<&SearchBudget>,
+    ) -> Result<bool, SearchError> {
         if !self.nodes[node_id].children.is_empty() || self.is_terminal(node_id) {
-            return Ok(());
+            return Ok(true);
         }
 
         let state = self.nodes[node_id].state.clone();
@@ -205,6 +319,10 @@ impl FutureGraph {
         let mut edges = Vec::with_capacity(actions.estimated_count());
 
         for joint_action in actions {
+            if budget.is_some_and(SearchBudget::expired) {
+                return Ok(false);
+            }
+
             let resolution = resolve_turn(&state, &joint_action)?;
             let child_key = StateKey::from_state(&resolution.state);
 
@@ -232,7 +350,7 @@ impl FutureGraph {
         }
 
         self.nodes[node_id].children = edges;
-        Ok(())
+        Ok(true)
     }
 
     fn is_terminal(&self, node_id: NodeId) -> bool {
@@ -377,6 +495,18 @@ mod tests {
         assert_eq!(graph.root(), 0);
         assert_eq!(graph.node(0).key, child_key);
         assert!(graph.node_count() < old_count);
+    }
+
+    #[test]
+    fn budgeted_search_reports_only_completed_depths() {
+        let mut graph = FutureGraph::new(state());
+        let budget = SearchBudget::for_duration(Duration::from_secs(1));
+
+        let report = graph.expand_iteratively(2, 2, &budget).unwrap();
+
+        assert_eq!(report.completed_depth, 2);
+        assert!(report.nodes > 1);
+        assert!(report.edges > 0);
     }
 
     #[test]
