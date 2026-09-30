@@ -448,21 +448,22 @@ mod tests {
 
     #[test]
     fn enemy_unreachable_does_not_mark_food_contested() {
-        let ours = snake("ours", vec![Coord { x: 0, y: 1 }]);
-        let enemy = snake("enemy", vec![Coord { x: 4, y: 1 }]);
-        let wall = snake(
-            "wall",
+        let ours = snake(
+            "ours",
             vec![
-                Coord { x: 3, y: 0 },
-                Coord { x: 3, y: 1 },
-                Coord { x: 3, y: 2 },
-                Coord { x: 3, y: 3 },
-                Coord { x: 3, y: 4 },
+                Coord { x: 0, y: 1 },
+                Coord { x: 2, y: 0 },
+                Coord { x: 2, y: 1 },
+                Coord { x: 2, y: 2 },
+                Coord { x: 2, y: 3 },
+                Coord { x: 2, y: 4 },
+                Coord { x: 2, y: 4 },
             ],
         );
+        let enemy = snake("enemy", vec![Coord { x: 4, y: 1 }]);
         let food = Coord { x: 1, y: 1 };
         let analysis = StateAnalysis::from_state(
-            &state(ours, vec![enemy, wall], vec![food]),
+            &state(ours, vec![enemy], vec![food]),
             ForecastCertainty::Deterministic,
         );
         let claim = analysis.claim_for(food).unwrap();
