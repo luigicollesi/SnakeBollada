@@ -2,8 +2,9 @@ use serde::{Deserialize, Serialize};
 
 use crate::analysis::StateAnalysis;
 use crate::direction::Direction;
-use crate::forecast::ForecastCertainty;
 use crate::modes::food;
+use crate::forecast::ForecastCertainty;
+use crate::simulation::state::SimulatedGameState;
 use crate::navigation::{reachable_after_move, NavigationMap};
 use crate::{Coord, GameState};
 
@@ -59,8 +60,13 @@ pub(crate) fn choose_move_baseline(state: &GameState) -> Decision {
         };
     }
 
-    let analysis = StateAnalysis::from_state(state);
-    let food_output = food::candidates(state, &analysis);
+    let simulated = SimulatedGameState::from(state);
+    let analysis = StateAnalysis::from_simulated(&simulated);
+    let food_output = food::candidates(
+        &simulated,
+        &analysis,
+        ForecastCertainty::Deterministic,
+    );
 
     if let Some(decision) = choose_food_candidate(&map, state, &legal_moves, &food_output, false) {
         return decision;
