@@ -3,6 +3,9 @@ use serde_json::Value;
 use crate::{Battlesnake, Coord, GameState};
 
 pub(crate) const DEFAULT_MAX_HEALTH: i32 = 100;
+pub(crate) const BASE_AGGRESSION: f32 = 0.20;
+pub(crate) const AGGRESSION_PER_FOOD: f32 = 0.10;
+pub(crate) const MAX_AGGRESSION: f32 = 0.80;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) struct AggressionState {
@@ -10,13 +13,27 @@ pub(crate) struct AggressionState {
     pub(crate) value: f32,
 }
 
+impl AggressionState {
+    pub(crate) fn record_food(&mut self) {
+        self.fruits_eaten = self.fruits_eaten.saturating_add(1);
+        self.value = (BASE_AGGRESSION + self.fruits_eaten as f32 * AGGRESSION_PER_FOOD)
+            .min(MAX_AGGRESSION);
+    }
+}
+
 impl Default for AggressionState {
     fn default() -> Self {
         Self {
             fruits_eaten: 0,
-            value: 0.0,
+            value: BASE_AGGRESSION,
         }
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum SimulationSupport {
+    StandardLike,
+    Unsupported,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -27,6 +44,13 @@ pub(crate) struct RulesContext {
 }
 
 impl RulesContext {
+    pub(crate) fn simulation_support(&self) -> SimulationSupport {
+        match self.name.as_str() {
+            "standard" | "royale" => SimulationSupport::StandardLike,
+            _ => SimulationSupport::Unsupported,
+        }
+    }
+
     fn from_state(state: &GameState) -> Self {
         let name = state
             .game
@@ -148,6 +172,44 @@ mod tests {
             latency: String::new(),
             shout: None,
         }
+    }
+
+    #[test]
+    fn aggression_increases_per_food_and_clamps() {
+        let mut aggression = AggressionState::default();
+        assert_eq!(aggression.value, BASE_AGGRESSION);
+
+        aggression.record_food();
+        assert_eq!(aggression.fruits_eaten, 1);
+        assert!((aggression.value - 0.30).abs() < f32::EPSILON);
+
+        for _ in 0..20 {
+            aggression.record_food();
+        }
+        assert_eq!(aggression.value, MAX_AGGRESSION);
+    }
+
+    #[test]
+    fn ruleset_support_is_explicit() {
+        let standard = RulesContext {
+            name: "standard".to_string(),
+            max_health: 100,
+            hazard_damage_per_turn: 0,
+        };
+        let constrictor = RulesContext {
+            name: "constrictor".to_string(),
+            max_health: 100,
+            hazard_damage_per_turn: 0,
+        };
+
+        assert_eq!(
+            standard.simulation_support(),
+            SimulationSupport::StandardLike
+        );
+        assert_eq!(
+            constrictor.simulation_support(),
+            SimulationSupport::Unsupported
+        );
     }
 
     #[test]
