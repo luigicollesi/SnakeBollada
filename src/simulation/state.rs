@@ -46,7 +46,7 @@ pub(crate) struct RulesContext {
 impl RulesContext {
     pub(crate) fn simulation_support(&self) -> SimulationSupport {
         match self.name.as_str() {
-            "standard" | "royale" => SimulationSupport::StandardLike,
+            "standard" => SimulationSupport::StandardLike,
             _ => SimulationSupport::Unsupported,
         }
     }
