@@ -275,7 +275,10 @@ fn branching_milli(edges_generated: u32, frontier_nodes: u32) -> u32 {
         .unwrap_or(u32::MAX)
 }
 
-fn estimate_next_depth(previous: DepthSearchStats, next_frontier_nodes: u32) -> std::time::Duration {
+fn estimate_next_depth(
+    previous: DepthSearchStats,
+    next_frontier_nodes: u32,
+) -> std::time::Duration {
     let previous_cost_us = previous
         .expansion_us
         .saturating_add(previous.evaluation_us)
