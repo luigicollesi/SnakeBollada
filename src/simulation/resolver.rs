@@ -343,10 +343,7 @@ fn eliminate_snakes(
 
 fn is_out_of_bounds(snake: &SimulatedSnake, width: u32, height: u32) -> bool {
     snake.body.iter().any(|point| {
-        point.x < 0
-            || point.y < 0
-            || point.x >= width as i32
-            || point.y >= height as i32
+        point.x < 0 || point.y < 0 || point.x >= width as i32 || point.y >= height as i32
     })
 }
 
@@ -355,17 +352,11 @@ fn body_collision(snake: &SimulatedSnake, other: &SimulatedSnake) -> bool {
         return false;
     };
 
-    other
-        .body
-        .iter()
-        .skip(1)
-        .any(|segment| *segment == head)
+    other.body.iter().skip(1).any(|segment| *segment == head)
 }
 
 fn lost_head_to_head(snake: &SimulatedSnake, other: &SimulatedSnake) -> bool {
-    snake.head().is_some()
-        && snake.head() == other.head()
-        && snake.length() <= other.length()
+    snake.head().is_some() && snake.head() == other.head() && snake.length() <= other.length()
 }
 
 #[cfg(test)]
@@ -379,10 +370,7 @@ mod tests {
         SimulatedSnake {
             id: id.to_string(),
             health,
-            body: body
-                .iter()
-                .map(|(x, y)| Coord { x: *x, y: *y })
-                .collect(),
+            body: body.iter().map(|(x, y)| Coord { x: *x, y: *y }).collect(),
             alive: true,
         }
     }
