@@ -1,10 +1,18 @@
 use crate::decision::state_key::StateKey;
+use crate::direction::Direction;
 use crate::search::graph::FutureGraph;
 use crate::simulation::state::{AggressionState, SimulatedGameState, SimulationSupport};
 use crate::strategy::{choose_move_baseline, CacheInvalidationReason, Decision};
 use crate::GameState;
 
 use super::DecisionEngine;
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+struct EnemyTracingCoverage {
+    observed: u16,
+    legal_covered: u16,
+    plausible_covered: u16,
+}
 
 #[derive(Debug, Default)]
 pub(crate) struct DecisionState {
@@ -15,6 +23,7 @@ pub(crate) struct DecisionState {
 
 impl DecisionState {
     pub(crate) fn decide(&mut self, state: &GameState) -> Decision {
+        let tracing_coverage = self.enemy_tracing_coverage(state);
         self.observe_aggression(state);
 
         let mut normalized = SimulatedGameState::from(state);
@@ -53,12 +62,58 @@ impl DecisionState {
         let mut decision = DecisionEngine::stateless().decide_with_graph(state, &mut graph);
         decision.search.cache_reused = cache_reused;
         decision.search.cache_invalidation = cache_invalidation;
+        decision.search.enemy_moves_observed = tracing_coverage.observed;
+        decision.search.enemy_moves_legal_covered = tracing_coverage.legal_covered;
+        decision.search.enemy_moves_plausible_covered = tracing_coverage.plausible_covered;
         graph.retain_chosen_direction(decision.direction);
 
         self.graph = Some(graph);
         self.previous_our_length = Some(state.you.body.len());
 
         decision
+    }
+
+    fn enemy_tracing_coverage(&self, state: &GameState) -> EnemyTracingCoverage {
+        let Some(graph) = self.graph.as_ref() else {
+            return EnemyTracingCoverage::default();
+        };
+        let root = graph.node(graph.root());
+
+        if root.state.turn.saturating_add(1) != state.turn {
+            return EnemyTracingCoverage::default();
+        }
+
+        let mut coverage = EnemyTracingCoverage::default();
+
+        for enemy in root
+            .state
+            .snakes
+            .iter()
+            .filter(|snake| snake.alive && snake.id != root.state.our_snake_id)
+        {
+            let Some(previous_head) = enemy.head() else {
+                continue;
+            };
+            let Some(current) = state.board.snakes.iter().find(|snake| snake.id == enemy.id) else {
+                continue;
+            };
+            let Some(direction) = Direction::from_heads(previous_head, current.head) else {
+                continue;
+            };
+            let Some(prediction) = root.tracing.for_enemy(&enemy.id) else {
+                continue;
+            };
+
+            coverage.observed = coverage.observed.saturating_add(1);
+            if prediction.legal_moves.contains(direction) {
+                coverage.legal_covered = coverage.legal_covered.saturating_add(1);
+            }
+            if prediction.plausible_moves.contains(direction) {
+                coverage.plausible_covered = coverage.plausible_covered.saturating_add(1);
+            }
+        }
+
+        coverage
     }
 
     fn observe_aggression(&mut self, state: &GameState) {
@@ -133,6 +188,43 @@ mod tests {
         decision.observe_aggression(&grown);
 
         assert_eq!(decision.aggression.fruits_eaten, 1);
+    }
+
+    #[test]
+    fn enemy_tracing_coverage_compares_next_observed_move() {
+        let mut first = state(1, vec![Coord { x: 1, y: 1 }, Coord { x: 1, y: 0 }]);
+        first.board.snakes.push(Battlesnake {
+            id: "enemy".to_string(),
+            name: "enemy".to_string(),
+            health: 100,
+            head: Coord { x: 5, y: 5 },
+            length: 2,
+            body: vec![Coord { x: 5, y: 5 }, Coord { x: 5, y: 4 }],
+            latency: String::new(),
+            shout: None,
+        });
+
+        let mut next = first.clone();
+        next.turn = 2;
+        let current_enemy = next
+            .board
+            .snakes
+            .iter_mut()
+            .find(|snake| snake.id == "enemy")
+            .unwrap();
+        current_enemy.head = Coord { x: 6, y: 5 };
+        current_enemy.body = vec![Coord { x: 6, y: 5 }, Coord { x: 5, y: 5 }];
+
+        let decision = DecisionState {
+            graph: Some(FutureGraph::new(SimulatedGameState::from(&first))),
+            ..DecisionState::default()
+        };
+
+        let coverage = decision.enemy_tracing_coverage(&next);
+
+        assert_eq!(coverage.observed, 1);
+        assert_eq!(coverage.legal_covered, 1);
+        assert_eq!(coverage.plausible_covered, 1);
     }
 
     #[test]
