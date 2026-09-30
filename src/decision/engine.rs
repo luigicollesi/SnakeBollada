@@ -36,7 +36,16 @@ impl DecisionEngine {
     }
 
     pub(crate) fn decide_with_graph(&self, state: &GameState, graph: &mut FutureGraph) -> Decision {
-        let budget = SearchBudget::from_state(state);
+        self.decide_with_graph_with_reserve(state, graph, 0)
+    }
+
+    pub(crate) fn decide_with_graph_with_reserve(
+        &self,
+        state: &GameState,
+        graph: &mut FutureGraph,
+        extra_reserve_ms: u64,
+    ) -> Decision {
+        let budget = SearchBudget::from_state_with_extra_reserve(state, extra_reserve_ms);
         let mut completed_depth = 0_u8;
         let mut evaluations = Vec::new();
         let mut depth_stats = [
