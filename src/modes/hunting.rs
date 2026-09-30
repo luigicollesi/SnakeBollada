@@ -51,7 +51,13 @@ pub(crate) fn analyze(
             continue;
         }
 
-        for enemy_direction in move_set.search_moves().iter() {
+        let target_moves = if !move_set.plausible_moves.is_empty() {
+            move_set.plausible_moves
+        } else {
+            move_set.legal_moves
+        };
+
+        for enemy_direction in target_moves.iter() {
             let contested_cell = enemy_direction.apply(enemy_head);
             if !tactical.threat_map.is_favorable(contested_cell) {
                 continue;
