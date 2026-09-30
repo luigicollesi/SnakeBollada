@@ -80,19 +80,12 @@ fn handle_start(start_req: Json<GameState>, registry: &State<GameRegistry>) -> S
 }
 
 #[post("/move", format = "json", data = "<move_req>")]
-async fn handle_move(
-    move_req: Json<GameState>,
-    registry: &State<GameRegistry>,
-) -> Json<Value> {
+async fn handle_move(move_req: Json<GameState>, registry: &State<GameRegistry>) -> Json<Value> {
     registry.observe_turn(&move_req).await;
 
     let started = Instant::now();
     let decision = strategy::choose_move(&move_req);
-    let decision_time_us = started
-        .elapsed()
-        .as_micros()
-        .try_into()
-        .unwrap_or(u64::MAX);
+    let decision_time_us = started.elapsed().as_micros().try_into().unwrap_or(u64::MAX);
 
     registry.record_decision(
         &move_req.game.id,
