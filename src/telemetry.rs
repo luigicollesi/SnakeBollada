@@ -120,6 +120,9 @@ pub(crate) struct SearchRecord {
     pub(crate) elapsed_us: u64,
     pub(crate) safety_reserve_us: u64,
     pub(crate) aggression_milli: u16,
+    pub(crate) enemy_moves_observed: u16,
+    pub(crate) enemy_moves_legal_covered: u16,
+    pub(crate) enemy_moves_plausible_covered: u16,
     pub(crate) direction_outcomes: [DirectionOutcomeSummary; 4],
 }
 
@@ -157,6 +160,9 @@ impl DecisionRecord {
                 elapsed_us: decision.search.elapsed_us,
                 safety_reserve_us: decision.search.safety_reserve_us,
                 aggression_milli: decision.search.aggression_milli,
+                enemy_moves_observed: decision.search.enemy_moves_observed,
+                enemy_moves_legal_covered: decision.search.enemy_moves_legal_covered,
+                enemy_moves_plausible_covered: decision.search.enemy_moves_plausible_covered,
                 direction_outcomes: decision.search.direction_outcomes,
             },
         }
