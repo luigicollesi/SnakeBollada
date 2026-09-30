@@ -92,7 +92,9 @@ mod tests {
 
     use crate::direction::{Direction, MoveMask};
     use crate::enemy::tracing::{EnemyMoveSet, EnemyTracingOutput};
-    use crate::simulation::resolver::{EliminationCause, ForecastDelta};
+    use crate::simulation::resolver::{
+        EliminationAttribution, EliminationCause, ForecastDelta,
+    };
     use crate::simulation::state::{
         AggressionState, RulesContext, SimulatedGameState, SimulatedSnake,
     };
@@ -276,6 +278,7 @@ mod tests {
             events: vec![InstantEvent::EnemyKilled {
                 enemy: "enemy".to_string(),
                 cause: EliminationCause::HeadToHead,
+                attribution: EliminationAttribution::OurSnake,
             }],
             forecast_delta: ForecastDelta::None,
         };
