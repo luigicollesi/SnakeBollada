@@ -6,7 +6,6 @@ use crate::forecast::ForecastCertainty;
 use crate::modes::food;
 use crate::search::budget::SearchBudget;
 use crate::search::graph::FutureGraph;
-use crate::simulation::mobility::MobilityAnalysis;
 use crate::simulation::state::{SimulatedGameState, SimulationSupport};
 use crate::strategy::{
     choose_move_baseline, CacheInvalidationReason, Decision, DecisionReason,
@@ -83,7 +82,7 @@ impl DecisionEngine {
         let Some(best) = choose_best_direction(
             &evaluations,
             &root.state,
-            root.tactical.ours.safe_moves,
+            root.analysis.tactical.ours.safe_moves,
             ReservedCellPolicy::default(),
         ) else {
             return choose_move_baseline(state);
@@ -91,7 +90,7 @@ impl DecisionEngine {
 
         let food_candidates = food::candidates(
             &root.state,
-            &root.analysis,
+            &root.analysis.state,
             ForecastCertainty::Deterministic,
         );
         let food_target = food_candidates
@@ -99,9 +98,11 @@ impl DecisionEngine {
             .iter()
             .find(|candidate| candidate.first_move == best.direction);
 
-        let mobility = MobilityAnalysis::from_state(&root.state);
-        let reachable_cells =
-            mobility.reachable_space(&root.state, &root.state.our_snake_id, best.direction);
+        let reachable_cells = root.analysis.mobility.reachable_space(
+            &root.state,
+            &root.state.our_snake_id,
+            best.direction,
+        );
 
         Decision {
             direction: best.direction,
