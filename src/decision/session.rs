@@ -1,3 +1,5 @@
+use std::collections::VecDeque;
+
 use crate::decision::state_key::StateKey;
 use crate::direction::Direction;
 use crate::search::graph::FutureGraph;
@@ -14,6 +16,32 @@ struct EnemyTracingCoverage {
     plausible_covered: u16,
 }
 
+const RUNTIME_HISTORY_LIMIT: usize = 8;
+const MAX_RUNTIME_JITTER_RESERVE_MS: u64 = 100;
+
+#[derive(Debug, Default)]
+struct RuntimeHistory {
+    recent_compute_us: VecDeque<u64>,
+    recent_latency_ms: VecDeque<u64>,
+}
+
+impl RuntimeHistory {
+    fn record(&mut self, compute_us: u64, latency_ms: u64) {
+        push_bounded(&mut self.recent_compute_us, compute_us);
+        push_bounded(&mut self.recent_latency_ms, latency_ms);
+    }
+
+    fn jitter_reserve_ms(&self) -> u64 {
+        let compute_jitter_us = range(&self.recent_compute_us);
+        let latency_jitter_ms = range(&self.recent_latency_ms);
+        compute_jitter_us
+            .saturating_add(999)
+            .saturating_div(1000)
+            .saturating_add(latency_jitter_ms)
+            .min(MAX_RUNTIME_JITTER_RESERVE_MS)
+    }
+}
+
 #[derive(Debug, Default)]
 pub(crate) struct DecisionState {
     graph: Option<FutureGraph>,
@@ -22,11 +50,13 @@ pub(crate) struct DecisionState {
     previous_observed_food: Option<Vec<crate::Coord>>,
     food_spawn_invalidations: u32,
     food_mutation_invalidations: u32,
+    runtime_history: RuntimeHistory,
 }
 
 impl DecisionState {
     pub(crate) fn decide(&mut self, state: &GameState) -> Decision {
         let tracing_coverage = self.enemy_tracing_coverage(state);
+        let runtime_jitter_reserve_ms = self.runtime_history.jitter_reserve_ms();
         self.observe_aggression(state);
 
         let mut normalized = SimulatedGameState::from(state);
@@ -72,7 +102,11 @@ impl DecisionState {
             None => FutureGraph::new(normalized),
         };
 
-        let mut decision = DecisionEngine::stateless().decide_with_graph(state, &mut graph);
+        let mut decision = DecisionEngine::stateless().decide_with_graph_with_reserve(
+            state,
+            &mut graph,
+            runtime_jitter_reserve_ms,
+        );
         decision.search.cache_reused = cache_reused;
         decision.search.cache_invalidation = cache_invalidation;
         decision.search.enemy_moves_observed = tracing_coverage.observed;
@@ -85,6 +119,10 @@ impl DecisionState {
         self.graph = Some(graph);
         self.previous_our_length = Some(state.you.body.len());
         self.previous_observed_food = Some(normalized_food(&state.board.food));
+        self.runtime_history.record(
+            decision.search.elapsed_us,
+            state.you.latency.parse::<u64>().unwrap_or(0),
+        );
 
         decision
     }
@@ -241,6 +279,19 @@ mod tests {
         assert_eq!(coverage.observed, 1);
         assert_eq!(coverage.legal_covered, 1);
         assert_eq!(coverage.plausible_covered, 1);
+    }
+
+    #[test]
+    fn runtime_history_uses_bounded_jitter_window() {
+        let mut history = RuntimeHistory::default();
+        for index in 0..20_u64 {
+            history.record(index * 1_000, index);
+        }
+
+        assert_eq!(history.recent_compute_us.len(), RUNTIME_HISTORY_LIMIT);
+        assert_eq!(history.recent_latency_ms.len(), RUNTIME_HISTORY_LIMIT);
+        assert!(history.jitter_reserve_ms() > 0);
+        assert!(history.jitter_reserve_ms() <= MAX_RUNTIME_JITTER_RESERVE_MS);
     }
 
     #[test]
