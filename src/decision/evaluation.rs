@@ -39,6 +39,7 @@ pub(crate) struct DirectionEvaluation {
     pub(crate) survival: DirectionSurvivalSummary,
     pub(crate) worst_strategic_utility: f32,
     pub(crate) average_strategic_utility: f32,
+    pub(crate) reserved_override: bool,
 }
 
 pub(crate) fn evaluate_graph(graph: &FutureGraph, target_depth: u8) -> Vec<DirectionEvaluation> {
@@ -220,6 +221,24 @@ fn second_order_mobility(snapshots: &[SurvivalStateSnapshot]) -> u32 {
         .sum()
 }
 
+fn confirms_reserved_override(routes: &[RouteEvaluation]) -> bool {
+    let mut surviving_routes = routes.iter().filter(|route| !route.died).peekable();
+    if surviving_routes.peek().is_none() {
+        return false;
+    }
+
+    surviving_routes.all(|route| {
+        route.events.iter().any(|event| {
+            matches!(
+                event,
+                InstantEvent::EnemyTrapped { .. }
+                    | InstantEvent::EnemyKilled { .. }
+                    | InstantEvent::HeadToHeadWon { .. }
+            )
+        })
+    })
+}
+
 impl DirectionEvaluation {
     fn from_routes(direction: Direction, routes: Vec<RouteEvaluation>) -> Self {
         let total_routes = routes.len() as u32;
@@ -260,6 +279,7 @@ impl DirectionEvaluation {
             .map(|route| route.strategic_utility)
             .reduce(f32::min)
             .unwrap_or(0.0);
+        let reserved_override = confirms_reserved_override(&routes);
         let average_strategic_utility = if routes.is_empty() {
             0.0
         } else {
@@ -284,6 +304,7 @@ impl DirectionEvaluation {
             },
             worst_strategic_utility,
             average_strategic_utility,
+            reserved_override,
         }
     }
 }
@@ -358,6 +379,42 @@ mod tests {
 
         assert!(right.routes.iter().any(|route| route.food_value > 0.0));
         assert!(up.routes.iter().all(|route| route.food_value == 0.0));
+    }
+
+    #[test]
+    fn reserved_override_requires_confirmed_tactical_result_on_every_surviving_route() {
+        let survival = SurvivalRouteAssessment {
+            died: false,
+            dead_end: false,
+            final_safe_moves: 2,
+            min_safe_moves: 2,
+            final_reachable_space: 10,
+            min_reachable_space: 10,
+            second_order_mobility: 4,
+        };
+        let tactical = RouteEvaluation {
+            initial_move: Direction::Left,
+            events: vec![InstantEvent::EnemyTrapped {
+                enemy: "enemy".to_string(),
+            }],
+            survival,
+            died: false,
+            food_value: 0.0,
+            hunting_value: 0.6,
+            strategic_utility: 0.1,
+            certainty: ForecastCertainty::Deterministic,
+            final_aggression: 0.2,
+        };
+        let food_only = RouteEvaluation {
+            events: vec![InstantEvent::AteFood {
+                snake: "ours".to_string(),
+                food: Coord { x: 0, y: 0 },
+            }],
+            ..tactical.clone()
+        };
+
+        assert!(confirms_reserved_override(&[tactical.clone()]));
+        assert!(!confirms_reserved_override(&[tactical, food_only]));
     }
 
     #[test]
