@@ -39,13 +39,9 @@ pub(crate) struct DirectionEvaluation {
     pub(crate) average_strategic_utility: f32,
 }
 
-pub(crate) fn evaluate_graph(
-    graph: &FutureGraph,
-    target_depth: u8,
-) -> Vec<DirectionEvaluation> {
+pub(crate) fn evaluate_graph(graph: &FutureGraph, target_depth: u8) -> Vec<DirectionEvaluation> {
     let root = graph.node(graph.root());
-    let root_snapshot =
-        SurvivalStateSnapshot::from_tactical(&root.state, &root.tactical);
+    let root_snapshot = SurvivalStateSnapshot::from_tactical(&root.state, &root.tactical);
 
     let context = RouteContext {
         initial_move: None,
@@ -55,14 +51,7 @@ pub(crate) fn evaluate_graph(
     };
 
     let mut routes = Vec::new();
-    walk_routes(
-        graph,
-        graph.root(),
-        0,
-        target_depth,
-        &context,
-        &mut routes,
-    );
+    walk_routes(graph, graph.root(), 0, target_depth, &context, &mut routes);
 
     Direction::ALL
         .into_iter()
@@ -118,10 +107,9 @@ fn walk_routes(
 
     for edge in &node.children {
         let child = graph.node(edge.child);
-        let initial_move = context.initial_move.or_else(|| {
-            edge.joint_action
-                .direction_for(&node.state.our_snake_id)
-        });
+        let initial_move = context
+            .initial_move
+            .or_else(|| edge.joint_action.direction_for(&node.state.our_snake_id));
 
         let Some(initial_move) = initial_move else {
             continue;
@@ -137,8 +125,7 @@ fn walk_routes(
         ));
 
         let certainty = match (context.certainty, edge.forecast_delta) {
-            (_, ForecastDelta::FoodUncertainty)
-            | (ForecastCertainty::FoodProvisional, _) => {
+            (_, ForecastDelta::FoodUncertainty) | (ForecastCertainty::FoodProvisional, _) => {
                 ForecastCertainty::FoodProvisional
             }
             _ => ForecastCertainty::Deterministic,
@@ -243,12 +230,7 @@ impl DirectionEvaluation {
             .iter()
             .filter(|route| {
                 route.events.iter().any(|event| {
-                    matches!(
-                        event,
-                        InstantEvent::SelfConstrained {
-                            remaining_moves: 1
-                        }
-                    )
+                    matches!(event, InstantEvent::SelfConstrained { remaining_moves: 1 })
                 })
             })
             .count() as u32;
@@ -256,12 +238,7 @@ impl DirectionEvaluation {
             .iter()
             .filter(|route| {
                 route.events.iter().any(|event| {
-                    matches!(
-                        event,
-                        InstantEvent::SelfConstrained {
-                            remaining_moves: 2
-                        }
-                    )
+                    matches!(event, InstantEvent::SelfConstrained { remaining_moves: 2 })
                 })
             })
             .count() as u32;
