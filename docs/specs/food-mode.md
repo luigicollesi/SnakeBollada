@@ -1,9 +1,21 @@
 # SPEC — Food Mode
 
-**Status:** Em implementação — root-state slice funcional  
+**Status:** Implementado V1 — candidatos + avaliação multi-turn  
 **Branch alvo:** `dev`  
 **Depende de:** `decision-making.md`, `enemy-tracing.md`  
 **Substitui conceitualmente:** a estratégia `basic-v1` como modo alimentar
+
+## Estado da implementação
+
+Implementado em `dev`:
+
+- Food Mode opera em `SimulatedGameState` e usa somente a `StateAnalysis` central do node;
+- uma BFS por cobra abastece todas as comidas;
+- claim/competition e diversidade de primeira direção estão ativos;
+- recompensa realizada existe apenas por `AteFood`;
+- no limite do horizonte, o Decision Engine usa **leaf food potential** separado de eventos reais, com distância, claim e pressão de health;
+- `ForecastCertainty` é contexto da rota/edge, não propriedade da `StateAnalysis`;
+- food observado invalida rolling cache antes do lookup em caso de spawn/mutação incompatível.
 
 ## 1. Objetivo
 
@@ -28,11 +40,13 @@ Para cada estado real ou simulado, o Decision/Search Engine cria uma única `Sta
 
 ```rust
 struct StateAnalysis {
-    state_key: StateKey,
     snake_food_routes: SnakeFoodRouteMatrix,
     food_claims: FoodClaimMatrix,
-    certainty: ForecastCertainty,
 }
+
+// ForecastCertainty pertence ao contexto da rota,
+// porque diferentes caminhos podem chegar ao mesmo StateKey
+// com níveis de certeza diferentes.
 ```
 
 Food Mode recebe essa análise:
