@@ -1,6 +1,6 @@
 # SPEC — Movimentação Básica
 
-**Status:** Planejado  
+**Status:** Em implementação — V1 funcional  
 **Branch alvo:** `dev`  
 **Escopo:** primeira estratégia determinística da SnakeBollada  
 **Objetivo:** alcançar a comida segura mais próxima usando o menor caminho real, evitando colisões óbvias e rejeitando caminhos que levem a espaço insuficiente.
@@ -490,17 +490,35 @@ Assim será possível posteriormente medir:
 
 A movimentação básica estará concluída quando:
 
-- [ ] nunca escolher deliberadamente movimento fora do mapa;
-- [ ] evitar corpos conhecidos;
-- [ ] evitar head-to-head contra cobra de mesmo tamanho ou maior;
-- [ ] BFS encontrar menor caminho seguro até comida;
-- [ ] rota for recalculada a cada turno;
-- [ ] comida insegura puder ser rejeitada;
-- [ ] Flood Fill medir espaço após o primeiro passo;
-- [ ] fallback escolher melhor espaço quando não houver comida segura;
-- [ ] decisão produzir metadados para observabilidade;
+- [x] nunca escolher deliberadamente movimento fora do mapa;
+- [x] evitar corpos conhecidos;
+- [x] evitar head-to-head contra cobra de mesmo tamanho ou maior;
+- [x] BFS encontrar menor caminho seguro até comida;
+- [x] rota for recalculada a cada turno;
+- [x] comida insegura puder ser rejeitada;
+- [x] Flood Fill medir espaço após o primeiro passo;
+- [x] fallback escolher melhor espaço quando não houver comida segura;
+- [x] decisão produzir metadados para observabilidade;
 - [ ] testes cobrirem os casos definidos;
 - [ ] benchmark confirmar custo muito abaixo do timeout da partida.
+
+## 23. Implementação V1
+
+Implementação inicial:
+
+- `src/navigation.rs`: mapa estático, danger map, BFS e flood fill;
+- `src/strategy.rs`: política determinística `basic-v1`;
+- primeira busca evita hazards completamente;
+- segunda busca permite hazards apenas quando nenhuma rota sem hazard foi aceita;
+- fallback escolhe maior espaço alcançável, com desempate determinístico;
+- ordem estável: `Up -> Right -> Down -> Left`;
+- decisões registram motivo, alvo, distância e espaço alcançável.
+
+Ainda pendente para fechar integralmente a spec:
+
+- cobrir todos os cenários de teste listados na seção 21;
+- adicionar benchmark formal e limite de desempenho automatizado;
+- evoluir tratamento de hazards para considerar health/dano.
 
 ## 23. Evolução futura
 
