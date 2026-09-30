@@ -137,8 +137,10 @@ mod tests {
 
     #[test]
     fn no_growth_keeps_aggression_stable() {
-        let mut decision = DecisionState::default();
-        decision.previous_our_length = Some(2);
+        let mut decision = DecisionState {
+            previous_our_length: Some(2),
+            ..DecisionState::default()
+        };
         let next = state(2, vec![Coord { x: 3, y: 2 }, Coord { x: 2, y: 2 }]);
         let before = decision.aggression;
 
