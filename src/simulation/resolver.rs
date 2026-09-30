@@ -1,31 +1,11 @@
-use std::collections::{BTreeMap, HashMap};
+use std::collections::HashMap;
 
 use crate::direction::Direction;
 use crate::Coord;
 
 use super::state::{SimulatedGameState, SimulatedSnake};
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct JointAction {
-    moves: BTreeMap<String, Direction>,
-}
-
-impl JointAction {
-    pub(crate) fn new() -> Self {
-        Self {
-            moves: BTreeMap::new(),
-        }
-    }
-
-    pub(crate) fn with_move(mut self, snake_id: impl Into<String>, direction: Direction) -> Self {
-        self.moves.insert(snake_id.into(), direction);
-        self
-    }
-
-    pub(crate) fn direction_for(&self, snake_id: &str) -> Option<Direction> {
-        self.moves.get(snake_id).copied()
-    }
-}
+use super::joint_action::JointAction;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum EliminationCause {
