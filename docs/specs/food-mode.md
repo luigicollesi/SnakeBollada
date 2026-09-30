@@ -1,7 +1,7 @@
 # SPEC — Food Mode
 
-**Status:** Planejado  
-**Branch alvo:** `spec/opponent-mobility-v2`  
+**Status:** Em implementação — root-state slice funcional  
+**Branch alvo:** `dev`  
 **Depende de:** `decision-making.md`, `enemy-tracing.md`  
 **Substitui conceitualmente:** a estratégia `basic-v1` como modo alimentar
 
@@ -281,11 +281,37 @@ Tudo isso pertence ao Decision Engine.
 
 ## 16. Critérios de aceite
 
-- [ ] nenhuma BFS Snake → Food é executada dentro do modo;
-- [ ] todas as comidas usam a matriz central;
-- [ ] competição de todas as cobras é considerada;
-- [ ] até dois objetivos são retornados;
-- [ ] direções iniciais distintas são preservadas quando úteis;
+- [x] nenhuma BFS Snake → Food é executada dentro do modo;
+- [x] todas as comidas usam a matriz central;
+- [x] competição de todas as cobras é considerada;
+- [x] até dois objetivos são retornados;
+- [x] direções iniciais distintas são preservadas quando úteis;
 - [ ] benefício alimentar é instantâneo e causal;
-- [ ] Food Mode não contém política de borda/quina;
-- [ ] Food Mode não mistura eventos de rotas diferentes.
+- [x] Food Mode não contém política de borda/quina;
+- [x] Food Mode não mistura eventos de rotas diferentes.
+
+
+## 17. Estado da implementação V1
+
+Implementado no `dev`:
+
+- `src/direction.rs`: `Direction` compartilhado e `MoveMask` de 4 bits;
+- `src/analysis/routes.rs`: uma BFS por cobra viva para todas as comidas conhecidas;
+- preservação de todos os first moves pertencentes a caminhos mínimos;
+- `StateAnalysis` central com `FoodRouteInfo` e `FoodClaimInfo`;
+- comparação de ETA de todas as cobras para cada comida;
+- `src/modes/food.rs`: seleção determinística de até dois candidatos;
+- preferência por direções iniciais distintas;
+- fruta mais distante e claimable pode superar fruta próxima perdida para adversário;
+- `strategy::choose_move` usa Food Mode e mantém validação imediata de perigo, Flood Fill e hazards;
+- estratégia registrada na telemetria como `food-mode-v1`;
+- o BFS alimentar anterior foi removido de `navigation.rs`.
+
+Ainda depende do futuro Decision/TurnResolver:
+
+- emissão real de `InstantEvent::AteFood`;
+- avaliação benefício − malefício de rotas E2E;
+- invalidação do FutureGraph por spawn;
+- confiança provisional por branch;
+- ponderação por agressividade;
+- pressão de health integrada à busca futura.
