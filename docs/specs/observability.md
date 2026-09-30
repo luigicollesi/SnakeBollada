@@ -1,6 +1,6 @@
 # SPEC — Observabilidade e Memória de Partida
 
-**Status:** Planejado  
+**Status:** Em implementação — V1 funcional  
 **Branch alvo:** `dev`  
 **Escopo:** Battlesnake API v1  
 **Objetivo:** manter estado vivo confiável durante a partida e registrar um histórico completo, sem bloquear o caminho crítico de `/move`.
@@ -442,18 +442,34 @@ Casos obrigatórios:
 
 A implementação estará concluída quando:
 
-- [ ] `/start` criar sessão por `game.id`;
-- [ ] turno 0 for registrado;
-- [ ] cada `/move` atualizar ocupação atual;
-- [ ] for possível consultar todas as nossas casas;
-- [ ] for possível consultar todas as casas de adversários;
-- [ ] for possível consultar as casas de um adversário específico;
-- [ ] movimentos conhecidos de adversários forem derivados corretamente;
-- [ ] nosso movimento e tempo de decisão forem registrados;
-- [ ] `/end` finalizar e remover a sessão;
-- [ ] uma partida gerar um arquivo JSON completo;
-- [ ] telemetria não executar I/O bloqueante no caminho de `/move`;
+- [x] `/start` criar sessão por `game.id`;
+- [x] turno 0 for registrado;
+- [x] cada `/move` atualizar ocupação atual;
+- [x] for possível consultar todas as nossas casas;
+- [x] for possível consultar todas as casas de adversários;
+- [x] for possível consultar as casas de um adversário específico;
+- [x] movimentos conhecidos de adversários forem derivados corretamente;
+- [x] nosso movimento e tempo de decisão forem registrados;
+- [x] `/end` finalizar e remover a sessão;
+- [x] uma partida gerar um arquivo JSON completo;
+- [x] telemetria não executar I/O bloqueante no caminho de `/move`;
 - [ ] testes cobrirem os casos acima.
+
+## 19. Implementação V1
+
+Implementação inicial:
+
+- `src/runtime.rs`: registry concorrente, estado vivo, ocupação e derivação de movimentos;
+- `src/telemetry.rs`: snapshots, decisões, recorder assíncrono e persistência JSON;
+- `src/board_mask.rs`: representação compacta das casas ocupadas;
+- persistência local em `data/games/<game-id>.json`;
+- canal de telemetria limitado a 1024 eventos;
+- recuperação automática quando `/move` chega sem sessão conhecida.
+
+Ainda pendente para fechar integralmente a spec:
+
+- ampliar testes de concorrência, duplicidade e falha de storage;
+- TTL para sessões que nunca recebem `/end`.
 
 ## 19. Referências
 
