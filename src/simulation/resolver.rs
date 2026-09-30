@@ -523,7 +523,7 @@ mod tests {
     fn body_collision_eliminates_moving_snake() {
         let initial = state(vec![
             snake("ours", 100, &[(1, 2), (1, 1), (1, 0)]),
-            snake("enemy", 100, &[(4, 4), (3, 4), (2, 4), (2, 3), (2, 2)]),
+            snake(\n                "enemy",\n                100,\n                &[(4, 4), (3, 4), (2, 4), (2, 3), (2, 2), (2, 1)],\n            ),
         ]);
         let action = JointAction::new()
             .with_move("ours", Direction::Right)
