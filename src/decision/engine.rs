@@ -37,8 +37,7 @@ impl DecisionEngine {
 
     pub(crate) fn decide_with_graph(&self, state: &GameState, graph: &mut FutureGraph) -> Decision {
         let budget = SearchBudget::from_state(state);
-        let Ok(expansion) =
-            graph.expand_iteratively(TARGET_DEPTH, MAX_ITERATIVE_DEPTH, &budget)
+        let Ok(expansion) = graph.expand_iteratively(TARGET_DEPTH, MAX_ITERATIVE_DEPTH, &budget)
         else {
             return choose_move_baseline(state);
         };
@@ -89,8 +88,8 @@ impl DecisionEngine {
                 cache_invalidation: CacheInvalidationReason::None,
                 elapsed_us: expansion.elapsed_us,
                 safety_reserve_us: expansion.safety_reserve_us,
-                aggression_milli: (root.state.aggression.value.clamp(0.0, 1.0) * 1000.0)
-                    .round() as u16,
+                aggression_milli: (root.state.aggression.value.clamp(0.0, 1.0) * 1000.0).round()
+                    as u16,
             },
         }
     }
