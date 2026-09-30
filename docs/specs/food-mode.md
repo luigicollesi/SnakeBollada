@@ -315,3 +315,31 @@ Ainda depende do futuro Decision/TurnResolver:
 - confiança provisional por branch;
 - ponderação por agressividade;
 - pressão de health integrada à busca futura.
+
+
+## 17. Estado da implementação root-state
+
+Implementado em `dev`:
+
+- `Direction` e `MoveMask` compartilhados;
+- `StateAnalysis` central;
+- uma BFS por cobra viva para todas as comidas conhecidas;
+- preservação de todos os primeiros movimentos pertencentes a menores caminhos;
+- `SnakeFoodRouteMatrix` implícita no `StateAnalysis`;
+- `FoodClaimInfo` derivado sem novas BFS;
+- comparação de ETA entre nossa cobra e todos os adversários;
+- `FoodModeOutput` com no máximo dois candidatos e direções iniciais distintas;
+- estratégia atual consumindo `FoodModeOutput`;
+- competição por comida podendo superar distância puramente geométrica;
+- Danger Map, Flood Fill e preferência imediata por não entrar em hazard permanecendo fora do Food Mode;
+- `STRATEGY_VERSION = "food-mode-v1"`.
+
+Ainda depende de `decision-making.md` / TurnResolver:
+
+- emissão de `InstantEvent::AteFood`;
+- benefício alimentar causal em rotas E2E;
+- invalidação do FutureGraph por spawn;
+- ponderação de branches provisórios;
+- agressividade Food × Hunting;
+- busca depth 3+;
+- política de bordas/quinas.
