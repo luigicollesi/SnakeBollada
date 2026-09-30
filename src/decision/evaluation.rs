@@ -5,6 +5,7 @@ use std::collections::HashMap;
 use crate::direction::Direction;
 use crate::forecast::ForecastCertainty;
 use crate::modes::survival::{SurvivalRouteAssessment, SurvivalStateSnapshot};
+use crate::search::budget::SearchBudget;
 use crate::search::graph::{FutureGraph, NodeId};
 use crate::simulation::resolver::{ForecastDelta, InstantEvent};
 
@@ -43,6 +44,22 @@ pub(crate) struct DirectionEvaluation {
 }
 
 pub(crate) fn evaluate_graph(graph: &FutureGraph, target_depth: u8) -> Vec<DirectionEvaluation> {
+    evaluate_graph_inner(graph, target_depth, None).unwrap_or_default()
+}
+
+pub(crate) fn evaluate_graph_budgeted(
+    graph: &FutureGraph,
+    target_depth: u8,
+    budget: &SearchBudget,
+) -> Option<Vec<DirectionEvaluation>> {
+    evaluate_graph_inner(graph, target_depth, Some(budget))
+}
+
+fn evaluate_graph_inner(
+    graph: &FutureGraph,
+    target_depth: u8,
+    budget: Option<&SearchBudget>,
+) -> Option<Vec<DirectionEvaluation>> {
     let root = graph.node(graph.root());
     let root_snapshot = SurvivalStateSnapshot::from_tactical(&root.state, &root.tactical);
 
@@ -54,21 +71,33 @@ pub(crate) fn evaluate_graph(graph: &FutureGraph, target_depth: u8) -> Vec<Direc
     };
 
     let mut routes = Vec::new();
-    walk_routes(graph, graph.root(), 0, target_depth, &context, &mut routes);
+    if !walk_routes(
+        graph,
+        graph.root(),
+        0,
+        target_depth,
+        &context,
+        &mut routes,
+        budget,
+    ) {
+        return None;
+    }
 
-    Direction::ALL
-        .into_iter()
-        .filter_map(|direction| {
-            let direction_routes = routes
-                .iter()
-                .filter(|route| route.initial_move == direction)
-                .cloned()
-                .collect::<Vec<_>>();
+    Some(
+        Direction::ALL
+            .into_iter()
+            .filter_map(|direction| {
+                let direction_routes = routes
+                    .iter()
+                    .filter(|route| route.initial_move == direction)
+                    .cloned()
+                    .collect::<Vec<_>>();
 
-            (!direction_routes.is_empty())
-                .then(|| DirectionEvaluation::from_routes(direction, direction_routes))
-        })
-        .collect()
+                (!direction_routes.is_empty())
+                    .then(|| DirectionEvaluation::from_routes(direction, direction_routes))
+            })
+            .collect(),
+    )
 }
 
 #[derive(Debug, Clone)]
@@ -86,7 +115,12 @@ fn walk_routes(
     target_depth: u8,
     context: &RouteContext,
     routes: &mut Vec<RouteEvaluation>,
-) {
+    budget: Option<&SearchBudget>,
+) -> bool {
+    if budget.is_some_and(SearchBudget::expired) {
+        return false;
+    }
+
     let node = graph.node(node_id);
 
     if depth >= target_depth || node.children.is_empty() {
@@ -105,10 +139,13 @@ fn walk_routes(
                 ));
             }
         }
-        return;
+        return true;
     }
 
     for edge in &node.children {
+        if budget.is_some_and(SearchBudget::expired) {
+            return false;
+        }
         let child = graph.node(edge.child);
         let initial_move = context
             .initial_move
@@ -134,7 +171,7 @@ fn walk_routes(
             _ => ForecastCertainty::Deterministic,
         };
 
-        walk_routes(
+        if !walk_routes(
             graph,
             edge.child,
             depth.saturating_add(1),
@@ -146,8 +183,13 @@ fn walk_routes(
                 certainty,
             },
             routes,
-        );
+            budget,
+        ) {
+            return false;
+        }
     }
+
+    true
 }
 
 fn finalize_route(
