@@ -4,7 +4,6 @@ use std::collections::{HashMap, VecDeque};
 
 use crate::board_mask::BoardMask;
 use crate::direction::{Direction, MoveMask};
-use crate::forecast::ForecastCertainty;
 use crate::simulation::state::SimulatedGameState;
 use crate::{Coord, GameState};
 
@@ -139,21 +138,20 @@ impl SnakeRouteField {
 
 #[derive(Debug, Clone)]
 pub(crate) struct StateAnalysis {
-    pub(crate) certainty: ForecastCertainty,
     routes: HashMap<String, HashMap<Coord, FoodRouteInfo>>,
     claims: HashMap<Coord, FoodClaimInfo>,
 }
 
 impl StateAnalysis {
-    pub(crate) fn from_state(state: &GameState, certainty: ForecastCertainty) -> Self {
-        Self::from_analysis_state(&AnalysisState::from_game_state(state), certainty)
+    pub(crate) fn from_state(state: &GameState) -> Self {
+        Self::from_analysis_state(&AnalysisState::from_game_state(state))
     }
 
-    pub(crate) fn from_simulated(state: &SimulatedGameState, certainty: ForecastCertainty) -> Self {
-        Self::from_analysis_state(&AnalysisState::from_simulated(state), certainty)
+    pub(crate) fn from_simulated(state: &SimulatedGameState) -> Self {
+        Self::from_analysis_state(&AnalysisState::from_simulated(state))
     }
 
-    fn from_analysis_state(state: &AnalysisState, certainty: ForecastCertainty) -> Self {
+    fn from_analysis_state(state: &AnalysisState) -> Self {
         let mut routes = HashMap::new();
 
         for snake in &state.snakes {
@@ -174,11 +172,7 @@ impl StateAnalysis {
             .map(|food| (food, derive_food_claim(state, &routes, food)))
             .collect();
 
-        Self {
-            certainty,
-            routes,
-            claims,
-        }
+        Self { routes, claims }
     }
 
     pub(crate) fn route_for(&self, snake_id: &str, food: Coord) -> Option<&FoodRouteInfo> {
@@ -388,24 +382,12 @@ mod tests {
     }
 
     #[test]
-    fn certainty_is_preserved() {
-        let ours = snake("ours", vec![Coord { x: 1, y: 1 }]);
-        let analysis = StateAnalysis::from_state(
-            &state(ours, vec![], vec![]),
-            ForecastCertainty::FoodProvisional,
-        );
-
-        assert_eq!(analysis.certainty, ForecastCertainty::FoodProvisional);
-    }
-
-    #[test]
     fn one_route_field_serves_multiple_foods() {
         let ours = snake("ours", vec![Coord { x: 1, y: 1 }, Coord { x: 1, y: 0 }]);
         let f1 = Coord { x: 3, y: 1 };
         let f2 = Coord { x: 1, y: 3 };
         let analysis = StateAnalysis::from_state(
             &state(ours, vec![], vec![f1, f2]),
-            ForecastCertainty::Deterministic,
         );
 
         assert_eq!(analysis.route_for("ours", f1).unwrap().distance, Some(2));
@@ -419,9 +401,9 @@ mod tests {
         let api_state = state(ours, vec![], vec![food]);
         let simulated = SimulatedGameState::from(&api_state);
 
-        let api_analysis = StateAnalysis::from_state(&api_state, ForecastCertainty::Deterministic);
+        let api_analysis = StateAnalysis::from_state(&api_state);
         let simulated_analysis =
-            StateAnalysis::from_simulated(&simulated, ForecastCertainty::Deterministic);
+            StateAnalysis::from_simulated(&simulated);
 
         assert_eq!(
             api_analysis.route_for("ours", food),
@@ -435,7 +417,6 @@ mod tests {
         let food = Coord { x: 2, y: 2 };
         let analysis = StateAnalysis::from_state(
             &state(ours, vec![], vec![food]),
-            ForecastCertainty::Deterministic,
         );
         let route = analysis.route_for("ours", food).unwrap();
 
@@ -462,7 +443,6 @@ mod tests {
         let food = Coord { x: 4, y: 1 };
         let analysis = StateAnalysis::from_state(
             &state(ours, vec![wall], vec![food]),
-            ForecastCertainty::Deterministic,
         );
 
         let route = analysis.route_for("ours", food).unwrap();
@@ -484,7 +464,6 @@ mod tests {
         );
         let analysis = StateAnalysis::from_state(
             &state(unique, vec![], vec![food]),
-            ForecastCertainty::Deterministic,
         );
         assert_eq!(analysis.route_for("ours", food).unwrap().distance, Some(1));
 
@@ -500,7 +479,6 @@ mod tests {
         );
         let analysis = StateAnalysis::from_state(
             &state(stacked, vec![], vec![stacked_food]),
-            ForecastCertainty::Deterministic,
         );
         assert!(!analysis.route_for("ours", stacked_food).unwrap().reachable);
     }
@@ -520,7 +498,6 @@ mod tests {
         );
         let analysis = StateAnalysis::from_state(
             &state(ours, vec![enemy], vec![food]),
-            ForecastCertainty::Deterministic,
         );
 
         assert!(!analysis.route_for("ours", food).unwrap().reachable);
@@ -534,7 +511,6 @@ mod tests {
         let food = Coord { x: 2, y: 0 };
         let analysis = StateAnalysis::from_state(
             &state(ours, vec![enemy_a, enemy_b], vec![food]),
-            ForecastCertainty::Deterministic,
         );
         let claim = analysis.claim_for(food).unwrap();
 
@@ -552,7 +528,6 @@ mod tests {
         let food = Coord { x: 2, y: 0 };
         let analysis = StateAnalysis::from_state(
             &state(ours, vec![enemy_a, enemy_b], vec![food]),
-            ForecastCertainty::Deterministic,
         );
 
         let competitor = analysis
@@ -570,7 +545,6 @@ mod tests {
         let food = Coord { x: 2, y: 0 };
         let analysis = StateAnalysis::from_state(
             &state(ours, vec![enemy], vec![food]),
-            ForecastCertainty::Deterministic,
         );
 
         assert!(analysis.claim_for(food).unwrap().contested);
@@ -594,7 +568,6 @@ mod tests {
         let food = Coord { x: 1, y: 1 };
         let analysis = StateAnalysis::from_state(
             &state(ours, vec![enemy], vec![food]),
-            ForecastCertainty::Deterministic,
         );
         let claim = analysis.claim_for(food).unwrap();
 
