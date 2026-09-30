@@ -13,8 +13,13 @@ pub(crate) const STRATEGY_VERSION: &str = "future-search-v1";
 #[derive(Deserialize, Serialize, Debug, Clone, Copy, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum DecisionReason {
-    NearestSafeFood,
-    SurvivalFallback,
+    SurvivalCritical,
+    FutureMobility,
+    FoodStrategic,
+    HuntingTactical,
+    ReservedEscape,
+    DeterministicTieBreak,
+    BaselineFallback,
     OnlyLegalMove,
     NoSafeMove,
 }
@@ -232,7 +237,7 @@ fn choose_food_candidate(
 
         return Some(Decision {
             direction: candidate.first_move,
-            reason: DecisionReason::NearestSafeFood,
+            reason: DecisionReason::FoodStrategic,
             target_food: Some(candidate.target_food),
             path_distance: Some(candidate.distance),
             reachable_cells: reachable,
@@ -287,7 +292,7 @@ fn survival_fallback(
 
     Decision {
         direction: best.0,
-        reason: DecisionReason::SurvivalFallback,
+        reason: DecisionReason::FutureMobility,
         target_food: None,
         path_distance: None,
         reachable_cells: best.1,
@@ -353,7 +358,7 @@ mod tests {
 
         let decision = choose_move(&state);
         assert_eq!(decision.direction, Direction::Right);
-        assert_eq!(decision.reason, DecisionReason::NearestSafeFood);
+        assert_eq!(decision.reason, DecisionReason::FoodStrategic);
     }
 
     #[test]
@@ -412,7 +417,7 @@ mod tests {
 
         let decision = choose_move(&state);
 
-        assert_eq!(decision.reason, DecisionReason::SurvivalFallback);
+        assert_eq!(decision.reason, DecisionReason::FutureMobility);
         assert_eq!(decision.target_food, None);
     }
 
