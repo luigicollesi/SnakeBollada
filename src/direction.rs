@@ -122,6 +122,7 @@ mod tests {
         mask.insert(Direction::Up);
         mask.insert(Direction::Right);
 
+        assert!(!mask.is_empty());
         assert!(mask.contains(Direction::Up));
         assert!(mask.contains(Direction::Right));
         assert_eq!(mask.len(), 2);
