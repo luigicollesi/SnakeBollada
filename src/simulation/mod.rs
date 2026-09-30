@@ -1,4 +1,4 @@
 #![allow(dead_code)]
 
 mod resolver;
-mod state;
+pub(crate) mod state;
