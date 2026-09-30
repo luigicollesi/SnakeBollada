@@ -73,10 +73,7 @@ impl EnemyTracingOutput {
     }
 }
 
-pub(crate) fn trace(
-    state: &SimulatedGameState,
-    analysis: &StateAnalysis,
-) -> EnemyTracingOutput {
+pub(crate) fn trace(state: &SimulatedGameState, analysis: &StateAnalysis) -> EnemyTracingOutput {
     let mobility = MobilityAnalysis::from_state(state);
     let mut enemies = HashMap::new();
 
@@ -116,21 +113,10 @@ fn trace_enemy(
 
     let mut plausible_moves = legal_moves;
 
-    plausible_moves = apply_space_filter(
-        state,
-        mobility,
-        enemy,
-        plausible_moves,
-        &mut eliminations,
-    );
+    plausible_moves =
+        apply_space_filter(state, mobility, enemy, plausible_moves, &mut eliminations);
 
-    plausible_moves = apply_food_filter(
-        state,
-        analysis,
-        enemy,
-        plausible_moves,
-        &mut eliminations,
-    );
+    plausible_moves = apply_food_filter(state, analysis, enemy, plausible_moves, &mut eliminations);
 
     debug_assert!(plausible_moves.is_subset(legal_moves));
 
@@ -265,10 +251,7 @@ mod tests {
         SimulatedSnake {
             id: id.to_string(),
             health,
-            body: body
-                .iter()
-                .map(|(x, y)| Coord { x: *x, y: *y })
-                .collect(),
+            body: body.iter().map(|(x, y)| Coord { x: *x, y: *y }).collect(),
             alive: true,
         }
     }
@@ -307,10 +290,7 @@ mod tests {
     fn dead_enemies_are_ignored() {
         let mut dead = snake("dead", 100, &[(4, 4)]);
         dead.alive = false;
-        let state = state(
-            vec![snake("ours", 100, &[(1, 1)]), dead],
-            vec![],
-        );
+        let state = state(vec![snake("ours", 100, &[(1, 1)]), dead], vec![]);
 
         let output = trace(&state, &analyze(&state));
 
@@ -355,11 +335,7 @@ mod tests {
         let state = state(
             vec![
                 snake("ours", 100, &[(6, 6), (6, 5)]),
-                snake(
-                    "enemy",
-                    100,
-                    &[(1, 2), (1, 1), (0, 1), (0, 0)],
-                ),
+                snake("enemy", 100, &[(1, 2), (1, 1), (0, 1), (0, 0)]),
                 snake(
                     "wall",
                     100,
@@ -419,10 +395,7 @@ mod tests {
             ],
             vec![],
         );
-        state.hazards = vec![
-            Coord { x: 1, y: 0 },
-            Coord { x: 0, y: 1 },
-        ];
+        state.hazards = vec![Coord { x: 1, y: 0 }, Coord { x: 0, y: 1 }];
         state.rules.hazard_damage_per_turn = 100;
 
         let output = trace(&state, &analyze(&state));
