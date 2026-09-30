@@ -29,7 +29,42 @@ pub(crate) enum CacheInvalidationReason {
     StateMismatch,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Deserialize, Serialize, Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct DirectionOutcomeSummary {
+    pub(crate) direction: Direction,
+    pub(crate) available: bool,
+    pub(crate) total_routes: u32,
+    pub(crate) death_routes: u32,
+    pub(crate) dead_end_routes: u32,
+    pub(crate) forced_routes: u32,
+    pub(crate) constrained_routes: u32,
+    pub(crate) min_future_mobility: u8,
+    pub(crate) min_reachable_space: u32,
+    pub(crate) worst_utility_milli: i32,
+    pub(crate) average_utility_milli: i32,
+    pub(crate) reserved_override: bool,
+}
+
+impl DirectionOutcomeSummary {
+    pub(crate) const fn empty(direction: Direction) -> Self {
+        Self {
+            direction,
+            available: false,
+            total_routes: 0,
+            death_routes: 0,
+            dead_end_routes: 0,
+            forced_routes: 0,
+            constrained_routes: 0,
+            min_future_mobility: 0,
+            min_reachable_space: 0,
+            worst_utility_milli: 0,
+            average_utility_milli: 0,
+            reserved_override: false,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct SearchMetadata {
     pub(crate) completed_depth: u8,
     pub(crate) nodes: u32,
@@ -40,6 +75,29 @@ pub(crate) struct SearchMetadata {
     pub(crate) elapsed_us: u64,
     pub(crate) safety_reserve_us: u64,
     pub(crate) aggression_milli: u16,
+    pub(crate) direction_outcomes: [DirectionOutcomeSummary; 4],
+}
+
+impl Default for SearchMetadata {
+    fn default() -> Self {
+        Self {
+            completed_depth: 0,
+            nodes: 0,
+            edges: 0,
+            transposition_hits: 0,
+            cache_reused: false,
+            cache_invalidation: CacheInvalidationReason::None,
+            elapsed_us: 0,
+            safety_reserve_us: 0,
+            aggression_milli: 0,
+            direction_outcomes: [
+                DirectionOutcomeSummary::empty(Direction::Up),
+                DirectionOutcomeSummary::empty(Direction::Right),
+                DirectionOutcomeSummary::empty(Direction::Down),
+                DirectionOutcomeSummary::empty(Direction::Left),
+            ],
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
