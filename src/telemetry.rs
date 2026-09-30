@@ -12,7 +12,9 @@ use tokio::fs;
 use tokio::sync::mpsc;
 
 use crate::direction::Direction;
-use crate::strategy::{Decision, DecisionReason, STRATEGY_VERSION};
+use crate::strategy::{
+    CacheInvalidationReason, Decision, DecisionReason, STRATEGY_VERSION,
+};
 use crate::{Battlesnake, Coord, GameState};
 
 #[derive(Deserialize, Serialize, Debug, Clone, Copy, PartialEq, Eq)]
@@ -108,6 +110,19 @@ impl From<&Battlesnake> for SnakeSnapshot {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
+pub(crate) struct SearchRecord {
+    pub(crate) completed_depth: u8,
+    pub(crate) nodes: u32,
+    pub(crate) edges: u32,
+    pub(crate) transposition_hits: u32,
+    pub(crate) cache_reused: bool,
+    pub(crate) cache_invalidation: CacheInvalidationReason,
+    pub(crate) elapsed_us: u64,
+    pub(crate) safety_reserve_us: u64,
+    pub(crate) aggression_milli: u16,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub(crate) struct DecisionRecord {
     pub(crate) turn: i32,
     pub(crate) chosen_move: Direction,
@@ -117,6 +132,7 @@ pub(crate) struct DecisionRecord {
     pub(crate) target_food: Option<Coord>,
     pub(crate) path_distance: Option<u16>,
     pub(crate) reachable_cells: u32,
+    pub(crate) search: SearchRecord,
 }
 
 impl DecisionRecord {
@@ -130,6 +146,17 @@ impl DecisionRecord {
             target_food: decision.target_food,
             path_distance: decision.path_distance,
             reachable_cells: decision.reachable_cells,
+            search: SearchRecord {
+                completed_depth: decision.search.completed_depth,
+                nodes: decision.search.nodes,
+                edges: decision.search.edges,
+                transposition_hits: decision.search.transposition_hits,
+                cache_reused: decision.search.cache_reused,
+                cache_invalidation: decision.search.cache_invalidation,
+                elapsed_us: decision.search.elapsed_us,
+                safety_reserve_us: decision.search.safety_reserve_us,
+                aggression_milli: decision.search.aggression_milli,
+            },
         }
     }
 }
@@ -166,7 +193,7 @@ impl GameRecord {
         let initial_turn = start.initial_snapshot.turn;
 
         Self {
-            schema_version: 1,
+            schema_version: 2,
             game_id: start.game_id,
             ruleset: start.ruleset,
             timeout_ms: start.timeout_ms,
