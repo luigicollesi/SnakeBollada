@@ -75,6 +75,14 @@ impl EnemyTracingOutput {
 
 pub(crate) fn trace(state: &SimulatedGameState, analysis: &StateAnalysis) -> EnemyTracingOutput {
     let mobility = MobilityAnalysis::from_state(state);
+    trace_with_mobility(state, analysis, &mobility)
+}
+
+pub(crate) fn trace_with_mobility(
+    state: &SimulatedGameState,
+    analysis: &StateAnalysis,
+    mobility: &MobilityAnalysis,
+) -> EnemyTracingOutput {
     let mut enemies = HashMap::new();
 
     for enemy in state
@@ -84,7 +92,7 @@ pub(crate) fn trace(state: &SimulatedGameState, analysis: &StateAnalysis) -> Ene
     {
         enemies.insert(
             enemy.id.clone(),
-            trace_enemy(state, analysis, &mobility, enemy),
+            trace_enemy(state, analysis, mobility, enemy),
         );
     }
 
