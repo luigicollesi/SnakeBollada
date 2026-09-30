@@ -1,8 +1,27 @@
 # SPEC — Hunting Mode
 
-**Status:** Planejado  
-**Branch alvo:** `spec/opponent-mobility-v2`  
+**Status:** V1 implementado; integração multi-turn com FutureGraph pendente  
+**Branch alvo:** `dev`  
 **Depende de:** `enemy-tracing.md`, `decision-making.md`
+
+## Estado da implementação
+
+Implementado em `dev`:
+
+- candidatos de head-to-head favorável baseados em `ThreatMap`;
+- snapshots táticos por inimigo;
+- comparação before/after de mobilidade plausível;
+- eventos `EnemyForced` e `EnemyTrapped` derivados por transição;
+- kills e head-to-head continuam exclusivos do `TurnResolver`;
+- eventos de Hunting permanecem específicos da edge/rota.
+
+Pendente do FutureGraph:
+
+- redução de mobilidade avaliada ao longo de múltiplas profundidades;
+- seleção profunda de alvos por orçamento;
+- choke/articulation points;
+- desconto por estados `FoodProvisional`;
+- agregação final de valor ofensivo pelo Decision Engine.
 
 ## 1. Objetivo
 
