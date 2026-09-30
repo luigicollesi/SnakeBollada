@@ -1,9 +1,21 @@
 # SPEC — Enemy Tracing
 
-**Status:** Planejado  
-**Branch alvo:** `spec/opponent-mobility-v2`  
+**Status:** Implementado V1  
+**Branch alvo:** `dev`  
 **Depende de:** `decision-making.md`  
 **Substitui:** `opponent-mobility-v2.md`
+
+## Estado da implementação
+
+Implementado em `dev`:
+
+- `legal_moves` com hard constraints determinísticos;
+- `plausible_moves` conservador com space filter e food intent;
+- fallback para cobras já condenadas sem contaminar o ThreatMap;
+- uso da mesma `MobilityAnalysis` e `StateAnalysis` do node;
+- participação de todos os adversários vivos no produto cartesiano de ações;
+- telemetria de coverage comparando o movimento real observado no turno seguinte contra os conjuntos legal/plausible;
+- ordem determinística e nenhuma recursão interna: profundidade continua pertencendo exclusivamente ao FutureGraph.
 
 ## 1. Objetivo
 
