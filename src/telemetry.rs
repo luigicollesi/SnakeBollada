@@ -30,7 +30,7 @@ pub(crate) enum ObservedMove {
 pub(crate) enum TelemetryEvent {
     Start(StartRecord),
     TurnSnapshot(TurnSnapshot),
-    OurDecision(DecisionRecord),
+    OurDecision(Box<DecisionRecord>),
     End(EndRecord),
 }
 
@@ -331,7 +331,7 @@ pub(crate) async fn run_recorder(
             }
             TelemetryEvent::OurDecision(decision) => {
                 if let Some(record) = game_record.as_mut() {
-                    record.upsert_decision(decision);
+                    record.upsert_decision(*decision);
                 } else {
                     warn!("received decision before telemetry start");
                 }
