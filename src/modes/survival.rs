@@ -120,9 +120,7 @@ mod tests {
     use crate::analysis::StateAnalysis;
     use crate::enemy::tracing::trace;
     use crate::forecast::ForecastCertainty;
-    use crate::simulation::state::{
-        AggressionState, RulesContext, SimulatedSnake,
-    };
+    use crate::simulation::state::{AggressionState, RulesContext, SimulatedSnake};
     use crate::Coord;
 
     use super::*;
@@ -155,8 +153,7 @@ mod tests {
     }
 
     fn tactical(state: &SimulatedGameState) -> TacticalStateAnalysis {
-        let analysis =
-            StateAnalysis::from_simulated(state, ForecastCertainty::Deterministic);
+        let analysis = StateAnalysis::from_simulated(state, ForecastCertainty::Deterministic);
         let tracing = trace(state, &analysis);
         TacticalStateAnalysis::from_state(state, &tracing)
     }
