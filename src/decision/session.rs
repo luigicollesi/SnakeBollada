@@ -53,8 +53,7 @@ impl DecisionState {
                     FutureGraph::new(normalized)
                 } else if food_spawned {
                     cache_invalidation = CacheInvalidationReason::FoodSpawn;
-                    self.food_spawn_invalidations =
-                        self.food_spawn_invalidations.saturating_add(1);
+                    self.food_spawn_invalidations = self.food_spawn_invalidations.saturating_add(1);
                     FutureGraph::new(normalized)
                 } else if !graph.root_children_match_food(&normalized.food) {
                     cache_invalidation = CacheInvalidationReason::FoodMutation;
