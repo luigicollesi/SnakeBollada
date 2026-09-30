@@ -1,6 +1,6 @@
 use std::cmp::Ordering;
 
-use crate::decision::evaluation::{evaluate_graph, DirectionEvaluation};
+use crate::decision::evaluation::{evaluate_graph_budgeted, DirectionEvaluation};
 use crate::decision::policy::ReservedCellPolicy;
 use crate::forecast::ForecastCertainty;
 use crate::modes::food;
@@ -38,16 +38,46 @@ impl DecisionEngine {
 
     pub(crate) fn decide_with_graph(&self, state: &GameState, graph: &mut FutureGraph) -> Decision {
         let budget = SearchBudget::from_state(state);
-        let Ok(expansion) = graph.expand_iteratively(TARGET_DEPTH, MAX_ITERATIVE_DEPTH, &budget)
-        else {
-            return choose_move_baseline(state);
-        };
+        let mut completed_depth = 0_u8;
+        let mut evaluations = Vec::new();
+        let mut previous_depth_cost = std::time::Duration::ZERO;
 
-        if expansion.completed_depth == 0 {
+        for depth in 1..=MAX_ITERATIVE_DEPTH {
+            if budget.expired() {
+                break;
+            }
+
+            if depth > TARGET_DEPTH {
+                let estimate = previous_depth_cost
+                    .checked_mul(2)
+                    .unwrap_or(std::time::Duration::MAX)
+                    .max(std::time::Duration::from_millis(1));
+                if !budget.can_afford(estimate) {
+                    break;
+                }
+            }
+
+            let depth_started = std::time::Instant::now();
+            let Ok(expansion_complete) = graph.expand_depth(depth, &budget) else {
+                return choose_move_baseline(state);
+            };
+            if !expansion_complete {
+                break;
+            }
+
+            let Some(depth_evaluations) = evaluate_graph_budgeted(graph, depth, &budget) else {
+                break;
+            };
+
+            previous_depth_cost = depth_started.elapsed();
+            completed_depth = depth;
+            evaluations = depth_evaluations;
+        }
+
+        if completed_depth == 0 {
             return choose_move_baseline(state);
         }
 
-        let evaluations = evaluate_graph(graph, expansion.completed_depth);
         let root = graph.node(graph.root());
 
         let Some(best) = choose_best_direction(
@@ -84,14 +114,14 @@ impl DecisionEngine {
             path_distance: food_target.map(|candidate| candidate.distance),
             reachable_cells,
             search: SearchMetadata {
-                completed_depth: expansion.completed_depth,
-                nodes: expansion.nodes,
-                edges: expansion.edges,
-                transposition_hits: expansion.transposition_hits,
+                completed_depth: completed_depth,
+                nodes: graph.node_count().try_into().unwrap_or(u32::MAX),
+                edges: graph.edge_count(),
+                transposition_hits: graph.transposition_hits(),
                 cache_reused: false,
                 cache_invalidation: CacheInvalidationReason::None,
-                elapsed_us: expansion.elapsed_us,
-                safety_reserve_us: expansion.safety_reserve_us,
+                elapsed_us: budget.elapsed().as_micros().try_into().unwrap_or(u64::MAX),
+                safety_reserve_us: budget.safety_reserve().as_micros().try_into().unwrap_or(u64::MAX),
                 aggression_milli: (root.state.aggression.value.clamp(0.0, 1.0) * 1000.0).round()
                     as u16,
                 enemy_moves_observed: 0,
