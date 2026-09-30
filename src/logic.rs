@@ -1,9 +1,6 @@
 use log::info;
 use serde_json::{json, Value};
 
-use crate::{Battlesnake, Board, Game, GameState};
-use crate::strategy;
-
 pub(crate) fn info() -> Value {
     info!("INFO");
 
@@ -14,27 +11,6 @@ pub(crate) fn info() -> Value {
         "head": "default",
         "tail": "default",
     })
-}
-
-pub(crate) fn start(_game: &Game, _turn: &i32, _board: &Board, _you: &Battlesnake) {
-    info!("GAME START");
-}
-
-pub(crate) fn end(_game: &Game, _turn: &i32, _board: &Board, _you: &Battlesnake) {
-    info!("GAME OVER");
-}
-
-pub(crate) fn get_move(state: &GameState) -> Value {
-    let decision = strategy::choose_move(state);
-
-    info!(
-        "MOVE {}: {} ({:?})",
-        state.turn,
-        decision.direction.as_str(),
-        decision.reason
-    );
-
-    json!({ "move": decision.direction.as_str() })
 }
 
 #[cfg(test)]
