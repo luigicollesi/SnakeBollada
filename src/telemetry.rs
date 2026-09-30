@@ -77,12 +77,7 @@ impl TurnSnapshot {
             captured_at_ms: now_ms(),
             food: state.board.food.clone(),
             hazards: state.board.hazards.clone(),
-            snakes: state
-                .board
-                .snakes
-                .iter()
-                .map(SnakeSnapshot::from)
-                .collect(),
+            snakes: state.board.snakes.iter().map(SnakeSnapshot::from).collect(),
             observed_moves,
         }
     }
@@ -124,11 +119,7 @@ pub(crate) struct DecisionRecord {
 }
 
 impl DecisionRecord {
-    pub(crate) fn from_decision(
-        turn: i32,
-        decision_time_us: u64,
-        decision: &Decision,
-    ) -> Self {
+    pub(crate) fn from_decision(turn: i32, decision_time_us: u64, decision: &Decision) -> Self {
         Self {
             turn,
             chosen_move: decision.direction,
