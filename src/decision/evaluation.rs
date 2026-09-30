@@ -413,7 +413,7 @@ mod tests {
             ..tactical.clone()
         };
 
-        assert!(confirms_reserved_override(&[tactical.clone()]));
+        assert!(confirms_reserved_override(std::slice::from_ref(&tactical)));
         assert!(!confirms_reserved_override(&[tactical, food_only]));
     }
 
