@@ -65,6 +65,33 @@ impl DirectionOutcomeSummary {
     }
 }
 
+#[derive(Deserialize, Serialize, Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct DepthSearchStats {
+    pub(crate) depth: u8,
+    pub(crate) completed: bool,
+    pub(crate) frontier_nodes: u32,
+    pub(crate) new_nodes: u32,
+    pub(crate) edges_generated: u32,
+    pub(crate) branching_milli: u32,
+    pub(crate) expansion_us: u64,
+    pub(crate) evaluation_us: u64,
+}
+
+impl DepthSearchStats {
+    pub(crate) const fn empty(depth: u8) -> Self {
+        Self {
+            depth,
+            completed: false,
+            frontier_nodes: 0,
+            new_nodes: 0,
+            edges_generated: 0,
+            branching_milli: 0,
+            expansion_us: 0,
+            evaluation_us: 0,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct SearchMetadata {
     pub(crate) completed_depth: u8,
@@ -81,6 +108,7 @@ pub(crate) struct SearchMetadata {
     pub(crate) enemy_moves_plausible_covered: u16,
     pub(crate) food_spawn_invalidations: u32,
     pub(crate) food_mutation_invalidations: u32,
+    pub(crate) depth_stats: [DepthSearchStats; 6],
     pub(crate) direction_outcomes: [DirectionOutcomeSummary; 4],
 }
 
@@ -101,6 +129,14 @@ impl Default for SearchMetadata {
             enemy_moves_plausible_covered: 0,
             food_spawn_invalidations: 0,
             food_mutation_invalidations: 0,
+            depth_stats: [
+                DepthSearchStats::empty(1),
+                DepthSearchStats::empty(2),
+                DepthSearchStats::empty(3),
+                DepthSearchStats::empty(4),
+                DepthSearchStats::empty(5),
+                DepthSearchStats::empty(6),
+            ],
             direction_outcomes: [
                 DirectionOutcomeSummary::empty(Direction::Up),
                 DirectionOutcomeSummary::empty(Direction::Right),
