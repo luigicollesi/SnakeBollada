@@ -1,6 +1,7 @@
 #![allow(dead_code)]
 
-use crate::analysis::TacticalStateAnalysis;
+use crate::analysis::{EnemyTacticalSnapshot, TacticalStateAnalysis};
+use crate::direction::Direction;
 use crate::simulation::resolver::{InstantEvent, TurnResolution};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -16,7 +17,7 @@ pub(crate) fn analyze_transition(
     let mut events = resolution.events.clone();
 
     derive_survival_events(&mut events, resolution, after);
-    derive_hunting_events(&mut events, before, after);
+    derive_hunting_events(&mut events, before, resolution, after);
 
     TransitionAnalysis { events }
 }
@@ -50,6 +51,7 @@ fn derive_survival_events(
 fn derive_hunting_events(
     events: &mut Vec<InstantEvent>,
     before: &TacticalStateAnalysis,
+    resolution: &TurnResolution,
     after: &TacticalStateAnalysis,
 ) {
     for (enemy_id, before_enemy) in &before.enemies {
@@ -61,9 +63,13 @@ fn derive_hunting_events(
             continue;
         };
 
+        let caused_by_ours =
+            our_body_contributes(&resolution.state, enemy_id, after_enemy);
+
         if after_enemy.legal_moves.is_empty() {
             events.push(InstantEvent::EnemyTrapped {
                 enemy: enemy_id.clone(),
+                caused_by_ours,
             });
             continue;
         }
@@ -72,9 +78,33 @@ fn derive_hunting_events(
             events.push(InstantEvent::EnemyForced {
                 enemy: enemy_id.clone(),
                 remaining_moves: 1,
+                caused_by_ours,
             });
         }
     }
+}
+
+fn our_body_contributes(
+    state: &crate::simulation::state::SimulatedGameState,
+    enemy_id: &str,
+    enemy: &EnemyTacticalSnapshot,
+) -> bool {
+    let Some(ours) = state.snake(&state.our_snake_id).filter(|snake| snake.alive) else {
+        return false;
+    };
+    let Some(enemy_snake) = state.snake(enemy_id).filter(|snake| snake.alive) else {
+        return false;
+    };
+    let Some(enemy_head) = enemy_snake.head() else {
+        return false;
+    };
+
+    let retained_our_body = &ours.body[..ours.body.len().saturating_sub(1)];
+
+    Direction::ALL.into_iter().any(|direction| {
+        !enemy.legal_moves.contains(direction)
+            && retained_our_body.contains(&direction.apply(enemy_head))
+    })
 }
 
 fn enemy_killed(events: &[InstantEvent], enemy_id: &str) -> bool {
@@ -191,6 +221,7 @@ mod tests {
         assert!(analyzed.events.contains(&InstantEvent::EnemyForced {
             enemy: "enemy".to_string(),
             remaining_moves: 1,
+            caused_by_ours: false,
         }));
     }
 
@@ -218,6 +249,7 @@ mod tests {
 
         assert!(analyzed.events.contains(&InstantEvent::EnemyTrapped {
             enemy: "enemy".to_string(),
+            caused_by_ours: false,
         }));
     }
 
@@ -250,7 +282,25 @@ mod tests {
         assert!(analyzed.events.contains(&InstantEvent::EnemyForced {
             enemy: "enemy".to_string(),
             remaining_moves: 1,
+            caused_by_ours: false,
         }));
+    }
+
+    #[test]
+    fn our_retained_body_marks_tactical_pressure_as_causal() {
+        let state = state(vec![
+            snake("ours", &[(3, 2), (3, 1), (3, 0)]),
+            snake("enemy", &[(2, 2), (2, 1)]),
+        ]);
+        let after_enemy = EnemyTacticalSnapshot {
+            snake_id: "enemy".to_string(),
+            legal_moves: MoveMask::from_iter([Direction::Up, Direction::Left, Direction::Down]),
+            plausible_moves: MoveMask::from_iter([Direction::Up, Direction::Left, Direction::Down]),
+            best_reachable_space: 10,
+            length: 2,
+        };
+
+        assert!(our_body_contributes(&state, "enemy", &after_enemy));
     }
 
     #[test]
