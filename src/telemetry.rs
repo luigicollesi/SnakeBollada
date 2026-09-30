@@ -12,9 +12,7 @@ use tokio::fs;
 use tokio::sync::mpsc;
 
 use crate::direction::Direction;
-use crate::strategy::{
-    CacheInvalidationReason, Decision, DecisionReason, STRATEGY_VERSION,
-};
+use crate::strategy::{CacheInvalidationReason, Decision, DecisionReason, STRATEGY_VERSION};
 use crate::{Battlesnake, Coord, GameState};
 
 #[derive(Deserialize, Serialize, Debug, Clone, Copy, PartialEq, Eq)]
