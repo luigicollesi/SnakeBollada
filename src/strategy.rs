@@ -1,10 +1,13 @@
 use serde::{Deserialize, Serialize};
 
+use crate::analysis::StateAnalysis;
 use crate::direction::Direction;
-use crate::navigation::{food_candidates, reachable_after_move, NavigationMap};
+use crate::forecast::ForecastCertainty;
+use crate::modes::food;
+use crate::navigation::{reachable_after_move, NavigationMap};
 use crate::{Coord, GameState};
 
-pub(crate) const STRATEGY_VERSION: &str = "basic-v1";
+pub(crate) const STRATEGY_VERSION: &str = "food-mode-v1";
 
 #[derive(Deserialize, Serialize, Debug, Clone, Copy, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -52,25 +55,34 @@ pub(crate) fn choose_move(state: &GameState) -> Decision {
         };
     }
 
-    if let Some(decision) = choose_food(&map, state, &legal_moves, false) {
+    let analysis = StateAnalysis::from_state(state, ForecastCertainty::Deterministic);
+    let food_output = food::candidates(state, &analysis);
+
+    if let Some(decision) = choose_food_candidate(&map, state, &legal_moves, &food_output, false) {
         return decision;
     }
 
-    if let Some(decision) = choose_food(&map, state, &legal_moves, true) {
+    if let Some(decision) = choose_food_candidate(&map, state, &legal_moves, &food_output, true) {
         return decision;
     }
 
     survival_fallback(&map, state, &legal_moves)
 }
 
-fn choose_food(
+fn choose_food_candidate(
     map: &NavigationMap,
     state: &GameState,
     legal_moves: &[Direction],
+    output: &food::FoodModeOutput,
     allow_hazards: bool,
 ) -> Option<Decision> {
-    for candidate in food_candidates(map, state.you.head, allow_hazards) {
+    for candidate in &output.candidates {
         if !legal_moves.contains(&candidate.first_move) {
+            continue;
+        }
+
+        let destination = candidate.first_move.apply(state.you.head);
+        if !allow_hazards && map.is_hazard(destination) {
             continue;
         }
 
@@ -82,7 +94,7 @@ fn choose_food(
         return Some(Decision {
             direction: candidate.first_move,
             reason: DecisionReason::NearestSafeFood,
-            target_food: Some(candidate.food),
+            target_food: Some(candidate.target_food),
             path_distance: Some(candidate.distance),
             reachable_cells: reachable,
         });
