@@ -183,7 +183,6 @@ impl DecisionState {
     }
 }
 
-
 fn push_bounded(values: &mut VecDeque<u64>, value: u64) {
     if values.len() == RUNTIME_HISTORY_LIMIT {
         values.pop_front();
