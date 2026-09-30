@@ -12,7 +12,9 @@ use tokio::fs;
 use tokio::sync::mpsc;
 
 use crate::direction::Direction;
-use crate::strategy::{CacheInvalidationReason, Decision, DecisionReason, STRATEGY_VERSION};
+use crate::strategy::{
+    CacheInvalidationReason, Decision, DecisionReason, DirectionOutcomeSummary, STRATEGY_VERSION,
+};
 use crate::{Battlesnake, Coord, GameState};
 
 #[derive(Deserialize, Serialize, Debug, Clone, Copy, PartialEq, Eq)]
@@ -118,6 +120,7 @@ pub(crate) struct SearchRecord {
     pub(crate) elapsed_us: u64,
     pub(crate) safety_reserve_us: u64,
     pub(crate) aggression_milli: u16,
+    pub(crate) direction_outcomes: [DirectionOutcomeSummary; 4],
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -154,6 +157,7 @@ impl DecisionRecord {
                 elapsed_us: decision.search.elapsed_us,
                 safety_reserve_us: decision.search.safety_reserve_us,
                 aggression_milli: decision.search.aggression_milli,
+                direction_outcomes: decision.search.direction_outcomes,
             },
         }
     }
