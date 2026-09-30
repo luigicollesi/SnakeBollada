@@ -16,8 +16,8 @@ pub(crate) struct AggressionState {
 impl AggressionState {
     pub(crate) fn record_food(&mut self) {
         self.fruits_eaten = self.fruits_eaten.saturating_add(1);
-        self.value = (BASE_AGGRESSION + self.fruits_eaten as f32 * AGGRESSION_PER_FOOD)
-            .min(MAX_AGGRESSION);
+        self.value =
+            (BASE_AGGRESSION + self.fruits_eaten as f32 * AGGRESSION_PER_FOOD).min(MAX_AGGRESSION);
     }
 }
 
