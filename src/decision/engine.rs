@@ -28,11 +28,19 @@ impl DecisionEngine {
         }
 
         let mut graph = FutureGraph::new(normalized);
+        self.decide_with_graph(state, &mut graph)
+    }
+
+    pub(crate) fn decide_with_graph(
+        &self,
+        state: &GameState,
+        graph: &mut FutureGraph,
+    ) -> Decision {
         if graph.expand_to_depth(TARGET_DEPTH).is_err() {
             return choose_move_baseline(state);
         }
 
-        let evaluations = evaluate_graph(&graph, TARGET_DEPTH);
+        let evaluations = evaluate_graph(graph, TARGET_DEPTH);
         let root = graph.node(graph.root());
 
         let Some(best) =
