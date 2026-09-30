@@ -119,7 +119,11 @@ mod tests {
     use std::collections::HashMap;
 
     use super::*;
-    use crate::enemy::tracing::EnemyMoveSet;
+    use crate::analysis::StateAnalysis;
+    use crate::enemy::tracing::{trace, EnemyMoveSet};
+    use crate::forecast::ForecastCertainty;
+    use crate::simulation::mobility::MobilityAnalysis;
+    use crate::simulation::resolver::resolve_turn;
     use crate::simulation::state::{
         AggressionState, RulesContext, SimulatedSnake,
     };
@@ -267,6 +271,29 @@ mod tests {
             JointActionGenerator::new(&state, MoveMask::single(Direction::Up), &tracing);
 
         assert_eq!(generator.estimated_count(), 4);
+    }
+
+    #[test]
+    fn tracing_generator_and_resolver_form_a_complete_pipeline() {
+        let state = state(vec![
+            snake("ours", &[(1, 1), (1, 0)]),
+            snake("enemy-a", &[(5, 1), (5, 0)]),
+            snake("enemy-b", &[(5, 5), (5, 4)]),
+        ]);
+        let analysis =
+            StateAnalysis::from_simulated(&state, ForecastCertainty::Deterministic);
+        let tracing = trace(&state, &analysis);
+        let mobility = MobilityAnalysis::from_state(&state);
+        let our_moves = mobility.deterministic_moves_for(&state, "ours");
+
+        let generator = JointActionGenerator::new(&state, our_moves, &tracing);
+        assert!(generator.estimated_count() > 0);
+
+        for action in generator {
+            assert_eq!(action.len(), 3);
+            resolve_turn(&state, &action)
+                .expect("generated joint action must be resolvable");
+        }
     }
 
     #[test]
