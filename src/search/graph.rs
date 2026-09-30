@@ -104,9 +104,9 @@ impl FutureGraph {
 
     pub(crate) fn retain_chosen_direction(&mut self, direction: crate::direction::Direction) {
         let our_id = self.nodes[self.root].state.our_snake_id.clone();
-        self.nodes[self.root].children.retain(|edge| {
-            edge.joint_action.direction_for(&our_id) == Some(direction)
-        });
+        self.nodes[self.root]
+            .children
+            .retain(|edge| edge.joint_action.direction_for(&our_id) == Some(direction));
         self.garbage_collect();
     }
 
@@ -345,7 +345,8 @@ mod tests {
             .joint_action
             .direction_for(&our_id)
             .unwrap();
-        let expected_responses = graph.node(root)
+        let expected_responses = graph
+            .node(root)
             .children
             .iter()
             .filter(|edge| edge.joint_action.direction_for(&our_id) == Some(direction))
@@ -355,9 +356,11 @@ mod tests {
 
         assert_eq!(graph.root(), 0);
         assert_eq!(graph.node(0).children.len(), expected_responses);
-        assert!(graph.node(0).children.iter().all(|edge| {
-            edge.joint_action.direction_for(&our_id) == Some(direction)
-        }));
+        assert!(graph
+            .node(0)
+            .children
+            .iter()
+            .all(|edge| { edge.joint_action.direction_for(&our_id) == Some(direction) }));
     }
 
     #[test]
@@ -383,7 +386,8 @@ mod tests {
         let mut graph = FutureGraph::new(initial);
         graph.expand_to_depth(1).unwrap();
 
-        let child_food = graph.node(graph.node(graph.root()).children[0].child)
+        let child_food = graph
+            .node(graph.node(graph.root()).children[0].child)
             .state
             .food
             .clone();
