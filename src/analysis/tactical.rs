@@ -15,10 +15,7 @@ pub(crate) struct ThreatMap {
 }
 
 impl ThreatMap {
-    pub(crate) fn from_state(
-        state: &SimulatedGameState,
-        tracing: &EnemyTracingOutput,
-    ) -> Self {
+    pub(crate) fn from_state(state: &SimulatedGameState, tracing: &EnemyTracingOutput) -> Self {
         let width = state.width as u16;
         let height = state.height as u16;
         let mut lethal = BoardMask::new(width, height);
@@ -87,31 +84,27 @@ pub(crate) struct TacticalStateAnalysis {
 }
 
 impl TacticalStateAnalysis {
-    pub(crate) fn from_state(
-        state: &SimulatedGameState,
-        tracing: &EnemyTracingOutput,
-    ) -> Self {
+    pub(crate) fn from_state(state: &SimulatedGameState, tracing: &EnemyTracingOutput) -> Self {
         let mobility = MobilityAnalysis::from_state(state);
         let threat_map = ThreatMap::from_state(state, tracing);
 
-        let deterministic_moves =
-            mobility.deterministic_moves_for(state, &state.our_snake_id);
+        let deterministic_moves = mobility.deterministic_moves_for(state, &state.our_snake_id);
 
         let safe_moves = state
             .snake(&state.our_snake_id)
             .and_then(|snake| snake.head())
             .map(|head| {
-                MoveMask::from_iter(deterministic_moves.iter().filter(|direction| {
-                    !threat_map.is_lethal(direction.apply(head))
-                }))
+                MoveMask::from_iter(
+                    deterministic_moves
+                        .iter()
+                        .filter(|direction| !threat_map.is_lethal(direction.apply(head))),
+                )
             })
             .unwrap_or_else(MoveMask::empty);
 
         let best_reachable_space = deterministic_moves
             .iter()
-            .map(|direction| {
-                mobility.reachable_space(state, &state.our_snake_id, direction)
-            })
+            .map(|direction| mobility.reachable_space(state, &state.our_snake_id, direction))
             .max()
             .unwrap_or(0);
 
@@ -161,9 +154,7 @@ mod tests {
     use crate::analysis::StateAnalysis;
     use crate::enemy::tracing::trace;
     use crate::forecast::ForecastCertainty;
-    use crate::simulation::state::{
-        AggressionState, RulesContext, SimulatedSnake,
-    };
+    use crate::simulation::state::{AggressionState, RulesContext, SimulatedSnake};
     use crate::Coord;
 
     use super::*;
@@ -201,8 +192,7 @@ mod tests {
             snake("ours", &[(2, 1), (1, 1), (1, 0)]),
             snake("enemy", &[(2, 3), (3, 3), (3, 2)]),
         ]);
-        let analysis =
-            StateAnalysis::from_simulated(&state, ForecastCertainty::Deterministic);
+        let analysis = StateAnalysis::from_simulated(&state, ForecastCertainty::Deterministic);
         let tracing = trace(&state, &analysis);
         let tactical = TacticalStateAnalysis::from_state(&state, &tracing);
 
@@ -217,8 +207,7 @@ mod tests {
             snake("ours", &[(2, 1), (1, 1), (1, 0), (0, 0)]),
             snake("enemy", &[(2, 3), (3, 3)]),
         ]);
-        let analysis =
-            StateAnalysis::from_simulated(&state, ForecastCertainty::Deterministic);
+        let analysis = StateAnalysis::from_simulated(&state, ForecastCertainty::Deterministic);
         let tracing = trace(&state, &analysis);
         let tactical = TacticalStateAnalysis::from_state(&state, &tracing);
 
