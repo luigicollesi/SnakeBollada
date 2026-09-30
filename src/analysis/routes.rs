@@ -149,10 +149,7 @@ impl StateAnalysis {
         Self::from_analysis_state(&AnalysisState::from_game_state(state), certainty)
     }
 
-    pub(crate) fn from_simulated(
-        state: &SimulatedGameState,
-        certainty: ForecastCertainty,
-    ) -> Self {
+    pub(crate) fn from_simulated(state: &SimulatedGameState, certainty: ForecastCertainty) -> Self {
         Self::from_analysis_state(&AnalysisState::from_simulated(state), certainty)
     }
 
@@ -422,8 +419,7 @@ mod tests {
         let api_state = state(ours, vec![], vec![food]);
         let simulated = SimulatedGameState::from(&api_state);
 
-        let api_analysis =
-            StateAnalysis::from_state(&api_state, ForecastCertainty::Deterministic);
+        let api_analysis = StateAnalysis::from_state(&api_state, ForecastCertainty::Deterministic);
         let simulated_analysis =
             StateAnalysis::from_simulated(&simulated, ForecastCertainty::Deterministic);
 
