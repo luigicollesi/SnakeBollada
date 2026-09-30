@@ -31,7 +31,11 @@ fn derive_survival_events(
         .snake(&resolution.state.our_snake_id)
         .is_some_and(|snake| snake.alive);
 
-    if !ours_alive || events.iter().any(|event| matches!(event, InstantEvent::Died { .. })) {
+    if !ours_alive
+        || events
+            .iter()
+            .any(|event| matches!(event, InstantEvent::Died { .. }))
+    {
         return;
     }
 
@@ -138,10 +142,7 @@ mod tests {
 
     #[test]
     fn transition_marks_self_forced_when_only_one_robust_move_remains() {
-        let state = state(vec![
-            snake("ours", &[(0, 0)]),
-            snake("enemy", &[(2, 0)]),
-        ]);
+        let state = state(vec![snake("ours", &[(0, 0)]), snake("enemy", &[(2, 0)])]);
         let enemy_tracing = tracing(
             "enemy",
             MoveMask::single(Direction::Left),
