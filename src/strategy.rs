@@ -25,7 +25,8 @@ pub(crate) enum CacheInvalidationReason {
     #[default]
     None,
     TurnMismatch,
-    FoodMismatch,
+    FoodSpawn,
+    FoodMutation,
     StateMismatch,
 }
 
@@ -78,6 +79,8 @@ pub(crate) struct SearchMetadata {
     pub(crate) enemy_moves_observed: u16,
     pub(crate) enemy_moves_legal_covered: u16,
     pub(crate) enemy_moves_plausible_covered: u16,
+    pub(crate) food_spawn_invalidations: u32,
+    pub(crate) food_mutation_invalidations: u32,
     pub(crate) direction_outcomes: [DirectionOutcomeSummary; 4],
 }
 
@@ -96,6 +99,8 @@ impl Default for SearchMetadata {
             enemy_moves_observed: 0,
             enemy_moves_legal_covered: 0,
             enemy_moves_plausible_covered: 0,
+            food_spawn_invalidations: 0,
+            food_mutation_invalidations: 0,
             direction_outcomes: [
                 DirectionOutcomeSummary::empty(Direction::Up),
                 DirectionOutcomeSummary::empty(Direction::Right),
