@@ -48,7 +48,10 @@ impl MoveDistribution {
     }
 
     fn uniform(candidates: &[CandidateFeatures]) -> Self {
-        let legal_count = candidates.iter().filter(|candidate| candidate.legal).count();
+        let legal_count = candidates
+            .iter()
+            .filter(|candidate| candidate.legal)
+            .count();
         if legal_count == 0 {
             return Self::zero();
         }
@@ -227,7 +230,11 @@ struct PredictionMetrics {
 }
 
 impl PredictionMetrics {
-    fn observe(&mut self, distribution: MoveDistribution, actual: Direction) -> OpponentObservation {
+    fn observe(
+        &mut self,
+        distribution: MoveDistribution,
+        actual: Direction,
+    ) -> OpponentObservation {
         let predicted_probability = distribution.get(actual).max(MIN_PROBABILITY);
         let top1_correct = distribution.top_direction() == Some(actual);
         let brier_score = distribution.brier_score(actual);
@@ -340,17 +347,13 @@ impl OpponentModel {
         }
 
         if legal.iter().any(|candidate| candidate.enemy_progress > 0) {
-            self.profile
-                .aggression
-                .observe(chosen.enemy_progress > 0);
+            self.profile.aggression.observe(chosen.enemy_progress > 0);
         }
 
         let has_hazard = legal.iter().any(|candidate| candidate.enters_hazard);
         let has_safe = legal.iter().any(|candidate| !candidate.enters_hazard);
         if has_hazard && has_safe {
-            self.profile
-                .hazard_tolerance
-                .observe(chosen.enters_hazard);
+            self.profile.hazard_tolerance.observe(chosen.enters_hazard);
         }
 
         self.profile.observations = self.profile.observations.saturating_add(1);
@@ -363,7 +366,10 @@ impl OpponentModel {
         enemy: &Battlesnake,
         candidates: Vec<CandidateFeatures>,
     ) -> OpponentPredictionSnapshot {
-        let legal_moves = candidates.iter().filter(|candidate| candidate.legal).count() as u8;
+        let legal_moves = candidates
+            .iter()
+            .filter(|candidate| candidate.legal)
+            .count() as u8;
         let uniform = MoveDistribution::uniform(&candidates);
 
         let (distribution, confidence) = if legal_moves <= 1 {
@@ -466,9 +472,7 @@ fn candidate_features(state: &GameState, enemy: &Battlesnake) -> Vec<CandidateFe
             let reverses_into_neck = enemy.body.get(1).copied() == Some(target);
             let occupied_target = occupied.contains(target);
             let tail_releases = own_tail == Some(target) && !food;
-            let fatal_hazard = hazard
-                && !food
-                && enemy.health <= 1 + hazard_damage_per_turn(state);
+            let fatal_hazard = hazard && !food && enemy.health <= 1 + hazard_damage_per_turn(state);
 
             let legal = in_bounds
                 && !reverses_into_neck
@@ -482,8 +486,7 @@ fn candidate_features(state: &GameState, enemy: &Battlesnake) -> Vec<CandidateFe
             };
 
             let next_food_distance = nearest_food_distance(state, target);
-            let next_enemy_distance =
-                nearest_other_head_distance(state, enemy.id.as_str(), target);
+            let next_enemy_distance = nearest_other_head_distance(state, enemy.id.as_str(), target);
 
             CandidateFeatures {
                 direction,
@@ -751,10 +754,7 @@ mod tests {
                 id: "game".to_string(),
                 ruleset: HashMap::from([
                     ("name".to_string(), json!("standard")),
-                    (
-                        "settings".to_string(),
-                        json!({ "hazardDamagePerTurn": 14 }),
-                    ),
+                    ("settings".to_string(), json!({ "hazardDamagePerTurn": 14 })),
                 ]),
                 timeout: 500,
             },
@@ -854,10 +854,8 @@ mod tests {
         ];
         first.board.snakes[1].length = 4;
 
-        let observed = HashMap::from([(
-            "enemy".to_string(),
-            ObservedMove::Known(Direction::Right),
-        )]);
+        let observed =
+            HashMap::from([("enemy".to_string(), ObservedMove::Known(Direction::Right))]);
         let record = predictor.observe_and_predict(&first, &observed);
         let prediction = &record.opponents["enemy"];
 
