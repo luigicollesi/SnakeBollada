@@ -48,6 +48,10 @@ pub(crate) struct DirectionEvaluation {
     pub(crate) survival: DirectionSurvivalSummary,
     pub(crate) worst_strategic_utility: f32,
     pub(crate) average_strategic_utility: f32,
+    pub(crate) average_food_value: f32,
+    pub(crate) average_hunting_value: f32,
+    pub(crate) average_leaf_food_potential: f32,
+    pub(crate) average_leaf_hunting_potential: f32,
     pub(crate) reserved_override: bool,
 }
 
@@ -452,15 +456,23 @@ impl DirectionEvaluation {
             .reduce(f32::min)
             .unwrap_or(0.0);
         let reserved_override = confirms_reserved_override(&routes);
-        let average_strategic_utility = if routes.is_empty() {
-            0.0
-        } else {
-            routes
-                .iter()
-                .map(|route| route.strategic_utility)
-                .sum::<f32>()
-                / routes.len() as f32
-        };
+        let route_count = routes.len().max(1) as f32;
+        let average_strategic_utility =
+            routes.iter().map(|route| route.strategic_utility).sum::<f32>() / route_count;
+        let average_food_value =
+            routes.iter().map(|route| route.food_value).sum::<f32>() / route_count;
+        let average_hunting_value =
+            routes.iter().map(|route| route.hunting_value).sum::<f32>() / route_count;
+        let average_leaf_food_potential = routes
+            .iter()
+            .map(|route| route.leaf_food_potential)
+            .sum::<f32>()
+            / route_count;
+        let average_leaf_hunting_potential = routes
+            .iter()
+            .map(|route| route.leaf_hunting_potential)
+            .sum::<f32>()
+            / route_count;
 
         Self {
             direction,
@@ -476,6 +488,10 @@ impl DirectionEvaluation {
             },
             worst_strategic_utility,
             average_strategic_utility,
+            average_food_value,
+            average_hunting_value,
+            average_leaf_food_potential,
+            average_leaf_hunting_potential,
             reserved_override,
         }
     }
