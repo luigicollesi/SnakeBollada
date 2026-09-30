@@ -1,8 +1,27 @@
 # SPEC — Survival Mode
 
-**Status:** Planejado  
-**Branch alvo:** `spec/opponent-mobility-v2`  
+**Status:** V1 implementado; avaliação multi-turn com FutureGraph pendente  
+**Branch alvo:** `dev`  
 **Depende de:** `decision-making.md`
+
+## Estado da implementação
+
+Implementado em `dev`:
+
+- distinção entre movimentos determinísticos e robustamente seguros;
+- `ThreatMap` usando movimentos plausíveis dos adversários;
+- candidatos imediatos com reachable space;
+- `SurvivalStateSnapshot`;
+- `SurvivalRouteAssessment` preparado para rotas E2E;
+- eventos `SelfConstrained` e `SelfDeadEnd` derivados por transição;
+- morte continua sendo evento terminal do `TurnResolver`.
+
+Pendente do FutureGraph:
+
+- cálculo real de second-order mobility a partir dos sucessores;
+- composição de snapshots por rotas root → leaf de profundidade 3+;
+- agregação de risco por direção no Decision Engine;
+- detecção multi-turn de convergência para forced/dead-end.
 
 ## 1. Objetivo
 
