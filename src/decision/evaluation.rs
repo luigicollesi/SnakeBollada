@@ -468,8 +468,11 @@ impl DirectionEvaluation {
             .unwrap_or(0.0);
         let reserved_override = confirms_reserved_override(&routes);
         let route_count = routes.len().max(1) as f32;
-        let average_strategic_utility =
-            routes.iter().map(|route| route.strategic_utility).sum::<f32>() / route_count;
+        let average_strategic_utility = routes
+            .iter()
+            .map(|route| route.strategic_utility)
+            .sum::<f32>()
+            / route_count;
         let average_food_value =
             routes.iter().map(|route| route.food_value).sum::<f32>() / route_count;
         let average_hunting_value =
