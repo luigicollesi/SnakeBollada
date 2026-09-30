@@ -14,6 +14,7 @@ use rocket::State;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
+mod analysis;
 mod board_mask;
 mod direction;
 mod logic;
