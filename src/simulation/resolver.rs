@@ -21,10 +21,21 @@ pub(crate) enum InstantEvent {
         snake: String,
         food: Coord,
     },
+    EnemyForced {
+        enemy: String,
+        remaining_moves: u8,
+    },
+    EnemyTrapped {
+        enemy: String,
+    },
     EnemyKilled {
         enemy: String,
         cause: EliminationCause,
     },
+    SelfConstrained {
+        remaining_moves: u8,
+    },
+    SelfDeadEnd,
     HeadToHeadWon {
         enemy: String,
     },
