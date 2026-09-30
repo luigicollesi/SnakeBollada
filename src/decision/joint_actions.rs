@@ -121,7 +121,6 @@ mod tests {
     use super::*;
     use crate::analysis::StateAnalysis;
     use crate::enemy::tracing::{trace, EnemyMoveSet};
-    use crate::forecast::ForecastCertainty;
     use crate::simulation::mobility::MobilityAnalysis;
     use crate::simulation::resolver::resolve_turn;
     use crate::simulation::state::{AggressionState, RulesContext, SimulatedSnake};
