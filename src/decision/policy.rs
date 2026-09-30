@@ -17,12 +17,11 @@ impl Default for ReservedCellPolicy {
 }
 
 impl ReservedCellPolicy {
-    pub(crate) fn penalty(
-        &self,
-        state: &SimulatedGameState,
-        direction: Direction,
-    ) -> f32 {
-        let Some(head) = state.snake(&state.our_snake_id).and_then(|snake| snake.head()) else {
+    pub(crate) fn penalty(&self, state: &SimulatedGameState, direction: Direction) -> f32 {
+        let Some(head) = state
+            .snake(&state.our_snake_id)
+            .and_then(|snake| snake.head())
+        else {
             return 0.0;
         };
 
@@ -48,9 +47,7 @@ impl ReservedCellPolicy {
 
 #[cfg(test)]
 mod tests {
-    use crate::simulation::state::{
-        AggressionState, RulesContext, SimulatedSnake,
-    };
+    use crate::simulation::state::{AggressionState, RulesContext, SimulatedSnake};
     use crate::Coord;
 
     use super::*;
