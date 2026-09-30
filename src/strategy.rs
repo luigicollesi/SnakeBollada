@@ -203,6 +203,81 @@ mod tests {
         assert_eq!(decision.reason, DecisionReason::NearestSafeFood);
     }
 
+
+    #[test]
+    fn strategy_uses_food_mode_claim_competition() {
+        let ours = snake("ours", vec![Coord { x: 0, y: 0 }]);
+        let enemy = snake("enemy", vec![Coord { x: 3, y: 0 }]);
+        let losing_food = Coord { x: 2, y: 0 };
+        let claimable_food = Coord { x: 0, y: 3 };
+        let state = state(ours, vec![enemy], vec![losing_food, claimable_food]);
+
+        let decision = choose_move(&state);
+
+        assert_eq!(decision.direction, Direction::Up);
+        assert_eq!(decision.target_food, Some(claimable_food));
+    }
+
+    #[test]
+    fn strategy_can_take_second_food_direction_when_first_candidate_is_immediately_unsafe() {
+        let ours = snake(
+            "ours",
+            vec![
+                Coord { x: 2, y: 2 },
+                Coord { x: 2, y: 1 },
+                Coord { x: 2, y: 0 },
+            ],
+        );
+        let enemy = snake(
+            "enemy",
+            vec![
+                Coord { x: 4, y: 2 },
+                Coord { x: 4, y: 1 },
+                Coord { x: 4, y: 0 },
+            ],
+        );
+        let dangerous_food = Coord { x: 3, y: 2 };
+        let safe_food = Coord { x: 3, y: 3 };
+        let state = state(ours, vec![enemy], vec![dangerous_food, safe_food]);
+
+        let decision = choose_move(&state);
+
+        assert_eq!(decision.direction, Direction::Up);
+        assert_eq!(decision.target_food, Some(safe_food));
+    }
+
+    #[test]
+    fn strategy_falls_back_to_survival_when_food_mode_has_no_candidate() {
+        let ours = snake(
+            "ours",
+            vec![
+                Coord { x: 3, y: 3 },
+                Coord { x: 3, y: 2 },
+                Coord { x: 3, y: 1 },
+            ],
+        );
+        let state = state(ours, vec![], vec![]);
+
+        let decision = choose_move(&state);
+
+        assert_eq!(decision.reason, DecisionReason::SurvivalFallback);
+        assert_eq!(decision.target_food, None);
+    }
+
+    #[test]
+    fn strategy_prefers_non_hazard_food_candidate_before_hazard_candidate() {
+        let ours = snake("ours", vec![Coord { x: 3, y: 3 }]);
+        let hazard_food = Coord { x: 4, y: 3 };
+        let safe_food = Coord { x: 3, y: 5 };
+        let mut state = state(ours, vec![], vec![hazard_food, safe_food]);
+        state.board.hazards = vec![hazard_food];
+
+        let decision = choose_move(&state);
+
+        assert_eq!(decision.direction, Direction::Up);
+        assert_eq!(decision.target_food, Some(safe_food));
+    }
+
     #[test]
     fn avoids_equal_length_head_to_head() {
         let ours = snake(
