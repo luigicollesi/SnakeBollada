@@ -36,7 +36,11 @@ impl RulesContext {
             .unwrap_or("standard")
             .to_string();
 
-        let settings = state.game.ruleset.get("settings").and_then(Value::as_object);
+        let settings = state
+            .game
+            .ruleset
+            .get("settings")
+            .and_then(Value::as_object);
         let hazard_damage_per_turn = settings
             .and_then(|settings| settings.get("hazardDamagePerTurn"))
             .and_then(Value::as_i64)
@@ -111,7 +115,12 @@ impl From<&GameState> for SimulatedGameState {
             height: state.board.height,
             food: state.board.food.clone(),
             hazards: state.board.hazards.clone(),
-            snakes: state.board.snakes.iter().map(SimulatedSnake::from).collect(),
+            snakes: state
+                .board
+                .snakes
+                .iter()
+                .map(SimulatedSnake::from)
+                .collect(),
             our_snake_id: state.you.id.clone(),
             rules: RulesContext::from_state(state),
             aggression: AggressionState::default(),
@@ -143,20 +152,13 @@ mod tests {
 
     #[test]
     fn converts_api_state_without_strategy_fields() {
-        let ours = snake(
-            "ours",
-            87,
-            vec![Coord { x: 2, y: 2 }, Coord { x: 2, y: 1 }],
-        );
+        let ours = snake("ours", 87, vec![Coord { x: 2, y: 2 }, Coord { x: 2, y: 1 }]);
         let state = GameState {
             game: Game {
                 id: "game".to_string(),
                 ruleset: HashMap::from([
                     ("name".to_string(), json!("royale")),
-                    (
-                        "settings".to_string(),
-                        json!({ "hazardDamagePerTurn": 14 }),
-                    ),
+                    ("settings".to_string(), json!({ "hazardDamagePerTurn": 14 })),
                 ]),
                 timeout: 500,
             },
