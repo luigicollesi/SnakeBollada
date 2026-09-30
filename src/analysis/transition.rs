@@ -195,6 +195,38 @@ mod tests {
     }
 
     #[test]
+    fn same_edge_can_carry_survival_and_hunting_events() {
+        let state = state(vec![snake("ours", &[(0, 0)]), snake("enemy", &[(2, 0)])]);
+        let before_tracing = tracing(
+            "enemy",
+            MoveMask::from_iter([Direction::Up, Direction::Left]),
+            MoveMask::from_iter([Direction::Up, Direction::Left]),
+        );
+        let after_tracing = tracing(
+            "enemy",
+            MoveMask::single(Direction::Left),
+            MoveMask::single(Direction::Left),
+        );
+        let before = TacticalStateAnalysis::from_state(&state, &before_tracing);
+        let after = TacticalStateAnalysis::from_state(&state, &after_tracing);
+        let resolution = TurnResolution {
+            state: state.clone(),
+            events: vec![],
+            forecast_delta: ForecastDelta::None,
+        };
+
+        let analyzed = analyze_transition(&before, &resolution, &after);
+
+        assert!(analyzed
+            .events
+            .contains(&InstantEvent::SelfConstrained { remaining_moves: 1 }));
+        assert!(analyzed.events.contains(&InstantEvent::EnemyForced {
+            enemy: "enemy".to_string(),
+            remaining_moves: 1,
+        }));
+    }
+
+    #[test]
     fn enemy_kill_supersedes_forced_and_trapped_derivation() {
         let state = state(vec![
             snake("ours", &[(1, 1), (1, 0), (0, 0)]),
