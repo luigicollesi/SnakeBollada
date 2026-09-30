@@ -84,6 +84,14 @@ pub(crate) fn resolve_turn(
     damage_hazards(&mut next);
 
     let ate_food = feed_snakes(&mut next, &mut events)?;
+    if events.iter().any(|event| {
+        matches!(
+            event,
+            InstantEvent::AteFood { snake, .. } if snake == &next.our_snake_id
+        )
+    }) {
+        next.aggression.record_food();
+    }
     eliminate_snakes(&mut next, &mut events)?;
 
     next.turn = next.turn.saturating_add(1);
@@ -421,6 +429,35 @@ mod tests {
             snake: "ours".to_string(),
             food: Coord { x: 3, y: 2 },
         }));
+    }
+
+    #[test]
+    fn our_food_updates_branch_local_aggression() {
+        let mut initial = state(vec![snake("ours", 50, &[(2, 2), (2, 1)])]);
+        initial.food = vec![Coord { x: 3, y: 2 }];
+        let action = JointAction::new().with_move("ours", Direction::Right);
+
+        let resolved = resolve_turn(&initial, &action).unwrap();
+
+        assert_eq!(initial.aggression.fruits_eaten, 0);
+        assert_eq!(resolved.state.aggression.fruits_eaten, 1);
+        assert!(resolved.state.aggression.value > initial.aggression.value);
+    }
+
+    #[test]
+    fn enemy_food_does_not_update_our_aggression() {
+        let mut initial = state(vec![
+            snake("ours", 50, &[(2, 2), (2, 1)]),
+            snake("enemy", 50, &[(4, 2), (4, 1)]),
+        ]);
+        initial.food = vec![Coord { x: 5, y: 2 }];
+        let action = JointAction::new()
+            .with_move("ours", Direction::Up)
+            .with_move("enemy", Direction::Right);
+
+        let resolved = resolve_turn(&initial, &action).unwrap();
+
+        assert_eq!(resolved.state.aggression, initial.aggression);
     }
 
     #[test]
