@@ -48,6 +48,10 @@ pub(crate) struct DirectionOutcomeSummary {
     pub(crate) min_reachable_space: u32,
     pub(crate) worst_utility_milli: i32,
     pub(crate) average_utility_milli: i32,
+    pub(crate) average_food_milli: i32,
+    pub(crate) average_hunting_milli: i32,
+    pub(crate) average_leaf_food_milli: i32,
+    pub(crate) average_leaf_hunting_milli: i32,
     pub(crate) reserved_override: bool,
 }
 
@@ -65,6 +69,10 @@ impl DirectionOutcomeSummary {
             min_reachable_space: 0,
             worst_utility_milli: 0,
             average_utility_milli: 0,
+            average_food_milli: 0,
+            average_hunting_milli: 0,
+            average_leaf_food_milli: 0,
+            average_leaf_hunting_milli: 0,
             reserved_override: false,
         }
     }
