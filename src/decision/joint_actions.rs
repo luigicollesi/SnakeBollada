@@ -124,19 +124,14 @@ mod tests {
     use crate::forecast::ForecastCertainty;
     use crate::simulation::mobility::MobilityAnalysis;
     use crate::simulation::resolver::resolve_turn;
-    use crate::simulation::state::{
-        AggressionState, RulesContext, SimulatedSnake,
-    };
+    use crate::simulation::state::{AggressionState, RulesContext, SimulatedSnake};
     use crate::Coord;
 
     fn snake(id: &str, body: &[(i32, i32)]) -> SimulatedSnake {
         SimulatedSnake {
             id: id.to_string(),
             health: 100,
-            body: body
-                .iter()
-                .map(|(x, y)| Coord { x: *x, y: *y })
-                .collect(),
+            body: body.iter().map(|(x, y)| Coord { x: *x, y: *y }).collect(),
             alive: true,
         }
     }
@@ -169,10 +164,7 @@ mod tests {
 
     #[test]
     fn produces_cartesian_product_for_one_enemy() {
-        let state = state(vec![
-            snake("ours", &[(1, 1)]),
-            snake("enemy", &[(5, 5)]),
-        ]);
+        let state = state(vec![snake("ours", &[(1, 1)]), snake("enemy", &[(5, 5)])]);
         let tracing = EnemyTracingOutput {
             enemies: HashMap::from([(
                 "enemy".to_string(),
@@ -233,16 +225,18 @@ mod tests {
         ]);
         let tracing = EnemyTracingOutput {
             enemies: HashMap::from([
-                ("enemy-a".to_string(), set(MoveMask::single(Direction::Left))),
-                ("enemy-b".to_string(), set(MoveMask::single(Direction::Down))),
+                (
+                    "enemy-a".to_string(),
+                    set(MoveMask::single(Direction::Left)),
+                ),
+                (
+                    "enemy-b".to_string(),
+                    set(MoveMask::single(Direction::Down)),
+                ),
             ]),
         };
 
-        for action in JointActionGenerator::new(
-            &state,
-            MoveMask::single(Direction::Up),
-            &tracing,
-        ) {
+        for action in JointActionGenerator::new(&state, MoveMask::single(Direction::Up), &tracing) {
             assert_eq!(action.len(), 3);
             assert!(action.direction_for("ours").is_some());
             assert!(action.direction_for("enemy-a").is_some());
@@ -280,8 +274,7 @@ mod tests {
             snake("enemy-a", &[(5, 1), (5, 0)]),
             snake("enemy-b", &[(5, 5), (5, 4)]),
         ]);
-        let analysis =
-            StateAnalysis::from_simulated(&state, ForecastCertainty::Deterministic);
+        let analysis = StateAnalysis::from_simulated(&state, ForecastCertainty::Deterministic);
         let tracing = trace(&state, &analysis);
         let mobility = MobilityAnalysis::from_state(&state);
         let our_moves = mobility.deterministic_moves_for(&state, "ours");
@@ -291,8 +284,7 @@ mod tests {
 
         for action in generator {
             assert_eq!(action.len(), 3);
-            resolve_turn(&state, &action)
-                .expect("generated joint action must be resolvable");
+            resolve_turn(&state, &action).expect("generated joint action must be resolvable");
         }
     }
 
