@@ -579,6 +579,49 @@ mod tests {
     }
 
     #[test]
+    fn starvation_without_food_is_out_of_health() {
+        let initial = state(vec![snake("ours", 1, &[(2, 2), (2, 1)])]);
+        let action = JointAction::new().with_move("ours", Direction::Right);
+
+        let resolved = resolve_turn(&initial, &action).unwrap();
+
+        assert!(!resolved.state.snake("ours").unwrap().alive);
+        assert!(resolved.events.contains(&InstantEvent::Died {
+            cause: EliminationCause::OutOfHealth,
+        }));
+    }
+
+    #[test]
+    fn moving_out_of_bounds_is_eliminated() {
+        let initial = state(vec![snake("ours", 100, &[(0, 2), (0, 1)])]);
+        let action = JointAction::new().with_move("ours", Direction::Left);
+
+        let resolved = resolve_turn(&initial, &action).unwrap();
+
+        assert!(!resolved.state.snake("ours").unwrap().alive);
+        assert!(resolved.events.contains(&InstantEvent::Died {
+            cause: EliminationCause::OutOfBounds,
+        }));
+    }
+
+    #[test]
+    fn self_collision_is_eliminated() {
+        let initial = state(vec![snake(
+            "ours",
+            100,
+            &[(2, 2), (2, 1), (1, 1), (1, 2), (1, 3), (2, 3)],
+        )]);
+        let action = JointAction::new().with_move("ours", Direction::Left);
+
+        let resolved = resolve_turn(&initial, &action).unwrap();
+
+        assert!(!resolved.state.snake("ours").unwrap().alive);
+        assert!(resolved.events.contains(&InstantEvent::Died {
+            cause: EliminationCause::SelfCollision,
+        }));
+    }
+
+    #[test]
     fn equal_length_head_to_head_eliminates_both() {
         let initial = state(vec![
             snake("ours", 100, &[(2, 2), (2, 1), (2, 0)]),
@@ -614,6 +657,70 @@ mod tests {
         assert!(resolved.events.contains(&InstantEvent::HeadToHeadWon {
             enemy: "enemy".to_string(),
         }));
+    }
+
+    #[test]
+    fn three_way_head_to_head_longest_survives_and_gets_attribution() {
+        let initial = state(vec![
+            snake("ours", 100, &[(2, 3), (2, 2), (2, 1), (1, 1), (1, 0)]),
+            snake("enemy-a", 100, &[(4, 3), (4, 2), (4, 1), (5, 1)]),
+            snake("enemy-b", 100, &[(3, 4), (3, 5), (2, 5)]),
+        ]);
+        let action = JointAction::new()
+            .with_move("ours", Direction::Right)
+            .with_move("enemy-a", Direction::Left)
+            .with_move("enemy-b", Direction::Down);
+
+        let resolved = resolve_turn(&initial, &action).unwrap();
+
+        assert!(resolved.state.snake("ours").unwrap().alive);
+        assert!(!resolved.state.snake("enemy-a").unwrap().alive);
+        assert!(!resolved.state.snake("enemy-b").unwrap().alive);
+        assert!(resolved.events.contains(&InstantEvent::EnemyKilled {
+            enemy: "enemy-a".to_string(),
+            cause: EliminationCause::HeadToHead,
+            attribution: EliminationAttribution::OurSnake,
+        }));
+        assert!(resolved.events.contains(&InstantEvent::EnemyKilled {
+            enemy: "enemy-b".to_string(),
+            cause: EliminationCause::HeadToHead,
+            attribution: EliminationAttribution::OurSnake,
+        }));
+    }
+
+    #[test]
+    fn three_way_equal_longest_head_to_head_eliminates_all() {
+        let initial = state(vec![
+            snake("ours", 100, &[(2, 3), (2, 2), (2, 1), (1, 1)]),
+            snake("enemy-a", 100, &[(4, 3), (4, 2), (4, 1), (5, 1)]),
+            snake("enemy-b", 100, &[(3, 4), (3, 5), (2, 5)]),
+        ]);
+        let action = JointAction::new()
+            .with_move("ours", Direction::Right)
+            .with_move("enemy-a", Direction::Left)
+            .with_move("enemy-b", Direction::Down);
+
+        let resolved = resolve_turn(&initial, &action).unwrap();
+
+        assert!(!resolved.state.snake("ours").unwrap().alive);
+        assert!(!resolved.state.snake("enemy-a").unwrap().alive);
+        assert!(!resolved.state.snake("enemy-b").unwrap().alive);
+    }
+
+    #[test]
+    fn collision_with_snake_that_also_dies_still_counts_this_turn() {
+        let initial = state(vec![
+            snake("ours", 100, &[(1, 2), (1, 1), (1, 0)]),
+            snake("enemy", 100, &[(3, 2), (2, 2), (2, 1)]),
+        ]);
+        let action = JointAction::new()
+            .with_move("ours", Direction::Right)
+            .with_move("enemy", Direction::Left);
+
+        let resolved = resolve_turn(&initial, &action).unwrap();
+
+        assert!(!resolved.state.snake("ours").unwrap().alive);
+        assert!(!resolved.state.snake("enemy").unwrap().alive);
     }
 
     #[test]
