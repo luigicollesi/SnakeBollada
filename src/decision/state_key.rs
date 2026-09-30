@@ -18,6 +18,7 @@ pub(crate) struct StateKey {
     food: Vec<Coord>,
     hazards: Vec<Coord>,
     rules: RulesContext,
+    aggression_fruits_eaten: u32,
     aggression_milli: u16,
 }
 
@@ -49,6 +50,7 @@ impl StateKey {
             food,
             hazards,
             rules: state.rules.clone(),
+            aggression_fruits_eaten: state.aggression.fruits_eaten,
             aggression_milli: aggression_bucket(state.aggression.value),
         }
     }
@@ -117,6 +119,15 @@ mod tests {
         let left = sample_state();
         let mut right = sample_state();
         right.snakes[0].health -= 1;
+
+        assert_ne!(StateKey::from_state(&left), StateKey::from_state(&right));
+    }
+
+    #[test]
+    fn fruits_eaten_participates_in_hashing() {
+        let left = sample_state();
+        let mut right = sample_state();
+        right.aggression.fruits_eaten += 1;
 
         assert_ne!(StateKey::from_state(&left), StateKey::from_state(&right));
     }
