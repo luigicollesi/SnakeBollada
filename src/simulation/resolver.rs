@@ -1,6 +1,5 @@
 use std::collections::HashMap;
 
-use crate::direction::Direction;
 use crate::Coord;
 
 use super::state::{SimulatedGameState, SimulatedSnake};
@@ -342,6 +341,7 @@ fn lost_head_to_head(snake: &SimulatedSnake, other: &SimulatedSnake) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::direction::Direction;
     use crate::simulation::state::{
         AggressionState, RulesContext, SimulatedGameState, SimulatedSnake,
     };
