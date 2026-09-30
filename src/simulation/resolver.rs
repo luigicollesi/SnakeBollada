@@ -9,10 +9,19 @@ use super::joint_action::JointAction;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum EliminationCause {
     OutOfHealth,
+    Hazard,
     OutOfBounds,
     SelfCollision,
     BodyCollision,
     HeadToHead,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum EliminationAttribution {
+    SelfInflicted,
+    OurSnake,
+    OtherSnake(String),
+    Environment,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -31,6 +40,7 @@ pub(crate) enum InstantEvent {
     EnemyKilled {
         enemy: String,
         cause: EliminationCause,
+        attribution: EliminationAttribution,
     },
     SelfConstrained {
         remaining_moves: u8,
@@ -81,7 +91,7 @@ pub(crate) fn resolve_turn(
 
     move_snakes(&mut next, joint_action)?;
     reduce_health(&mut next);
-    damage_hazards(&mut next);
+    damage_hazards(&mut next, &mut events);
 
     let ate_food = feed_snakes(&mut next, &mut events)?;
     if events.iter().any(|event| {
@@ -137,10 +147,11 @@ fn reduce_health(state: &mut SimulatedGameState) {
     }
 }
 
-fn damage_hazards(state: &mut SimulatedGameState) {
+fn damage_hazards(state: &mut SimulatedGameState, events: &mut Vec<InstantEvent>) {
     let food = &state.food;
     let hazards = &state.hazards;
     let hazard_damage = state.rules.hazard_damage_per_turn;
+    let our_id = state.our_snake_id.clone();
 
     if hazard_damage <= 0 {
         return;
@@ -162,6 +173,21 @@ fn damage_hazards(state: &mut SimulatedGameState) {
 
         let total_damage = hazard_damage.saturating_mul(stack_count as i32);
         snake.health = snake.health.saturating_sub(total_damage).max(0);
+
+        if snake.health <= 0 {
+            snake.alive = false;
+            if snake.id == our_id {
+                events.push(InstantEvent::Died {
+                    cause: EliminationCause::Hazard,
+                });
+            } else {
+                events.push(InstantEvent::EnemyKilled {
+                    enemy: snake.id.clone(),
+                    cause: EliminationCause::Hazard,
+                    attribution: EliminationAttribution::Environment,
+                });
+            }
+        }
     }
 }
 
@@ -329,9 +355,28 @@ fn eliminate_snakes(
                     enemy: snake.id.clone(),
                 });
             }
+
+            let attribution = match elimination.cause {
+                EliminationCause::SelfCollision | EliminationCause::OutOfBounds => {
+                    EliminationAttribution::SelfInflicted
+                }
+                EliminationCause::OutOfHealth | EliminationCause::Hazard => {
+                    EliminationAttribution::Environment
+                }
+                EliminationCause::BodyCollision | EliminationCause::HeadToHead => {
+                    match elimination.by.as_deref() {
+                        Some(by) if by == our_id => EliminationAttribution::OurSnake,
+                        Some(by) if by == snake.id => EliminationAttribution::SelfInflicted,
+                        Some(by) => EliminationAttribution::OtherSnake(by.to_string()),
+                        None => EliminationAttribution::Environment,
+                    }
+                }
+            };
+
             events.push(InstantEvent::EnemyKilled {
                 enemy: snake.id.clone(),
                 cause: elimination.cause,
+                attribution,
             });
         }
     }
@@ -483,6 +528,42 @@ mod tests {
         let resolved = resolve_turn(&initial, &action).unwrap();
 
         assert_eq!(resolved.state.snake("ours").unwrap().health, 100);
+    }
+
+    #[test]
+    fn fatal_hazard_eliminates_before_feed_with_hazard_cause() {
+        let mut initial = state(vec![snake("ours", 15, &[(2, 2), (2, 1)])]);
+        initial.rules.hazard_damage_per_turn = 14;
+        initial.hazards = vec![Coord { x: 3, y: 2 }];
+        let action = JointAction::new().with_move("ours", Direction::Right);
+
+        let resolved = resolve_turn(&initial, &action).unwrap();
+
+        assert!(!resolved.state.snake("ours").unwrap().alive);
+        assert!(resolved.events.contains(&InstantEvent::Died {
+            cause: EliminationCause::Hazard,
+        }));
+    }
+
+    #[test]
+    fn enemy_environment_death_is_not_attributed_to_us() {
+        let mut initial = state(vec![
+            snake("ours", 100, &[(1, 1), (1, 0)]),
+            snake("enemy", 15, &[(3, 1), (3, 0)]),
+        ]);
+        initial.rules.hazard_damage_per_turn = 14;
+        initial.hazards = vec![Coord { x: 4, y: 1 }];
+        let action = JointAction::new()
+            .with_move("ours", Direction::Up)
+            .with_move("enemy", Direction::Right);
+
+        let resolved = resolve_turn(&initial, &action).unwrap();
+
+        assert!(resolved.events.contains(&InstantEvent::EnemyKilled {
+            enemy: "enemy".to_string(),
+            cause: EliminationCause::Hazard,
+            attribution: EliminationAttribution::Environment,
+        }));
     }
 
     #[test]
