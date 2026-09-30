@@ -69,9 +69,11 @@ impl Direction {
     }
 }
 
+#[cfg_attr(not(test), allow(dead_code))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub(crate) struct MoveMask(u8);
 
+#[cfg_attr(not(test), allow(dead_code))]
 impl MoveMask {
     pub(crate) const fn empty() -> Self {
         Self(0)
