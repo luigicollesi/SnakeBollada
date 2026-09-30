@@ -19,6 +19,16 @@ pub(crate) enum DecisionReason {
     NoSafeMove,
 }
 
+#[derive(Deserialize, Serialize, Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum CacheInvalidationReason {
+    #[default]
+    None,
+    TurnMismatch,
+    FoodMismatch,
+    StateMismatch,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub(crate) struct SearchMetadata {
     pub(crate) completed_depth: u8,
@@ -26,6 +36,7 @@ pub(crate) struct SearchMetadata {
     pub(crate) edges: u32,
     pub(crate) transposition_hits: u32,
     pub(crate) cache_reused: bool,
+    pub(crate) cache_invalidation: CacheInvalidationReason,
     pub(crate) elapsed_us: u64,
     pub(crate) safety_reserve_us: u64,
     pub(crate) aggression_milli: u16,
