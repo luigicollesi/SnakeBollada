@@ -15,6 +15,13 @@ pub(crate) struct SearchBudget {
 
 impl SearchBudget {
     pub(crate) fn from_state(state: &GameState) -> Self {
+        Self::from_state_with_extra_reserve(state, 0)
+    }
+
+    pub(crate) fn from_state_with_extra_reserve(
+        state: &GameState,
+        extra_reserve_ms: u64,
+    ) -> Self {
         let timeout_ms = u64::from(state.game.timeout);
         let reported_latency_ms = state.you.latency.parse::<u64>().unwrap_or(0);
         let percentage_reserve = timeout_ms
@@ -24,6 +31,7 @@ impl SearchBudget {
         let reserve_ms = MIN_SAFETY_RESERVE_MS
             .max(percentage_reserve)
             .saturating_add(latency_reserve)
+            .saturating_add(extra_reserve_ms)
             .min(timeout_ms.saturating_sub(1));
 
         let started = Instant::now();
@@ -113,6 +121,14 @@ mod tests {
 
         assert!(budget.safety_reserve() >= Duration::from_millis(25));
         assert!(budget.remaining() < Duration::from_millis(500));
+    }
+
+    #[test]
+    fn extra_runtime_jitter_increases_reserve() {
+        let base = SearchBudget::from_state_with_extra_reserve(&state(500, "0"), 0);
+        let jittered = SearchBudget::from_state_with_extra_reserve(&state(500, "0"), 40);
+
+        assert!(jittered.safety_reserve() > base.safety_reserve());
     }
 
     #[test]
