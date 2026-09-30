@@ -75,6 +75,9 @@ pub(crate) struct SearchMetadata {
     pub(crate) elapsed_us: u64,
     pub(crate) safety_reserve_us: u64,
     pub(crate) aggression_milli: u16,
+    pub(crate) enemy_moves_observed: u16,
+    pub(crate) enemy_moves_legal_covered: u16,
+    pub(crate) enemy_moves_plausible_covered: u16,
     pub(crate) direction_outcomes: [DirectionOutcomeSummary; 4],
 }
 
@@ -90,6 +93,9 @@ impl Default for SearchMetadata {
             elapsed_us: 0,
             safety_reserve_us: 0,
             aggression_milli: 0,
+            enemy_moves_observed: 0,
+            enemy_moves_legal_covered: 0,
+            enemy_moves_plausible_covered: 0,
             direction_outcomes: [
                 DirectionOutcomeSummary::empty(Direction::Up),
                 DirectionOutcomeSummary::empty(Direction::Right),
