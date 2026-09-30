@@ -380,9 +380,7 @@ fn build_node(state: SimulatedGameState) -> SearchNode {
     let mobility = Arc::new(MobilityAnalysis::from_state(&state));
     let tracing = Arc::new(trace_with_mobility(&state, &state_analysis, &mobility));
     let tactical = Arc::new(TacticalStateAnalysis::from_parts(
-        &state,
-        &tracing,
-        &mobility,
+        &state, &tracing, &mobility,
     ));
     let analysis = Arc::new(NodeAnalysis {
         state: state_analysis,
