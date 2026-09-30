@@ -77,6 +77,7 @@ fn evaluate_graph_inner(
         initial_move: None,
         events: Vec::new(),
         snapshots: vec![root_snapshot],
+        second_order_mobility: node_second_order_mobility(graph, graph.root()),
         certainty: ForecastCertainty::Deterministic,
     };
 
@@ -115,6 +116,7 @@ struct RouteContext {
     initial_move: Option<Direction>,
     events: Vec<InstantEvent>,
     snapshots: Vec<SurvivalStateSnapshot>,
+    second_order_mobility: u32,
     certainty: ForecastCertainty,
 }
 
@@ -137,7 +139,7 @@ fn walk_routes(
         if let Some(initial_move) = context.initial_move {
             if let Some(survival) = SurvivalRouteAssessment::from_snapshots(
                 &context.snapshots,
-                second_order_mobility(&context.snapshots),
+                context.second_order_mobility,
             ) {
                 routes.push(finalize_route(
                     initial_move,
@@ -173,6 +175,10 @@ fn walk_routes(
             &child.analysis.tactical,
         ));
 
+        let second_order_mobility = context
+            .second_order_mobility
+            .min(node_second_order_mobility(graph, edge.child));
+
         let certainty = match (context.certainty, edge.forecast_delta) {
             (_, ForecastDelta::FoodUncertainty) | (ForecastCertainty::FoodProvisional, _) => {
                 ForecastCertainty::FoodProvisional
@@ -189,6 +195,7 @@ fn walk_routes(
                 initial_move: Some(initial_move),
                 events,
                 snapshots,
+                second_order_mobility,
                 certainty,
             },
             routes,
@@ -361,13 +368,27 @@ fn hunting_value(events: &[InstantEvent]) -> f32 {
     per_enemy.values().sum()
 }
 
-fn second_order_mobility(snapshots: &[SurvivalStateSnapshot]) -> u32 {
-    snapshots
+fn node_second_order_mobility(graph: &FutureGraph, node_id: NodeId) -> u32 {
+    let node = graph.node(node_id);
+    if node.children.is_empty() {
+        return u32::from(node.analysis.tactical.ours.safe_moves.len());
+    }
+
+    node.children
         .iter()
-        .skip(1)
-        .take(2)
-        .map(|snapshot| u32::from(snapshot.safe_moves))
-        .sum()
+        .map(|edge| {
+            u32::from(
+                graph
+                    .node(edge.child)
+                    .analysis
+                    .tactical
+                    .ours
+                    .safe_moves
+                    .len(),
+            )
+        })
+        .min()
+        .unwrap_or(0)
 }
 
 fn confirms_reserved_override(routes: &[RouteEvaluation]) -> bool {
