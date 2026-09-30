@@ -63,7 +63,7 @@ fn evaluate_graph_inner(
     budget: Option<&SearchBudget>,
 ) -> Option<Vec<DirectionEvaluation>> {
     let root = graph.node(graph.root());
-    let root_snapshot = SurvivalStateSnapshot::from_tactical(&root.state, &root.tactical);
+    let root_snapshot = SurvivalStateSnapshot::from_tactical(&root.state, &root.analysis.tactical);
 
     let context = RouteContext {
         initial_move: None,
@@ -163,7 +163,7 @@ fn walk_routes(
         let mut snapshots = context.snapshots.clone();
         snapshots.push(SurvivalStateSnapshot::from_tactical(
             &child.state,
-            &child.tactical,
+            &child.analysis.tactical,
         ));
 
         let certainty = match (context.certainty, edge.forecast_delta) {
