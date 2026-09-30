@@ -199,7 +199,7 @@ mod tests {
             snake("ours", &[(2, 1), (1, 1), (1, 0)]),
             snake("enemy", &[(2, 3), (3, 3), (3, 2)]),
         ]);
-        let analysis = StateAnalysis::from_simulated(&state, ForecastCertainty::Deterministic);
+        let analysis = StateAnalysis::from_simulated(&state);
         let tracing = trace(&state, &analysis);
         let tactical = TacticalStateAnalysis::from_state(&state, &tracing);
 
@@ -213,7 +213,7 @@ mod tests {
         let mut enemy = snake("enemy", &[(0, 0)]);
         enemy.health = 1;
         let state = state(vec![snake("ours", &[(2, 0), (2, 1), (2, 2)]), enemy]);
-        let analysis = StateAnalysis::from_simulated(&state, ForecastCertainty::Deterministic);
+        let analysis = StateAnalysis::from_simulated(&state);
         let tracing = trace(&state, &analysis);
         let tactical = TacticalStateAnalysis::from_state(&state, &tracing);
 
@@ -227,7 +227,7 @@ mod tests {
             snake("ours", &[(2, 1), (1, 1), (1, 0), (0, 0)]),
             snake("enemy", &[(2, 3), (3, 3)]),
         ]);
-        let analysis = StateAnalysis::from_simulated(&state, ForecastCertainty::Deterministic);
+        let analysis = StateAnalysis::from_simulated(&state);
         let tracing = trace(&state, &analysis);
         let tactical = TacticalStateAnalysis::from_state(&state, &tracing);
 
