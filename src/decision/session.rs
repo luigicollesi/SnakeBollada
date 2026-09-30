@@ -112,10 +112,7 @@ mod tests {
     #[test]
     fn observed_growth_updates_persistent_aggression() {
         let mut decision = DecisionState::default();
-        let first = state(
-            1,
-            vec![Coord { x: 2, y: 2 }, Coord { x: 2, y: 1 }],
-        );
+        let first = state(1, vec![Coord { x: 2, y: 2 }, Coord { x: 2, y: 1 }]);
         decision.previous_our_length = Some(first.you.body.len());
 
         let grown = state(
@@ -135,10 +132,7 @@ mod tests {
     fn no_growth_keeps_aggression_stable() {
         let mut decision = DecisionState::default();
         decision.previous_our_length = Some(2);
-        let next = state(
-            2,
-            vec![Coord { x: 3, y: 2 }, Coord { x: 2, y: 2 }],
-        );
+        let next = state(2, vec![Coord { x: 3, y: 2 }, Coord { x: 2, y: 2 }]);
         let before = decision.aggression;
 
         decision.observe_aggression(&next);
