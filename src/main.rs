@@ -17,6 +17,7 @@ use serde_json::{json, Value};
 mod board_mask;
 mod logic;
 mod navigation;
+mod prediction;
 mod runtime;
 mod strategy;
 mod telemetry;
