@@ -87,6 +87,86 @@ impl FutureGraph {
         self.transposition_hits
     }
 
+    pub(crate) fn find_node_by_key(&self, key: &StateKey) -> Option<NodeId> {
+        self.transpositions.get(key).copied()
+    }
+
+    pub(crate) fn root_children_match_food(&self, actual_food: &[crate::Coord]) -> bool {
+        let mut actual = actual_food.to_vec();
+        actual.sort_unstable();
+
+        self.nodes[self.root].children.iter().any(|edge| {
+            let mut expected = self.nodes[edge.child].state.food.clone();
+            expected.sort_unstable();
+            expected == actual
+        })
+    }
+
+    pub(crate) fn retain_chosen_direction(&mut self, direction: crate::direction::Direction) {
+        let our_id = self.nodes[self.root].state.our_snake_id.clone();
+        self.nodes[self.root].children.retain(|edge| {
+            edge.joint_action.direction_for(&our_id) == Some(direction)
+        });
+        self.garbage_collect();
+    }
+
+    pub(crate) fn reroot(&mut self, node_id: NodeId) {
+        self.root = node_id;
+        self.garbage_collect();
+    }
+
+    fn garbage_collect(&mut self) {
+        let mut order = Vec::new();
+        let mut seen = HashSet::new();
+        let mut queue = VecDeque::from([self.root]);
+
+        while let Some(node_id) = queue.pop_front() {
+            if !seen.insert(node_id) {
+                continue;
+            }
+
+            order.push(node_id);
+            for edge in &self.nodes[node_id].children {
+                queue.push_back(edge.child);
+            }
+        }
+
+        let remap = order
+            .iter()
+            .enumerate()
+            .map(|(new_id, old_id)| (*old_id, new_id))
+            .collect::<HashMap<_, _>>();
+
+        let mut nodes = Vec::with_capacity(order.len());
+        for old_id in order {
+            let mut node = self.nodes[old_id].clone();
+            node.children = node
+                .children
+                .into_iter()
+                .filter_map(|mut edge| {
+                    let child = remap.get(&edge.child).copied()?;
+                    edge.child = child;
+                    Some(edge)
+                })
+                .collect();
+            nodes.push(node);
+        }
+
+        self.nodes = nodes;
+        self.root = 0;
+        self.transpositions = self
+            .nodes
+            .iter()
+            .enumerate()
+            .map(|(node_id, node)| (node.key.clone(), node_id))
+            .collect();
+        self.edge_count = self
+            .nodes
+            .iter()
+            .map(|node| node.children.len() as u32)
+            .sum();
+    }
+
     pub(crate) fn expand_to_depth(&mut self, target_depth: u8) -> Result<(), SearchError> {
         let mut queue = VecDeque::from([(self.root, 0_u8)]);
         let mut expanded = HashSet::new();
@@ -252,5 +332,63 @@ mod tests {
                 )
             })
         }));
+    }
+
+    #[test]
+    fn chosen_direction_prunes_other_root_moves_but_keeps_enemy_responses() {
+        let mut graph = FutureGraph::new(state());
+        graph.expand_to_depth(2).unwrap();
+
+        let root = graph.root();
+        let our_id = graph.node(root).state.our_snake_id.clone();
+        let direction = graph.node(root).children[0]
+            .joint_action
+            .direction_for(&our_id)
+            .unwrap();
+        let expected_responses = graph.node(root)
+            .children
+            .iter()
+            .filter(|edge| edge.joint_action.direction_for(&our_id) == Some(direction))
+            .count();
+
+        graph.retain_chosen_direction(direction);
+
+        assert_eq!(graph.root(), 0);
+        assert_eq!(graph.node(0).children.len(), expected_responses);
+        assert!(graph.node(0).children.iter().all(|edge| {
+            edge.joint_action.direction_for(&our_id) == Some(direction)
+        }));
+    }
+
+    #[test]
+    fn reroot_discards_unreachable_past() {
+        let mut graph = FutureGraph::new(state());
+        graph.expand_to_depth(2).unwrap();
+
+        let old_count = graph.node_count();
+        let child = graph.node(graph.root()).children[0].child;
+        let child_key = graph.node(child).key.clone();
+
+        graph.reroot(child);
+
+        assert_eq!(graph.root(), 0);
+        assert_eq!(graph.node(0).key, child_key);
+        assert!(graph.node_count() < old_count);
+    }
+
+    #[test]
+    fn food_validation_accepts_any_retained_enemy_response() {
+        let mut initial = state();
+        initial.food = vec![Coord { x: 2, y: 1 }, Coord { x: 5, y: 6 }];
+        let mut graph = FutureGraph::new(initial);
+        graph.expand_to_depth(1).unwrap();
+
+        let child_food = graph.node(graph.node(graph.root()).children[0].child)
+            .state
+            .food
+            .clone();
+
+        assert!(graph.root_children_match_food(&child_food));
+        assert!(!graph.root_children_match_food(&[Coord { x: 0, y: 0 }]));
     }
 }
