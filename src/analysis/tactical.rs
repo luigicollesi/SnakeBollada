@@ -212,10 +212,7 @@ mod tests {
     fn doomed_enemy_fallback_does_not_create_head_to_head_threats() {
         let mut enemy = snake("enemy", &[(0, 0)]);
         enemy.health = 1;
-        let state = state(vec![
-            snake("ours", &[(2, 0), (2, 1), (2, 2)]),
-            enemy,
-        ]);
+        let state = state(vec![snake("ours", &[(2, 0), (2, 1), (2, 2)]), enemy]);
         let analysis = StateAnalysis::from_simulated(&state, ForecastCertainty::Deterministic);
         let tracing = trace(&state, &analysis);
         let tactical = TacticalStateAnalysis::from_state(&state, &tracing);
