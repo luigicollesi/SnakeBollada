@@ -207,7 +207,10 @@ impl GameRegistry {
 
     pub(crate) async fn decide(&self, state: &GameState) -> Decision {
         let Some(handle) = self.handle(&state.game.id) else {
-            warn!("cannot decide for unknown game {}; using stateless fallback", state.game.id);
+            warn!(
+                "cannot decide for unknown game {}; using stateless fallback",
+                state.game.id
+            );
             return crate::strategy::choose_move(state);
         };
 
