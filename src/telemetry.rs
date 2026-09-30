@@ -11,6 +11,7 @@ use serde_json::Value;
 use tokio::fs;
 use tokio::sync::mpsc;
 
+use crate::prediction::OpponentPredictionRecord;
 use crate::strategy::{Decision, DecisionReason, Direction, STRATEGY_VERSION};
 use crate::{Battlesnake, Coord, GameState};
 
@@ -27,6 +28,7 @@ pub(crate) enum TelemetryEvent {
     Start(StartRecord),
     TurnSnapshot(TurnSnapshot),
     OurDecision(DecisionRecord),
+    OpponentPredictions(OpponentPredictionRecord),
     End(EndRecord),
 }
 
@@ -144,6 +146,7 @@ pub(crate) struct TurnRecord {
     pub(crate) turn: i32,
     pub(crate) snapshot: Option<TurnSnapshot>,
     pub(crate) decision: Option<DecisionRecord>,
+    pub(crate) opponent_predictions: Option<OpponentPredictionRecord>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -165,7 +168,7 @@ impl GameRecord {
         let initial_turn = start.initial_snapshot.turn;
 
         Self {
-            schema_version: 1,
+            schema_version: 2,
             game_id: start.game_id,
             ruleset: start.ruleset,
             timeout_ms: start.timeout_ms,
@@ -178,6 +181,7 @@ impl GameRecord {
                 turn: initial_turn,
                 snapshot: Some(start.initial_snapshot),
                 decision: None,
+                opponent_predictions: None,
             }],
         }
     }
@@ -192,6 +196,11 @@ impl GameRecord {
         self.turn_mut(turn).decision = Some(decision);
     }
 
+    fn upsert_opponent_predictions(&mut self, predictions: OpponentPredictionRecord) {
+        let turn = predictions.turn;
+        self.turn_mut(turn).opponent_predictions = Some(predictions);
+    }
+
     fn turn_mut(&mut self, turn: i32) -> &mut TurnRecord {
         if let Some(index) = self.turns.iter().position(|record| record.turn == turn) {
             return &mut self.turns[index];
@@ -201,6 +210,7 @@ impl GameRecord {
             turn,
             snapshot: None,
             decision: None,
+            opponent_predictions: None,
         });
         self.turns.sort_by_key(|record| record.turn);
 
@@ -289,6 +299,13 @@ pub(crate) async fn run_recorder(
                     record.upsert_decision(decision);
                 } else {
                     warn!("received decision before telemetry start");
+                }
+            }
+            TelemetryEvent::OpponentPredictions(predictions) => {
+                if let Some(record) = game_record.as_mut() {
+                    record.upsert_opponent_predictions(predictions);
+                } else {
+                    warn!("received opponent predictions before telemetry start");
                 }
             }
             TelemetryEvent::End(end) => {
