@@ -4,6 +4,7 @@ use crate::decision::evaluation::{evaluate_graph, DirectionEvaluation};
 use crate::decision::policy::ReservedCellPolicy;
 use crate::forecast::ForecastCertainty;
 use crate::modes::food;
+use crate::search::budget::SearchBudget;
 use crate::search::graph::FutureGraph;
 use crate::simulation::mobility::MobilityAnalysis;
 use crate::simulation::state::{SimulatedGameState, SimulationSupport};
@@ -11,6 +12,7 @@ use crate::strategy::{choose_move_baseline, Decision, DecisionReason};
 use crate::GameState;
 
 const TARGET_DEPTH: u8 = 3;
+const MAX_ITERATIVE_DEPTH: u8 = 6;
 
 #[derive(Debug, Default, Clone, Copy)]
 pub(crate) struct DecisionEngine;
@@ -32,11 +34,18 @@ impl DecisionEngine {
     }
 
     pub(crate) fn decide_with_graph(&self, state: &GameState, graph: &mut FutureGraph) -> Decision {
-        if graph.expand_to_depth(TARGET_DEPTH).is_err() {
+        let budget = SearchBudget::from_state(state);
+        let Ok(expansion) =
+            graph.expand_iteratively(TARGET_DEPTH, MAX_ITERATIVE_DEPTH, &budget)
+        else {
+            return choose_move_baseline(state);
+        };
+
+        if expansion.completed_depth == 0 {
             return choose_move_baseline(state);
         }
 
-        let evaluations = evaluate_graph(graph, TARGET_DEPTH);
+        let evaluations = evaluate_graph(graph, expansion.completed_depth);
         let root = graph.node(graph.root());
 
         let Some(best) =
