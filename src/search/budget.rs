@@ -14,10 +14,6 @@ pub(crate) struct SearchBudget {
 }
 
 impl SearchBudget {
-    pub(crate) fn from_state(state: &GameState) -> Self {
-        Self::from_state_with_extra_reserve(state, 0)
-    }
-
     pub(crate) fn from_state_with_extra_reserve(state: &GameState, extra_reserve_ms: u64) -> Self {
         let timeout_ms = u64::from(state.game.timeout);
         let reported_latency_ms = state.you.latency.parse::<u64>().unwrap_or(0);
@@ -114,7 +110,7 @@ mod tests {
 
     #[test]
     fn preserves_nonzero_safety_reserve() {
-        let budget = SearchBudget::from_state(&state(500, "10"));
+        let budget = SearchBudget::from_state_with_extra_reserve(&state(500, "10"), 0);
 
         assert!(budget.safety_reserve() >= Duration::from_millis(25));
         assert!(budget.remaining() < Duration::from_millis(500));
@@ -130,8 +126,8 @@ mod tests {
 
     #[test]
     fn reported_latency_increases_reserve() {
-        let low = SearchBudget::from_state(&state(500, "0"));
-        let high = SearchBudget::from_state(&state(500, "80"));
+        let low = SearchBudget::from_state_with_extra_reserve(&state(500, "0"), 0);
+        let high = SearchBudget::from_state_with_extra_reserve(&state(500, "80"), 0);
 
         assert!(high.safety_reserve() > low.safety_reserve());
     }
