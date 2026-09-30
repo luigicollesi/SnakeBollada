@@ -19,6 +19,9 @@ pub(crate) struct DecisionState {
     graph: Option<FutureGraph>,
     aggression: AggressionState,
     previous_our_length: Option<usize>,
+    previous_observed_food: Option<Vec<crate::Coord>>,
+    food_spawn_invalidations: u32,
+    food_mutation_invalidations: u32,
 }
 
 impl DecisionState {
@@ -38,14 +41,25 @@ impl DecisionState {
         let actual_key = StateKey::from_state(&normalized);
         let mut cache_reused = false;
         let mut cache_invalidation = CacheInvalidationReason::None;
+        let food_spawned = self
+            .previous_observed_food
+            .as_ref()
+            .is_some_and(|previous| contains_new_food(previous, &normalized.food));
 
         let mut graph = match self.graph.take() {
             Some(mut graph) => {
                 if graph.node(graph.root()).state.turn >= normalized.turn {
                     cache_invalidation = CacheInvalidationReason::TurnMismatch;
                     FutureGraph::new(normalized)
+                } else if food_spawned {
+                    cache_invalidation = CacheInvalidationReason::FoodSpawn;
+                    self.food_spawn_invalidations =
+                        self.food_spawn_invalidations.saturating_add(1);
+                    FutureGraph::new(normalized)
                 } else if !graph.root_children_match_food(&normalized.food) {
-                    cache_invalidation = CacheInvalidationReason::FoodMismatch;
+                    cache_invalidation = CacheInvalidationReason::FoodMutation;
+                    self.food_mutation_invalidations =
+                        self.food_mutation_invalidations.saturating_add(1);
                     FutureGraph::new(normalized)
                 } else if let Some(node_id) = graph.find_node_by_key(&actual_key) {
                     graph.reroot(node_id);
@@ -65,10 +79,13 @@ impl DecisionState {
         decision.search.enemy_moves_observed = tracing_coverage.observed;
         decision.search.enemy_moves_legal_covered = tracing_coverage.legal_covered;
         decision.search.enemy_moves_plausible_covered = tracing_coverage.plausible_covered;
+        decision.search.food_spawn_invalidations = self.food_spawn_invalidations;
+        decision.search.food_mutation_invalidations = self.food_mutation_invalidations;
         graph.retain_chosen_direction(decision.direction);
 
         self.graph = Some(graph);
         self.previous_our_length = Some(state.you.body.len());
+        self.previous_observed_food = Some(normalized_food(&state.board.food));
 
         decision
     }
@@ -225,6 +242,27 @@ mod tests {
         assert_eq!(coverage.observed, 1);
         assert_eq!(coverage.legal_covered, 1);
         assert_eq!(coverage.plausible_covered, 1);
+    }
+
+    #[test]
+    fn detects_new_food_before_cache_reconciliation() {
+        let previous = vec![Coord { x: 1, y: 1 }];
+        let actual = vec![Coord { x: 1, y: 1 }, Coord { x: 4, y: 4 }];
+
+        assert!(contains_new_food(&previous, &actual));
+        assert!(!contains_new_food(&actual, &previous));
+    }
+
+    #[test]
+    fn food_normalization_ignores_order_and_duplicates() {
+        let left = vec![Coord { x: 2, y: 2 }, Coord { x: 1, y: 1 }];
+        let right = vec![
+            Coord { x: 1, y: 1 },
+            Coord { x: 2, y: 2 },
+            Coord { x: 2, y: 2 },
+        ];
+
+        assert_eq!(normalized_food(&left), normalized_food(&right));
     }
 
     #[test]
