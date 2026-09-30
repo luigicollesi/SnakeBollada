@@ -214,7 +214,8 @@ impl GameRegistry {
             return crate::strategy::choose_move(state);
         };
 
-        handle.decision_state.write().await.decide(state)
+        let decision = handle.decision_state.write().await.decide(state);
+        decision
     }
 
     pub(crate) fn record_decision(
