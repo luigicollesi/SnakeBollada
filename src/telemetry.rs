@@ -123,6 +123,8 @@ pub(crate) struct SearchRecord {
     pub(crate) enemy_moves_observed: u16,
     pub(crate) enemy_moves_legal_covered: u16,
     pub(crate) enemy_moves_plausible_covered: u16,
+    pub(crate) food_spawn_invalidations: u32,
+    pub(crate) food_mutation_invalidations: u32,
     pub(crate) direction_outcomes: [DirectionOutcomeSummary; 4],
 }
 
@@ -163,6 +165,8 @@ impl DecisionRecord {
                 enemy_moves_observed: decision.search.enemy_moves_observed,
                 enemy_moves_legal_covered: decision.search.enemy_moves_legal_covered,
                 enemy_moves_plausible_covered: decision.search.enemy_moves_plausible_covered,
+                food_spawn_invalidations: decision.search.food_spawn_invalidations,
+                food_mutation_invalidations: decision.search.food_mutation_invalidations,
                 direction_outcomes: decision.search.direction_outcomes,
             },
         }
@@ -201,7 +205,7 @@ impl GameRecord {
         let initial_turn = start.initial_snapshot.turn;
 
         Self {
-            schema_version: 2,
+            schema_version: 3,
             game_id: start.game_id,
             ruleset: start.ruleset,
             timeout_ms: start.timeout_ms,
