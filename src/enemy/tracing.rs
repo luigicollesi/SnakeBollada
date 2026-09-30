@@ -243,7 +243,6 @@ fn conservative_filter(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::forecast::ForecastCertainty;
     use crate::simulation::state::{AggressionState, RulesContext};
     use crate::Coord;
 
