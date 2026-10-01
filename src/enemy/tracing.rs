@@ -261,7 +261,7 @@ fn build_hypotheses(
                 ThreatClass::None
             } else if structural_moves.len() == 1 {
                 ThreatClass::Forced
-            } else if support.hunting || support.count() >= 2 {
+            } else if support.hunting || support.survival || support.count() >= 2 {
                 ThreatClass::Likely
             } else {
                 ThreatClass::Possible
@@ -708,6 +708,32 @@ mod tests {
 
     fn analyze(state: &SimulatedGameState) -> StateAnalysis {
         StateAnalysis::from_simulated(state)
+    }
+
+    #[test]
+    fn unsupported_head_threat_stays_possible_but_survival_supported_threat_is_likely() {
+        let structural = MoveMask::from_iter([Direction::Down, Direction::Left]);
+        let threat = MoveMask::single(Direction::Down);
+
+        let possible = build_hypotheses(
+            structural,
+            threat,
+            MoveMask::single(Direction::Left),
+            MoveMask::empty(),
+            MoveMask::empty(),
+            threat,
+        );
+        assert_eq!(possible[0].threat, ThreatClass::Possible);
+
+        let likely = build_hypotheses(
+            structural,
+            threat,
+            threat,
+            MoveMask::empty(),
+            MoveMask::empty(),
+            threat,
+        );
+        assert_eq!(likely[0].threat, ThreatClass::Likely);
     }
 
     #[test]
