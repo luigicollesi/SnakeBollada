@@ -219,6 +219,66 @@ pub(crate) fn trace_with_mobility(
     EnemyTracingOutput { enemies }
 }
 
+pub(crate) fn trace_actor_relative_with_mobility(
+    state: &SimulatedGameState,
+    analysis: &StateAnalysis,
+    mobility: &MobilityAnalysis,
+) -> EnemyTracingOutput {
+    let enemies = state
+        .snakes
+        .par_iter()
+        .filter(|snake| snake.alive && snake.id != state.our_snake_id)
+        .map(|enemy| {
+            (
+                enemy.id.clone(),
+                trace_enemy_actor_relative(state, analysis, mobility, enemy),
+            )
+        })
+        .collect::<HashMap<_, _>>();
+
+    EnemyTracingOutput { enemies }
+}
+
+fn trace_enemy_actor_relative(
+    state: &SimulatedGameState,
+    analysis: &StateAnalysis,
+    mobility: &MobilityAnalysis,
+    enemy: &SimulatedSnake,
+) -> EnemyMoveSet {
+    let mut legal_moves = MoveMask::empty();
+    let mut eliminations = Vec::new();
+
+    for direction in Direction::ALL {
+        match mobility.classify_move(state, enemy, direction) {
+            None => legal_moves.insert(direction),
+            Some(block) => eliminations.push(MoveElimination {
+                direction,
+                stage: EliminationStage::Hard,
+                reason: hard_reason(block),
+            }),
+        }
+    }
+
+    let food_moves = food_policy_moves(state, analysis, enemy, legal_moves);
+    let hunting_moves = hunting_policy_moves(state, enemy, legal_moves);
+    let threat_moves = head_threat_moves(state, mobility, enemy, legal_moves);
+    let hypotheses = build_hypotheses(
+        legal_moves,
+        legal_moves,
+        MoveMask::empty(),
+        food_moves,
+        hunting_moves,
+        threat_moves,
+    );
+
+    EnemyMoveSet {
+        legal_moves,
+        plausible_moves: legal_moves,
+        hypotheses,
+        eliminations,
+    }
+}
+
 fn trace_enemy(
     state: &SimulatedGameState,
     analysis: &StateAnalysis,
@@ -580,6 +640,30 @@ mod tests {
 
     fn analyze(state: &SimulatedGameState) -> StateAnalysis {
         StateAnalysis::from_simulated(state)
+    }
+
+    #[test]
+    fn actor_relative_trace_keeps_every_legal_move_without_space_pruning() {
+        let state = state(
+            vec![
+                snake("ours", 100, &[(1, 1), (1, 0)]),
+                snake("enemy", 100, &[(5, 5), (5, 4), (5, 3), (4, 3)]),
+            ],
+            vec![Coord { x: 3, y: 5 }],
+        );
+        let analysis = StateAnalysis::from_simulated_routes_only(&state);
+        let mobility = MobilityAnalysis::from_state(&state);
+
+        let traced = trace_actor_relative_with_mobility(&state, &analysis, &mobility);
+        let enemy = traced.for_enemy("enemy").unwrap();
+        let deterministic = mobility.deterministic_moves_for(&state, "enemy");
+
+        assert_eq!(enemy.legal_moves, deterministic);
+        assert_eq!(enemy.plausible_moves, deterministic);
+        assert!(enemy
+            .eliminations
+            .iter()
+            .all(|elimination| elimination.stage == EliminationStage::Hard));
     }
 
     #[test]
