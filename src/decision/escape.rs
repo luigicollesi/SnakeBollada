@@ -4,6 +4,7 @@ use crate::direction::MoveMask;
 use crate::simulation::state::SimulatedGameState;
 
 pub(crate) const ESCAPE_ACTIVATION_THRESHOLD_MILLI: u16 = 650;
+pub(crate) const ESCAPE_CONTINUE_THRESHOLD_MILLI: u16 = 450;
 pub(crate) const ESCAPE_RELEASE_THRESHOLD_MILLI: u16 = 300;
 
 pub(crate) fn direction_escape_pressure_milli(evaluation: &DirectionEvaluation) -> u16 {
