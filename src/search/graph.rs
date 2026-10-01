@@ -46,6 +46,12 @@ pub(crate) struct NodeExpansion {
     pub(crate) elapsed_us: u64,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct DepthExpansion {
+    pub(crate) completed: bool,
+    pub(crate) frontier_nodes: u32,
+}
+
 #[derive(Debug, Clone)]
 pub(crate) struct SearchEdge {
     pub(crate) joint_action: JointAction,
@@ -267,8 +273,8 @@ impl FutureGraph {
             }
 
             let layer_started = std::time::Instant::now();
-            let complete = self.expand_depth(depth, budget)?;
-            if !complete {
+            let expansion = self.expand_depth(depth, budget)?;
+            if !expansion.completed {
                 self.garbage_collect();
                 break;
             }
@@ -295,22 +301,32 @@ impl FutureGraph {
         &mut self,
         depth: u8,
         budget: &SearchBudget,
-    ) -> Result<bool, SearchError> {
+    ) -> Result<DepthExpansion, SearchError> {
         let parents = self.nodes_at_depth(depth.saturating_sub(1));
+        let frontier_nodes = parents.len().try_into().unwrap_or(u32::MAX);
 
         for node_id in parents {
             if budget.expired() {
                 self.garbage_collect();
-                return Ok(false);
+                return Ok(DepthExpansion {
+                    completed: false,
+                    frontier_nodes,
+                });
             }
 
             if !self.expand_node_budgeted(node_id, Some(budget))? {
                 self.garbage_collect();
-                return Ok(false);
+                return Ok(DepthExpansion {
+                    completed: false,
+                    frontier_nodes,
+                });
             }
         }
 
-        Ok(true)
+        Ok(DepthExpansion {
+            completed: true,
+            frontier_nodes,
+        })
     }
 
     pub(crate) fn expand_frontier(
@@ -454,7 +470,7 @@ impl FutureGraph {
                 existing
             } else {
                 let child = self.nodes.len();
-                let node = build_node(resolution.state.clone());
+                let node = build_node_with_key(resolution.state.clone(), child_key.clone());
                 self.transpositions.insert(child_key, child);
                 self.nodes.push(node);
                 child
@@ -524,6 +540,10 @@ fn is_terminal_state(state: &SimulatedGameState) -> bool {
 
 fn build_node(state: SimulatedGameState) -> SearchNode {
     let key = StateKey::from_state(&state);
+    build_node_with_key(state, key)
+}
+
+fn build_node_with_key(state: SimulatedGameState, key: StateKey) -> SearchNode {
     let analysis = if is_terminal_state(&state) {
         None
     } else {
