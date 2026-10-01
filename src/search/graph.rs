@@ -4,6 +4,8 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::Arc;
 use std::time::Duration;
 
+use rayon::prelude::*;
+
 use crate::analysis::transition::analyze_transition_parts;
 use crate::analysis::{
     BorderFobicAnalysis, EnclosureAnalysis, StateAnalysis, StrategicPosture, TacticalStateAnalysis,
@@ -14,7 +16,7 @@ use crate::decision::state_key::StateKey;
 use crate::direction::MoveMask;
 use crate::enemy::profile::OpponentProfiles;
 use crate::enemy::tracing::{trace_with_mobility, EnemyTracingOutput};
-use crate::evaluation::{ActorContext, ActorEvaluation, ActorMetrics};
+use crate::evaluation::{ActorContext, ActorEvaluation, ActorMetrics, TransitionScore};
 use crate::modes::hunting::{self, HuntingModeOutput};
 use crate::modes::survival::{self, SurvivalModeOutput};
 use crate::simulation::joint_action::JointAction;
@@ -74,6 +76,7 @@ pub(crate) struct SearchEdge {
     pub(crate) joint_action: JointAction,
     pub(crate) events: Vec<InstantEvent>,
     pub(crate) forecast_delta: ForecastDelta,
+    pub(crate) transition: TransitionScore,
     pub(crate) child: NodeId,
 }
 
@@ -690,10 +693,14 @@ impl FutureGraph {
             };
             append_border_exposure_event(&self.nodes[child], &mut events);
 
+            let transition =
+                TransitionScore::from_parts(&self.nodes[node_id], &events, &self.nodes[child]);
+
             self.nodes[node_id].children.push(SearchEdge {
                 joint_action,
                 events,
                 forecast_delta,
+                transition,
                 child,
             });
             self.edge_count = self.edge_count.saturating_add(1);
@@ -753,26 +760,45 @@ fn build_node_with_key(state: SimulatedGameState, key: StateKey) -> SearchNode {
     let analysis = if is_terminal_state(&state) {
         None
     } else {
-        let state_analysis = Arc::new(StateAnalysis::from_simulated(&state));
         let spatial = Arc::new(SpatialOccupancy::from_state(&state));
         let mobility = Arc::new(MobilityAnalysis::from_spatial(Arc::clone(&spatial)));
+
+        let (state_analysis, territory) = rayon::join(
+            || StateAnalysis::from_simulated(&state),
+            || TerritoryAnalysis::from_spatial(&state, &spatial),
+        );
+        let state_analysis = Arc::new(state_analysis);
+        let territory = Arc::new(territory);
+
         let tracing = Arc::new(trace_with_mobility(&state, &state_analysis, &mobility));
         let tactical = Arc::new(TacticalStateAnalysis::from_parts(
             &state, &tracing, &mobility,
         ));
-        let territory = Arc::new(TerritoryAnalysis::from_spatial(&state, &spatial));
         let border = Arc::new(BorderFobicAnalysis::from_parts_with_territory(
             &state, &tactical, &territory,
         ));
         let posture = Arc::new(StrategicPosture::from_state(&state));
         let enclosure = Arc::new(EnclosureAnalysis::from_parts(&state, &territory, &tactical));
-        let survival = Arc::new(survival::analyze_with_border(&state, &tactical, &border));
-        let hunting = Arc::new(hunting::analyze(
-            &state, &tactical, &tracing, &territory, &enclosure, &posture,
-        ));
+
+        let (survival, hunting) = rayon::join(
+            || survival::analyze_with_border(&state, &tactical, &border),
+            || {
+                hunting::analyze(
+                    &state,
+                    &tactical,
+                    &tracing,
+                    &territory,
+                    &enclosure,
+                    &posture,
+                )
+            },
+        );
+        let survival = Arc::new(survival);
+        let hunting = Arc::new(hunting);
+
         let actor_evaluations = state
             .snakes
-            .iter()
+            .par_iter()
             .filter(|snake| snake.alive)
             .filter_map(|snake| {
                 let context = ActorContext::from_state(&state, &snake.id)?;
