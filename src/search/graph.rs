@@ -25,6 +25,7 @@ use crate::simulation::resolver::{
 use crate::simulation::state::SimulatedGameState;
 use crate::spatial::SpatialOccupancy;
 
+use super::actor_priority::ordered_child_ids_for_search;
 use super::budget::SearchBudget;
 
 pub(crate) type NodeId = usize;
@@ -414,6 +415,91 @@ impl FutureGraph {
                 .iter()
                 .map(|edge| edge.child)
                 .collect::<Vec<_>>();
+            for child in children {
+                queue.push_back((child, depth.saturating_add(1)));
+            }
+        }
+
+        Ok(SubtreeExpansion {
+            start_node,
+            requested_depth: additional_depth,
+            completed: true,
+            expanded_nodes,
+            new_nodes: self
+                .nodes
+                .len()
+                .saturating_sub(nodes_before)
+                .try_into()
+                .unwrap_or(u32::MAX),
+            new_edges: self.edge_count.saturating_sub(edges_before),
+            transposition_hits: self
+                .transposition_hits
+                .saturating_sub(transpositions_before),
+            elapsed_us: started.elapsed().as_micros().try_into().unwrap_or(u64::MAX),
+        })
+    }
+
+    pub(crate) fn expand_prioritized_subtree(
+        &mut self,
+        start_node: NodeId,
+        additional_depth: u8,
+        budget: &SearchBudget,
+    ) -> Result<SubtreeExpansion, SearchError> {
+        let nodes_before = self.nodes.len();
+        let edges_before = self.edge_count;
+        let transpositions_before = self.transposition_hits;
+        let started = std::time::Instant::now();
+        let mut queue = VecDeque::from([(start_node, 0_u8)]);
+        let mut visited = HashSet::new();
+        let mut expanded_nodes = 0_u32;
+
+        while let Some((node_id, depth)) = queue.pop_front() {
+            if depth >= additional_depth || !visited.insert(node_id) {
+                continue;
+            }
+
+            if budget.expired() {
+                return Ok(SubtreeExpansion {
+                    start_node,
+                    requested_depth: additional_depth,
+                    completed: false,
+                    expanded_nodes,
+                    new_nodes: self
+                        .nodes
+                        .len()
+                        .saturating_sub(nodes_before)
+                        .try_into()
+                        .unwrap_or(u32::MAX),
+                    new_edges: self.edge_count.saturating_sub(edges_before),
+                    transposition_hits: self
+                        .transposition_hits
+                        .saturating_sub(transpositions_before),
+                    elapsed_us: started.elapsed().as_micros().try_into().unwrap_or(u64::MAX),
+                });
+            }
+
+            if !self.expand_node_budgeted(node_id, Some(budget))? {
+                return Ok(SubtreeExpansion {
+                    start_node,
+                    requested_depth: additional_depth,
+                    completed: false,
+                    expanded_nodes,
+                    new_nodes: self
+                        .nodes
+                        .len()
+                        .saturating_sub(nodes_before)
+                        .try_into()
+                        .unwrap_or(u32::MAX),
+                    new_edges: self.edge_count.saturating_sub(edges_before),
+                    transposition_hits: self
+                        .transposition_hits
+                        .saturating_sub(transpositions_before),
+                    elapsed_us: started.elapsed().as_micros().try_into().unwrap_or(u64::MAX),
+                });
+            }
+
+            expanded_nodes = expanded_nodes.saturating_add(1);
+            let children = ordered_child_ids_for_search(self, node_id);
             for child in children {
                 queue.push_back((child, depth.saturating_add(1)));
             }
