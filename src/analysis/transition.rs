@@ -352,10 +352,7 @@ mod tests {
     }
     #[test]
     fn transition_parts_match_turn_resolution_wrapper() {
-        let state = state(vec![
-            snake("ours", &[(0, 0)]),
-            snake("enemy", &[(2, 0)]),
-        ]);
+        let state = state(vec![snake("ours", &[(0, 0)]), snake("enemy", &[(2, 0)])]);
         let before_tracing = tracing(
             "enemy",
             MoveMask::from_iter([Direction::Up, Direction::Left]),
@@ -375,15 +372,9 @@ mod tests {
         };
 
         let wrapped = analyze_transition(&before, &resolution, &after);
-        let parts = analyze_transition_parts(
-            &before,
-            &resolution.state,
-            &resolution.events,
-            &after,
-        );
+        let parts =
+            analyze_transition_parts(&before, &resolution.state, &resolution.events, &after);
 
         assert_eq!(wrapped, parts);
     }
-
-
 }
