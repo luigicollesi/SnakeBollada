@@ -507,10 +507,7 @@ fn append_border_exposure_event(child: &SearchNode, events: &mut Vec<InstantEven
         .map_or(0, |snapshot| snapshot.fear_milli);
     let corner = (head.x == 0 || head.x == right) && (head.y == 0 || head.y == top);
 
-    events.push(InstantEvent::SelfBorderExposure {
-        fear_milli,
-        corner,
-    });
+    events.push(InstantEvent::SelfBorderExposure { fear_milli, corner });
 }
 
 fn is_terminal_state(state: &SimulatedGameState) -> bool {
