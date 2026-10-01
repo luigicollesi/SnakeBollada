@@ -9,6 +9,7 @@ use crate::analysis::{EnclosureAnalysis, StateAnalysis, TacticalStateAnalysis, T
 use crate::decision::joint_actions::JointActionGenerator;
 use crate::decision::state_key::StateKey;
 use crate::direction::MoveMask;
+use crate::enemy::profile::OpponentProfiles;
 use crate::enemy::tracing::{trace_with_mobility, EnemyTracingOutput};
 use crate::modes::hunting::{self, HuntingModeOutput};
 use crate::simulation::joint_action::JointAction;
@@ -98,10 +99,18 @@ pub(crate) struct FutureGraph {
     transpositions: HashMap<StateKey, NodeId>,
     transposition_hits: u32,
     edge_count: u32,
+    opponent_profiles: OpponentProfiles,
 }
 
 impl FutureGraph {
     pub(crate) fn new(root_state: SimulatedGameState) -> Self {
+        Self::new_with_opponent_profiles(root_state, OpponentProfiles::default())
+    }
+
+    pub(crate) fn new_with_opponent_profiles(
+        root_state: SimulatedGameState,
+        opponent_profiles: OpponentProfiles,
+    ) -> Self {
         let root_node = build_node(root_state);
         let root_key = root_node.key.clone();
 
@@ -111,7 +120,12 @@ impl FutureGraph {
             transpositions: HashMap::from([(root_key, 0)]),
             transposition_hits: 0,
             edge_count: 0,
+            opponent_profiles,
         }
+    }
+
+    pub(crate) fn set_opponent_profiles(&mut self, opponent_profiles: OpponentProfiles) {
+        self.opponent_profiles = opponent_profiles;
     }
 
     pub(crate) fn root(&self) -> NodeId {
@@ -404,7 +418,14 @@ impl FutureGraph {
         let mut actions = self.nodes[node_id]
             .pending_actions
             .take()
-            .unwrap_or_else(|| JointActionGenerator::new(&state, our_moves, &tracing));
+            .unwrap_or_else(|| {
+                JointActionGenerator::new_with_profiles(
+                    &state,
+                    our_moves,
+                    &tracing,
+                    &self.opponent_profiles,
+                )
+            });
 
         loop {
             if budget.is_some_and(SearchBudget::expired) {
@@ -627,6 +648,27 @@ mod tests {
         assert_eq!(report.completed_depth, 2);
         assert!(report.nodes > 1);
         assert!(report.edges > 0);
+    }
+
+    #[test]
+    fn graph_accepts_updated_opponent_profiles_without_rebuilding_nodes() {
+        use crate::enemy::profile::OpponentProfile;
+
+        let mut graph = FutureGraph::new(state());
+        let node_count = graph.node_count();
+        graph.set_opponent_profiles(OpponentProfiles::from([(
+            "enemy".to_string(),
+            OpponentProfile {
+                hunting_bias_milli: 1200,
+                ..OpponentProfile::default()
+            },
+        )]));
+
+        assert_eq!(graph.node_count(), node_count);
+        assert_eq!(
+            graph.opponent_profiles["enemy"].hunting_bias_milli,
+            1200
+        );
     }
 
     #[test]
