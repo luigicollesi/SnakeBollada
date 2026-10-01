@@ -430,7 +430,12 @@ mod tests {
 
         let decision = choose_move(&state);
 
-        assert_eq!(decision.direction, Direction::Up);
+        assert_eq!(
+            decision.direction,
+            Direction::Up,
+            "unexpected decision metadata: {:?}",
+            decision.search
+        );
         assert_eq!(decision.target_food, Some(claimable_food));
     }
 
