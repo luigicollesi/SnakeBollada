@@ -66,9 +66,7 @@ impl TerritoryAnalysis {
         }
 
         let occupied = retained_occupancy(state, width, height);
-        let open = (0..cells)
-            .map(|index| !occupied[index])
-            .collect::<Vec<_>>();
+        let open = (0..cells).map(|index| !occupied[index]).collect::<Vec<_>>();
         let articulation = articulation_points(width, height, &open);
 
         let living = state
@@ -159,8 +157,7 @@ impl TerritoryAnalysis {
                         return None;
                     }
 
-                    let trapped_space =
-                        reachable_count(width, height, &open, head, Some(*coord));
+                    let trapped_space = reachable_count(width, height, &open, head, Some(*coord));
                     let cut_gain = reachable_space.saturating_sub(trapped_space);
                     let minimum_gain = u32::try_from(snake.length()).unwrap_or(u32::MAX).max(4);
                     (cut_gain >= minimum_gain).then_some(ChokePoint {
@@ -186,13 +183,7 @@ impl TerritoryAnalysis {
                     reachable_space,
                     exclusive_space,
                     contested_space,
-                    escape_frontier: escape_frontier(
-                        width,
-                        height,
-                        &open,
-                        head,
-                        snake.length(),
-                    ),
+                    escape_frontier: escape_frontier(width, height, &open, head, snake.length()),
                     edge_distance: edge_distance(width, height, head),
                     useful_chokes,
                 },
@@ -286,13 +277,7 @@ fn reachable_count(
         .unwrap_or(u32::MAX)
 }
 
-fn escape_frontier(
-    width: u16,
-    height: u16,
-    open: &[bool],
-    head: Coord,
-    length: usize,
-) -> u8 {
+fn escape_frontier(width: u16, height: u16, open: &[bool], head: Coord, length: usize) -> u8 {
     let comfortable_space = u32::try_from(length)
         .unwrap_or(u32::MAX)
         .saturating_mul(2)
@@ -346,8 +331,7 @@ fn articulation_points(width: u16, height: u16, open: &[bool]) -> HashSet<Coord>
                 children = children.saturating_add(1);
                 tarjan.parent[next_index] = Some(current_index);
                 visit(tarjan, next);
-                tarjan.low[current_index] =
-                    tarjan.low[current_index].min(tarjan.low[next_index]);
+                tarjan.low[current_index] = tarjan.low[current_index].min(tarjan.low[next_index]);
 
                 let is_root = tarjan.parent[current_index].is_none();
                 if (is_root && children > 1)
@@ -356,8 +340,7 @@ fn articulation_points(width: u16, height: u16, open: &[bool]) -> HashSet<Coord>
                     tarjan.points.insert(current);
                 }
             } else if tarjan.parent[current_index] != Some(next_index) {
-                tarjan.low[current_index] =
-                    tarjan.low[current_index].min(tarjan.disc[next_index]);
+                tarjan.low[current_index] = tarjan.low[current_index].min(tarjan.disc[next_index]);
             }
         }
     }
@@ -398,11 +381,7 @@ fn edge_distance(width: u16, height: u16, coord: Coord) -> u16 {
 }
 
 fn index_of(width: u16, height: u16, coord: Coord) -> Option<usize> {
-    if coord.x < 0
-        || coord.y < 0
-        || coord.x >= i32::from(width)
-        || coord.y >= i32::from(height)
-    {
+    if coord.x < 0 || coord.y < 0 || coord.x >= i32::from(width) || coord.y >= i32::from(height) {
         return None;
     }
 
@@ -477,22 +456,9 @@ mod tests {
             7,
             7,
             vec![
-                snake(
-                    "ours",
-                    &[(6, 6), (6, 5), (6, 4), (5, 4), (4, 4), (3, 4)],
-                ),
+                snake("ours", &[(6, 6), (6, 5), (6, 4), (5, 4), (4, 4), (3, 4)]),
                 snake("enemy", &[(1, 2), (1, 1), (1, 0)]),
-                snake(
-                    "wall",
-                    &[
-                        (2, 6),
-                        (2, 5),
-                        (2, 4),
-                        (2, 3),
-                        (2, 1),
-                        (2, 0),
-                    ],
-                ),
+                snake("wall", &[(2, 6), (2, 5), (2, 4), (2, 3), (2, 1), (2, 0)]),
             ],
         );
 
