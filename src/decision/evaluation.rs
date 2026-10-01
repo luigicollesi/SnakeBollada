@@ -242,14 +242,28 @@ impl DagEvaluator<'_> {
             evaluate_frontier(node, certainty, terminal)
         } else {
             let directions = self.evaluate_directions(node_id, remaining_depth, certainty)?;
+            let robust_safe_moves = node
+                .active_analysis()
+                .expect("running search node must have analysis")
+                .tactical
+                .ours
+                .safe_moves;
+            let guaranteed_enemy_kills = directions
+                .iter()
+                .filter(|evaluation| {
+                    (robust_safe_moves.is_empty()
+                        || robust_safe_moves.contains(evaluation.direction))
+                        && !evaluation.survival.has_death_response()
+                        && !evaluation.survival.has_dead_end_response()
+                        && !evaluation.survival.has_forced_response()
+                })
+                .map(|evaluation| evaluation.guaranteed_enemy_kills)
+                .max()
+                .unwrap_or(0);
             let best = choose_best_direction(
                 &directions,
                 &node.state,
-                node.active_analysis()
-                    .expect("running search node must have analysis")
-                    .tactical
-                    .ours
-                    .safe_moves,
+                robust_safe_moves,
                 self.policy,
             )?;
 
@@ -264,7 +278,7 @@ impl DagEvaluator<'_> {
                     average_leaf_food_potential: best.average_leaf_food_potential,
                     average_leaf_hunting_potential: best.average_leaf_hunting_potential,
                 },
-                guaranteed_enemy_kills: best.guaranteed_enemy_kills,
+                guaranteed_enemy_kills,
                 reserved_override_all: best.reserved_override,
                 chosen_move: Some(best.direction),
             }
@@ -967,6 +981,34 @@ mod tests {
             guaranteed_enemy_kills: 0,
             reserved_override: false,
         }
+    }
+
+    #[test]
+    fn guaranteed_kill_requires_every_adversarial_response_to_kill() {
+        let graph = FutureGraph::new(state(vec![]));
+        let parent = graph.node(graph.root());
+        let survival = summary(1, 0, 3);
+        let outcome = |guaranteed_enemy_kills| EdgeOutcome {
+            terminal: TerminalAssessment::Running,
+            survival,
+            strategic: StrategicEnvelope::default(),
+            guaranteed_enemy_kills,
+            reserved_override_all: false,
+        };
+
+        let with_escape = aggregate_direction(
+            Direction::Up,
+            parent,
+            &[outcome(1), outcome(0)],
+        );
+        let forced = aggregate_direction(
+            Direction::Up,
+            parent,
+            &[outcome(1), outcome(1)],
+        );
+
+        assert_eq!(with_escape.guaranteed_enemy_kills, 0);
+        assert_eq!(forced.guaranteed_enemy_kills, 1);
     }
 
     #[test]
