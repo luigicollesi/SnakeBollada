@@ -252,7 +252,11 @@ fn priority_signals(
             2201..=2800 => 250,
             _ => 0,
         };
-        risk.max(mobility).max(space).min(1000)
+        let border = analysis
+            .border
+            .ours()
+            .map_or(0, |snapshot| snapshot.structural_risk_milli);
+        risk.max(mobility).max(space).max(border).min(1000)
     });
 
     let intent_focus = intent_focus(node, intent);
@@ -330,10 +334,17 @@ fn intent_focus(node: &crate::search::graph::SearchNode, intent: Option<&Decisio
                 .iter()
                 .find(|plan| plan.target == hunt.target && plan.kind == hunt.kind)
                 .map_or(0, |plan| plan.score_milli);
+            let competitive = analysis
+                .territory
+                .competitive_for_snake(&hunt.target)
+                .map_or(0, |snapshot| {
+                    1000_u16.saturating_sub(snapshot.control_ratio_milli)
+                });
 
             risk.saturating_add(escape)
                 .saturating_add(boundary)
                 .max(plan)
+                .max(competitive)
                 .min(1000)
         }
     }
