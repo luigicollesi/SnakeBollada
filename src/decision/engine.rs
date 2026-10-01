@@ -16,7 +16,7 @@ use crate::strategy::{
     choose_move_baseline, CacheInvalidationReason, Decision, DecisionReason, DepthSearchStats,
     DirectionOutcomeSummary, SearchMetadata,
 };
-use crate::{Coord, GameState};
+use crate::GameState;
 
 const TARGET_DEPTH: u8 = 3;
 
