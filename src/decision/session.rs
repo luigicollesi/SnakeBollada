@@ -2,9 +2,11 @@ use std::collections::VecDeque;
 
 use crate::decision::state_key::StateKey;
 use crate::search::graph::FutureGraph;
-use crate::simulation::state::{AggressionState, SimulatedGameState, SimulationSupport};
+use crate::simulation::state::{
+    AggressionState, SimulatedGameState, SimulationSupport, OPENING_FOOD_TARGET_FRUITS,
+};
 use crate::strategy::{choose_move_baseline, Decision};
-use crate::GameState;
+use crate::{Coord, GameState};
 
 use super::DecisionEngine;
 
@@ -40,6 +42,7 @@ pub(crate) struct DecisionState {
     aggression: AggressionState,
     previous_our_length: Option<usize>,
     previous_observed_food: Option<Vec<crate::Coord>>,
+    committed_food: Option<Coord>,
     runtime_history: RuntimeHistory,
 }
 
@@ -48,11 +51,21 @@ impl DecisionState {
         let runtime_jitter_reserve_ms = self.runtime_history.jitter_reserve_ms();
         self.observe_aggression(state);
 
+        if self
+            .committed_food
+            .is_some_and(|target| !state.board.food.contains(&target))
+        {
+            self.committed_food = None;
+        }
+
+        let prioritize_food = self.aggression.fruits_eaten < OPENING_FOOD_TARGET_FRUITS;
+
         let mut normalized = SimulatedGameState::from(state);
         normalized.aggression = self.aggression;
 
         if normalized.rules.simulation_support() != SimulationSupport::StandardLike {
             self.graph = None;
+            self.committed_food = None;
             self.previous_our_length = Some(state.you.body.len());
             return choose_move_baseline(state);
         }
@@ -80,11 +93,23 @@ impl DecisionState {
             None => FutureGraph::new(normalized),
         };
 
-        let decision = DecisionEngine::stateless().decide_with_graph_with_reserve(
-            state,
-            &mut graph,
-            runtime_jitter_reserve_ms,
-        );
+        let decision = DecisionEngine::stateless()
+            .decide_with_graph_with_reserve_and_food_preference(
+                state,
+                &mut graph,
+                runtime_jitter_reserve_ms,
+                self.committed_food,
+                prioritize_food,
+            );
+
+        if prioritize_food {
+            if let Some(target) = decision.target_food {
+                self.committed_food = Some(target);
+            }
+        } else {
+            self.committed_food = None;
+        }
+
         graph.retain_chosen_direction(decision.direction);
 
         self.graph = Some(graph);
@@ -201,6 +226,23 @@ mod tests {
         decision.observe_aggression(&grown);
 
         assert_eq!(decision.aggression.fruits_eaten, 1);
+    }
+
+    #[test]
+    fn food_opening_starts_non_aggressive_and_locks_until_two_fruits() {
+        let mut decision = DecisionState::default();
+
+        assert_eq!(decision.aggression.value, 0.0);
+        assert_eq!(decision.aggression.fruits_eaten, 0);
+        assert!(decision.aggression.fruits_eaten < OPENING_FOOD_TARGET_FRUITS);
+
+        decision.aggression.record_food();
+        assert!((decision.aggression.value - 0.10).abs() < f32::EPSILON);
+        assert!(decision.aggression.fruits_eaten < OPENING_FOOD_TARGET_FRUITS);
+
+        decision.aggression.record_food();
+        assert_eq!(decision.aggression.fruits_eaten, OPENING_FOOD_TARGET_FRUITS);
+        assert!(!(decision.aggression.fruits_eaten < OPENING_FOOD_TARGET_FRUITS));
     }
 
     #[test]
