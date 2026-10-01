@@ -5,7 +5,7 @@ use crate::analysis::StrategicPosture;
 
 use crate::decision::escape::{
     choose_escape_direction, root_escape_pressure_milli, ESCAPE_ACTIVATION_THRESHOLD_MILLI,
-    ESCAPE_RELEASE_THRESHOLD_MILLI,
+    ESCAPE_CONTINUE_THRESHOLD_MILLI,
 };
 use crate::decision::evaluation::{
     choose_best_direction, evaluate_graph_budgeted, DagEvaluationStats, DirectionEvaluation,
@@ -147,20 +147,33 @@ impl DecisionEngine {
             return baseline_fallback(state);
         }
 
+        let root = graph.node(graph.root());
+        let base_robust_safe_moves = root
+            .active_analysis()
+            .map_or(crate::direction::MoveMask::empty(), |analysis| {
+                analysis.tactical.ours.safe_moves
+            });
+        let base_escape_pressure_milli =
+            root_escape_pressure_milli(&evaluations, base_robust_safe_moves);
         let provisional_escape_intent = if intent.is_none() {
-            let root = graph.node(graph.root());
-            let robust_safe_moves = root
-                .active_analysis()
-                .map_or(crate::direction::MoveMask::empty(), |analysis| {
-                    analysis.tactical.ours.safe_moves
-                });
-            let pressure = root_escape_pressure_milli(&evaluations, robust_safe_moves);
-            (pressure >= ESCAPE_ACTIVATION_THRESHOLD_MILLI)
-                .then(|| DecisionIntent::Escape(EscapeIntent::new(root.state.turn, pressure)))
+            (base_escape_pressure_milli >= ESCAPE_ACTIVATION_THRESHOLD_MILLI).then(|| {
+                DecisionIntent::Escape(EscapeIntent::new(
+                    root.state.turn,
+                    base_escape_pressure_milli,
+                ))
+            })
         } else {
             None
         };
-        let search_intent = intent.or(provisional_escape_intent.as_ref());
+        let search_intent = match intent {
+            Some(DecisionIntent::Escape(_))
+                if !escape_should_override(intent, base_escape_pressure_milli) =>
+            {
+                None
+            }
+            Some(_) => intent,
+            None => provisional_escape_intent.as_ref(),
+        };
 
         let mut analyzed_depth = completed_depth;
         if completed_depth >= TARGET_DEPTH && !budget.soft_expired() {
@@ -462,7 +475,7 @@ impl DecisionEngine {
 fn escape_should_override(intent: Option<&DecisionIntent>, pressure_milli: u16) -> bool {
     pressure_milli >= ESCAPE_ACTIVATION_THRESHOLD_MILLI
         || (intent.and_then(DecisionIntent::escape).is_some()
-            && pressure_milli > ESCAPE_RELEASE_THRESHOLD_MILLI)
+            && pressure_milli >= ESCAPE_CONTINUE_THRESHOLD_MILLI)
 }
 
 fn selective_reevaluation_reserve(
@@ -1672,6 +1685,7 @@ mod tests {
         let intent = DecisionIntent::Escape(EscapeIntent::new(10, 800));
 
         assert!(!escape_should_override(Some(&intent), 250));
+        assert!(!escape_should_override(Some(&intent), 350));
         assert!(escape_should_override(Some(&intent), 450));
         assert!(escape_should_override(
             None,
