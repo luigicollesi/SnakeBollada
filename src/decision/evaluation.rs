@@ -460,8 +460,7 @@ fn apply_edge(
             .map_or(0, |snapshot| snapshot.risk.rank())
     });
     let mut survival = child.survival;
-    survival.max_self_enclosure_risk =
-        survival.max_self_enclosure_risk.max(child_enclosure_risk);
+    survival.max_self_enclosure_risk = survival.max_self_enclosure_risk.max(child_enclosure_risk);
     if death_now {
         survival.death_routes = route_count;
     }
