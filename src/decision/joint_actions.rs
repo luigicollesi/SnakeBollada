@@ -2,7 +2,7 @@
 
 use crate::direction::{Direction, MoveMask};
 use crate::enemy::profile::OpponentProfiles;
-use crate::enemy::tracing::{EnemyMoveSet, EnemyTracingOutput};
+use crate::enemy::tracing::EnemyTracingOutput;
 use crate::simulation::joint_action::JointAction;
 use crate::simulation::state::SimulatedGameState;
 
