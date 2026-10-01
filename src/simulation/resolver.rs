@@ -48,6 +48,10 @@ pub(crate) enum InstantEvent {
         remaining_moves: u8,
     },
     SelfDeadEnd,
+    SelfBorderExposure {
+        fear_milli: u16,
+        corner: bool,
+    },
     HeadToHeadWon {
         enemy: String,
     },
