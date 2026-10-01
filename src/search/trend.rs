@@ -8,6 +8,7 @@ pub(crate) struct SearchTrend {
     pub(crate) strongest_enemy_control_loss_milli: i16,
     pub(crate) target_control_loss_milli: i16,
     pub(crate) frontier_delta: i16,
+    pub(crate) dominance_frontier_delta: i16,
     pub(crate) border_risk_delta_milli: i16,
     pub(crate) border_chain_delta: i16,
 }
@@ -46,6 +47,17 @@ impl SearchTrend {
                     i32::from(after.winning_frontier) - i32::from(after.losing_frontier);
                 clamp_i16(after_frontier.saturating_sub(before_frontier))
             }
+            _ => 0,
+        };
+
+        let dominance_frontier_delta = match (
+            parent_analysis.territory.competitive_for_snake(our_id),
+            child_analysis.territory.competitive_for_snake(our_id),
+        ) {
+            (Some(before), Some(after)) => signed_delta(
+                after.dominance_frontier_cells,
+                before.dominance_frontier_cells,
+            ),
             _ => 0,
         };
 
@@ -90,6 +102,7 @@ impl SearchTrend {
             strongest_enemy_control_loss_milli,
             target_control_loss_milli,
             frontier_delta,
+            dominance_frontier_delta,
             border_risk_delta_milli,
             border_chain_delta,
         }
@@ -102,11 +115,13 @@ impl SearchTrend {
                 .max(self.strongest_enemy_control_loss_milli),
         );
         let frontier_gain = positive(self.frontier_delta);
+        let dominance_gain = positive(self.dominance_frontier_delta);
 
         u32::from(our_gain)
             .saturating_mul(2)
             .saturating_add(u32::from(enemy_denial).saturating_mul(2))
             .saturating_add(u32::from(frontier_gain).saturating_mul(40))
+            .saturating_add(u32::from(dominance_gain).saturating_mul(120))
             .min(1000)
             .try_into()
             .unwrap_or(1000)
@@ -154,6 +169,7 @@ mod tests {
             our_control_delta_milli: 80,
             target_control_loss_milli: 120,
             frontier_delta: 2,
+            dominance_frontier_delta: 1,
             ..SearchTrend::default()
         };
 
