@@ -2,14 +2,13 @@
 
 mod context;
 mod metrics;
-mod score;
 mod transition_score;
 mod weights;
 
 pub(crate) use context::ActorContext;
 pub(crate) use metrics::ActorUtilityMetrics;
 pub(crate) use transition_score::TransitionScore;
-pub(crate) use weights::{NeedWeights, StrategicWeights};
+pub(crate) use weights::StrategicWeights;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct ActorSnapshot {
