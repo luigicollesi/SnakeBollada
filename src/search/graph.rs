@@ -217,9 +217,15 @@ impl FutureGraph {
             .map(|(new_id, old_id)| (*old_id, new_id))
             .collect::<HashMap<_, _>>();
 
+        let old_nodes = std::mem::take(&mut self.nodes);
+        let mut old_nodes = old_nodes.into_iter().map(Some).collect::<Vec<_>>();
         let mut nodes = Vec::with_capacity(order.len());
+        let mut edge_count = 0_u32;
+
         for old_id in order {
-            let mut node = self.nodes[old_id].clone();
+            let mut node = old_nodes[old_id]
+                .take()
+                .expect("reachable node must exist during compaction");
             node.children = node
                 .children
                 .into_iter()
@@ -229,6 +235,9 @@ impl FutureGraph {
                     Some(edge)
                 })
                 .collect();
+            edge_count = edge_count.saturating_add(
+                node.children.len().try_into().unwrap_or(u32::MAX),
+            );
             nodes.push(node);
         }
 
@@ -240,11 +249,7 @@ impl FutureGraph {
             .enumerate()
             .map(|(node_id, node)| (node.key.clone(), node_id))
             .collect();
-        self.edge_count = self
-            .nodes
-            .iter()
-            .map(|node| node.children.len() as u32)
-            .sum();
+        self.edge_count = edge_count;
     }
 
     pub(crate) fn expand_iteratively(
