@@ -301,6 +301,7 @@ fn choose_guaranteed_kill<'a>(
                 && !evaluation.survival.has_death_response()
                 && !evaluation.survival.has_dead_end_response()
                 && !evaluation.survival.has_forced_response()
+                && evaluation.survival.max_self_enclosure_risk < 2
         })
         .min_by(|left, right| {
             crate::decision::evaluation::compare_direction(left, right, state, policy)
@@ -324,6 +325,7 @@ fn choose_food_opening<'a>(
                     && !evaluation.survival.has_death_response()
                     && !evaluation.survival.has_dead_end_response()
                     && !evaluation.survival.has_forced_response()
+                    && evaluation.survival.max_self_enclosure_risk < 2
             })
     };
 
@@ -766,6 +768,55 @@ mod tests {
 
         assert!(choose_food_opening(
             &[dangerous],
+            &[],
+            &[committed],
+            &normalized,
+            MoveMask::all(),
+            ReservedCellPolicy::default(),
+        )
+        .is_none());
+    }
+
+    #[test]
+    fn food_opening_rejects_route_that_enters_enclosure() {
+        use crate::decision::evaluation::DirectionSurvivalSummary;
+        use crate::direction::{Direction, MoveMask};
+
+        let normalized = SimulatedGameState::from(&state("standard"));
+        let enclosed = DirectionEvaluation {
+            direction: Direction::Right,
+            terminal: TerminalAssessment::Running,
+            survival: DirectionSurvivalSummary {
+                total_routes: 1,
+                death_routes: 0,
+                dead_end_routes: 0,
+                forced_routes: 0,
+                constrained_routes: 0,
+                max_self_enclosure_risk: 2,
+                min_future_mobility: 3,
+                min_reachable_space: 20,
+                min_second_order_mobility: 3,
+            },
+            worst_strategic_utility: 5.0,
+            average_strategic_utility: 5.0,
+            average_food_value: 1.0,
+            average_hunting_value: 0.0,
+            average_leaf_food_potential: 0.0,
+            average_leaf_hunting_potential: 0.0,
+            guaranteed_enemy_kills: 0,
+            reserved_override: false,
+        };
+        let committed = food::FoodCandidate {
+            target_food: Coord { x: 4, y: 2 },
+            first_move: Direction::Right,
+            distance: 2,
+            claim_margin: Some(2),
+            contested: false,
+            certainty: ForecastCertainty::Deterministic,
+        };
+
+        assert!(choose_food_opening(
+            &[enclosed],
             &[],
             &[committed],
             &normalized,
