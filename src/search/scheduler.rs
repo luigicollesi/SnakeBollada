@@ -1,0 +1,314 @@
+#![allow(dead_code)]
+
+use std::cmp::Ordering;
+use std::collections::{BinaryHeap, HashSet, VecDeque};
+use std::time::Duration;
+
+use crate::decision::evaluation::{compare_direction, DirectionEvaluation};
+use crate::decision::policy::ReservedCellPolicy;
+use crate::direction::Direction;
+use crate::search::budget::SearchBudget;
+use crate::search::graph::{FutureGraph, NodeId, SearchError};
+use crate::search::priority::{FrontierPriority, PrioritySignals};
+
+const MAX_SELECTIVE_DEPTH: u8 = 20;
+const MIN_EXPANSION_SLICE: Duration = Duration::from_millis(1);
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) struct SelectiveSearchStats {
+    pub(crate) expansions: u32,
+    pub(crate) frontier_peak: u32,
+    pub(crate) max_selective_depth: u8,
+    pub(crate) reused_expansions: u32,
+    pub(crate) interrupted_expansions: u32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct FrontierEntry {
+    node_id: NodeId,
+    root_direction: Direction,
+    depth: u8,
+    priority: FrontierPriority,
+}
+
+impl Ord for FrontierEntry {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.priority.cmp(&other.priority)
+    }
+}
+
+impl PartialOrd for FrontierEntry {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+#[derive(Debug, Default, Clone, Copy)]
+pub(crate) struct SelectiveSearchScheduler;
+
+impl SelectiveSearchScheduler {
+    pub(crate) fn run(
+        &self,
+        graph: &mut FutureGraph,
+        base_evaluations: &[DirectionEvaluation],
+        budget: &SearchBudget,
+        base_depth: u8,
+    ) -> Result<SelectiveSearchStats, SearchError> {
+        if base_evaluations.is_empty() || budget.soft_expired() {
+            return Ok(SelectiveSearchStats::default());
+        }
+
+        let relevance = root_relevance(graph, base_evaluations);
+        let mut frontier = BinaryHeap::new();
+        let mut enqueued = HashSet::new();
+
+        for (node_id, root_direction, depth) in base_frontier(graph, base_depth) {
+            enqueue(
+                graph,
+                &mut frontier,
+                &mut enqueued,
+                node_id,
+                root_direction,
+                depth,
+                base_depth,
+                relevance[usize::from(root_direction.rank())],
+            );
+        }
+
+        let mut stats = SelectiveSearchStats {
+            frontier_peak: frontier.len().try_into().unwrap_or(u32::MAX),
+            ..SelectiveSearchStats::default()
+        };
+
+        while budget.can_afford_soft(MIN_EXPANSION_SLICE) {
+            let Some(entry) = frontier.pop() else {
+                break;
+            };
+
+            if entry.depth >= MAX_SELECTIVE_DEPTH || graph.node(entry.node_id).is_terminal() {
+                continue;
+            }
+
+            let expansion = graph.expand_frontier(entry.node_id, budget)?;
+            if !expansion.completed {
+                stats.interrupted_expansions = stats.interrupted_expansions.saturating_add(1);
+                break;
+            }
+
+            if expansion.expanded {
+                stats.expansions = stats.expansions.saturating_add(1);
+            } else {
+                stats.reused_expansions = stats.reused_expansions.saturating_add(1);
+            }
+            stats.max_selective_depth = stats.max_selective_depth.max(entry.depth);
+
+            let children = graph
+                .node(entry.node_id)
+                .children
+                .iter()
+                .map(|edge| edge.child)
+                .collect::<Vec<_>>();
+
+            let next_depth = entry.depth.saturating_add(1);
+            let root_relevance = relevance[usize::from(entry.root_direction.rank())];
+            for child in children {
+                enqueue(
+                    graph,
+                    &mut frontier,
+                    &mut enqueued,
+                    child,
+                    entry.root_direction,
+                    next_depth,
+                    base_depth,
+                    root_relevance,
+                );
+            }
+
+            stats.frontier_peak = stats
+                .frontier_peak
+                .max(frontier.len().try_into().unwrap_or(u32::MAX));
+        }
+
+        Ok(stats)
+    }
+}
+
+fn base_frontier(graph: &FutureGraph, base_depth: u8) -> Vec<(NodeId, Direction, u8)> {
+    let root = graph.root();
+    let root_state = &graph.node(root).state;
+    let our_id = root_state.our_snake_id.clone();
+    let mut queue = VecDeque::new();
+    let mut seen = HashSet::new();
+    let mut frontier = Vec::new();
+
+    for edge in &graph.node(root).children {
+        let Some(direction) = edge.joint_action.direction_for(&our_id) else {
+            continue;
+        };
+        queue.push_back((edge.child, direction, 1_u8));
+    }
+
+    while let Some((node_id, root_direction, depth)) = queue.pop_front() {
+        let key = (node_id, root_direction.rank(), depth);
+        if !seen.insert(key) {
+            continue;
+        }
+
+        if depth >= base_depth {
+            frontier.push((node_id, root_direction, depth));
+            continue;
+        }
+
+        for edge in &graph.node(node_id).children {
+            queue.push_back((edge.child, root_direction, depth.saturating_add(1)));
+        }
+    }
+
+    frontier
+}
+
+fn enqueue(
+    graph: &FutureGraph,
+    frontier: &mut BinaryHeap<FrontierEntry>,
+    enqueued: &mut HashSet<(NodeId, u8, u8)>,
+    node_id: NodeId,
+    root_direction: Direction,
+    depth: u8,
+    base_depth: u8,
+    root_relevance: u16,
+) {
+    if graph.node(node_id).is_terminal() {
+        return;
+    }
+
+    let key = (node_id, root_direction.rank(), depth);
+    if !enqueued.insert(key) {
+        return;
+    }
+
+    let signals = priority_signals(
+        graph,
+        node_id,
+        root_relevance,
+        depth.saturating_sub(base_depth),
+    );
+    frontier.push(FrontierEntry {
+        node_id,
+        root_direction,
+        depth,
+        priority: FrontierPriority::new(signals, root_direction, depth, node_id),
+    });
+}
+
+fn priority_signals(
+    graph: &FutureGraph,
+    node_id: NodeId,
+    root_relevance: u16,
+    depth_beyond_base: u8,
+) -> PrioritySignals {
+    let node = graph.node(node_id);
+    let Some(analysis) = node.active_analysis() else {
+        return PrioritySignals::default();
+    };
+
+    let ours = analysis.enclosure.ours(&node.state);
+    let safe_moves = analysis.tactical.ours.safe_moves.len();
+    let danger = ours.map_or(0, |snapshot| {
+        let risk = u16::from(snapshot.risk.rank()).saturating_mul(300);
+        let mobility = match safe_moves {
+            0 => 1000,
+            1 => 850,
+            2 => 450,
+            _ => 0,
+        };
+        let space = match snapshot.space_to_length_milli {
+            0..=1250 => 1000,
+            1251..=1600 => 800,
+            1601..=2200 => 500,
+            2201..=2800 => 250,
+            _ => 0,
+        };
+        risk.max(mobility).max(space).min(1000)
+    });
+
+    let tactical = (analysis.hunting.best_plan_score() * 1000.0)
+        .round()
+        .clamp(0.0, 1000.0) as u16;
+
+    let forcing = forcing_score(node);
+    let relevance_penalty = u16::from(depth_beyond_base).saturating_mul(45);
+    let relevance = root_relevance.saturating_sub(relevance_penalty);
+    let refutation = u32::from(danger)
+        .saturating_mul(u32::from(root_relevance))
+        .saturating_div(1000)
+        .try_into()
+        .unwrap_or(u16::MAX);
+
+    PrioritySignals {
+        refutation,
+        danger,
+        relevance,
+        tactical,
+        forcing,
+        uncertainty: 0,
+    }
+}
+
+fn forcing_score(node: &crate::search::graph::SearchNode) -> u16 {
+    let Some(analysis) = node.active_analysis() else {
+        return 0;
+    };
+
+    let our_moves = u32::from(analysis.tactical.ours.safe_moves.len().max(1));
+    let enemy_branching = analysis
+        .tactical
+        .enemies
+        .values()
+        .fold(1_u32, |product, enemy| {
+            let moves = if enemy.plausible_moves.is_empty() {
+                enemy.legal_moves.len()
+            } else {
+                enemy.plausible_moves.len()
+            };
+            product.saturating_mul(u32::from(moves.max(1))).min(64)
+        });
+
+    let branching = our_moves.saturating_mul(enemy_branching).max(1);
+    (1000_u32.saturating_div(branching).min(1000))
+        .try_into()
+        .unwrap_or(0)
+}
+
+fn root_relevance(graph: &FutureGraph, evaluations: &[DirectionEvaluation]) -> [u16; 4] {
+    let root = graph.node(graph.root());
+    let robust_safe_moves = root
+        .active_analysis()
+        .map(|analysis| analysis.tactical.ours.safe_moves)
+        .unwrap_or_default();
+    let policy = ReservedCellPolicy::default();
+
+    let mut ranked = evaluations.iter().collect::<Vec<_>>();
+    ranked.sort_by(|left, right| {
+        compare_direction(left, right, &root.state, robust_safe_moves, policy)
+    });
+
+    let mut relevance = [0_u16; 4];
+    let rank_values = [1000_u16, 825, 600, 350];
+
+    for (index, evaluation) in ranked.into_iter().enumerate() {
+        relevance[usize::from(evaluation.direction.rank())] =
+            rank_values.get(index).copied().unwrap_or(200);
+    }
+
+    relevance
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn forcing_prefers_small_branching_factor() {
+        assert!(1000_u32 / 1 > 1000_u32 / 9);
+    }
+}

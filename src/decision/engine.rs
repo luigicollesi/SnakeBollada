@@ -9,6 +9,7 @@ use crate::forecast::ForecastCertainty;
 use crate::modes::food;
 use crate::search::budget::SearchBudget;
 use crate::search::graph::FutureGraph;
+use crate::search::scheduler::SelectiveSearchScheduler;
 use crate::simulation::state::{SimulatedGameState, SimulationSupport};
 use crate::strategy::{
     choose_move_baseline, CacheInvalidationReason, Decision, DecisionReason, DepthSearchStats,
@@ -17,7 +18,6 @@ use crate::strategy::{
 use crate::{Coord, GameState};
 
 const TARGET_DEPTH: u8 = 3;
-const MAX_ITERATIVE_DEPTH: u8 = 6;
 
 #[derive(Debug, Default, Clone, Copy)]
 pub(crate) struct DecisionEngine;
@@ -86,7 +86,7 @@ impl DecisionEngine {
             DepthSearchStats::empty(6),
         ];
 
-        for depth in 1..=MAX_ITERATIVE_DEPTH {
+        for depth in 1..=TARGET_DEPTH {
             if budget.expired() {
                 break;
             }
@@ -95,14 +95,6 @@ impl DecisionEngine {
                 .node_count_at_depth(depth.saturating_sub(1))
                 .try_into()
                 .unwrap_or(u32::MAX);
-
-            if depth > TARGET_DEPTH {
-                let previous = depth_stats[usize::from(depth.saturating_sub(2))];
-                let estimate = estimate_next_depth(previous, frontier_nodes);
-                if !budget.can_afford(estimate) {
-                    break;
-                }
-            }
 
             let nodes_before = graph.node_count();
             let edges_before = graph.edge_count();
@@ -164,6 +156,15 @@ impl DecisionEngine {
 
         if completed_depth == 0 {
             return baseline_fallback(state);
+        }
+
+        if completed_depth >= TARGET_DEPTH && !budget.soft_expired() {
+            let _ = SelectiveSearchScheduler::default().run(
+                graph,
+                &evaluations,
+                &budget,
+                TARGET_DEPTH,
+            );
         }
 
         let root = graph.node(graph.root());
@@ -468,33 +469,6 @@ fn branching_milli(edges_generated: u32, frontier_nodes: u32) -> u32 {
         .saturating_div(u64::from(frontier_nodes))
         .try_into()
         .unwrap_or(u32::MAX)
-}
-
-fn estimate_next_depth(
-    previous: DepthSearchStats,
-    next_frontier_nodes: u32,
-) -> std::time::Duration {
-    let previous_cost_us = previous
-        .expansion_us
-        .saturating_add(previous.evaluation_us)
-        .max(1_000);
-
-    if !previous.completed || previous.edges_generated == 0 || previous.frontier_nodes == 0 {
-        return std::time::Duration::from_micros(previous_cost_us.saturating_mul(2));
-    }
-
-    let branching_milli = previous.branching_milli.max(1000);
-    let predicted_edges = u64::from(next_frontier_nodes)
-        .saturating_mul(u64::from(branching_milli))
-        .saturating_div(1000)
-        .max(1);
-    let scaled_cost = u128::from(previous_cost_us)
-        .saturating_mul(u128::from(predicted_edges))
-        .saturating_div(u128::from(previous.edges_generated.max(1)));
-    let with_margin = scaled_cost.saturating_mul(5).saturating_div(4);
-    let estimate_us = with_margin.try_into().unwrap_or(u64::MAX);
-
-    std::time::Duration::from_micros(estimate_us.max(1_000))
 }
 
 fn summarize_direction_outcomes(
