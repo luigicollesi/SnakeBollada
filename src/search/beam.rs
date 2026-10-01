@@ -106,7 +106,8 @@ impl BeamCheckpoint {
 
     pub(crate) fn can_commit(&self, candidate_lines: &[BeamLine]) -> bool {
         let target_depth = self.completed_depth.saturating_add(ROUND_DEPTH);
-        candidate_lines.len() == self.lines.len()
+        !candidate_lines.is_empty()
+            && candidate_lines.len() <= BEAM_WIDTH
             && candidate_lines
                 .iter()
                 .all(|line| line.completes_depth(target_depth) && line.bound.is_exact())
