@@ -217,8 +217,7 @@ mod tests {
         hungry.health_milli = 200;
 
         assert!(
-            NeedWeights::from_context(&hungry).food
-                >= NeedWeights::from_context(&healthy).food
+            NeedWeights::from_context(&hungry).food >= NeedWeights::from_context(&healthy).food
         );
     }
 
@@ -229,13 +228,9 @@ mod tests {
         smaller.size_disadvantage_milli = 700;
 
         assert!(
-            NeedWeights::from_context(&smaller).growth
-                > NeedWeights::from_context(&even).growth
+            NeedWeights::from_context(&smaller).growth > NeedWeights::from_context(&even).growth
         );
-        assert!(
-            NeedWeights::from_context(&smaller).food
-                > NeedWeights::from_context(&even).food
-        );
+        assert!(NeedWeights::from_context(&smaller).food > NeedWeights::from_context(&even).food);
     }
 
     #[test]
@@ -278,8 +273,7 @@ mod tests {
         crowded.duel_milli = 0;
 
         assert!(
-            NeedWeights::from_context(&crowded).hunting
-                < NeedWeights::from_context(&duel).hunting
+            NeedWeights::from_context(&crowded).hunting < NeedWeights::from_context(&duel).hunting
         );
     }
 }
