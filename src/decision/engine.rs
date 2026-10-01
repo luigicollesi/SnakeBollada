@@ -918,8 +918,9 @@ mod tests {
             certainty: ForecastCertainty::Deterministic,
         };
 
+        let evaluations = [dangerous];
         let chosen = choose_food_opening(
-            &[dangerous],
+            &evaluations,
             &[],
             &[committed],
             &normalized,
