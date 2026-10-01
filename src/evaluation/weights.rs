@@ -18,10 +18,7 @@ impl StrategicWeights {
         Self::from_territory_share(context, metrics.territory_share_milli)
     }
 
-    pub(crate) fn from_territory_share(
-        context: &ActorContext,
-        territory_share_milli: u16,
-    ) -> Self {
+    pub(crate) fn from_territory_share(context: &ActorContext, territory_share_milli: u16) -> Self {
         let survival = STRATEGIC_BUDGET
             .saturating_sub(territory_share_milli)
             .clamp(MIN_CATEGORY_WEIGHT, MAX_CATEGORY_WEIGHT);
