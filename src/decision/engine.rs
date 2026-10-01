@@ -387,9 +387,7 @@ fn hunting_intent_progress(
     let before_frontier = root_analysis
         .territory
         .competitive_for_snake(&root.state.our_snake_id)
-        .map(|snapshot| {
-            i32::from(snapshot.winning_frontier) - i32::from(snapshot.losing_frontier)
-        })
+        .map(|snapshot| i32::from(snapshot.winning_frontier) - i32::from(snapshot.losing_frontier))
         .unwrap_or(0);
     let before_border = root_analysis
         .border
