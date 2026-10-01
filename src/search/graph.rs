@@ -15,7 +15,9 @@ use crate::decision::joint_actions::JointActionGenerator;
 use crate::decision::state_key::StateKey;
 use crate::direction::MoveMask;
 use crate::enemy::profile::OpponentProfiles;
-use crate::enemy::tracing::{trace_with_mobility, EnemyTracingOutput};
+use crate::enemy::tracing::{
+    trace_actor_relative_with_mobility, trace_with_mobility, EnemyTracingOutput,
+};
 use crate::evaluation::{
     ActorSnapshot, ActorTable, ActorUtilityMetrics, StrategicWeights, TransitionScore,
 };
@@ -1018,10 +1020,20 @@ fn build_node_with_key(
         let state_analysis = Arc::new(state_analysis);
         let territory = Arc::new(territory);
 
-        let tracing = Arc::new(trace_with_mobility(&state, &state_analysis, &mobility));
-        let tactical = Arc::new(TacticalStateAnalysis::from_parts(
-            &state, &tracing, &mobility,
-        ));
+        let tracing = Arc::new(match profile {
+            AnalysisProfile::Full => trace_with_mobility(&state, &state_analysis, &mobility),
+            AnalysisProfile::BeamLean => {
+                trace_actor_relative_with_mobility(&state, &state_analysis, &mobility)
+            }
+        });
+        let tactical = Arc::new(match profile {
+            AnalysisProfile::Full => {
+                TacticalStateAnalysis::from_parts(&state, &tracing, &mobility)
+            }
+            AnalysisProfile::BeamLean => {
+                TacticalStateAnalysis::from_parts_actor_relative(&state, &tracing, &mobility)
+            }
+        });
         let border = Arc::new(match profile {
             AnalysisProfile::Full => {
                 BorderFobicAnalysis::from_parts_with_territory(&state, &tactical, &territory)
