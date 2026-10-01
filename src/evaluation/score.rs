@@ -1,4 +1,5 @@
-use super::{ActorContext, ActorMetrics, NeedWeights};
+use super::metrics::ActorMetrics;
+use super::{ActorContext, NeedWeights};
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub(crate) struct ActorBenefits {
