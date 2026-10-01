@@ -963,7 +963,12 @@ fn build_node_with_key(
         let mobility = Arc::new(MobilityAnalysis::from_spatial(Arc::clone(&spatial)));
 
         let (state_analysis, territory) = rayon::join(
-            || StateAnalysis::from_simulated(&state),
+            || match profile {
+                AnalysisProfile::Full => StateAnalysis::from_simulated(&state),
+                AnalysisProfile::BeamLean => {
+                    StateAnalysis::from_simulated_routes_only(&state)
+                }
+            },
             || TerritoryAnalysis::from_spatial(&state, &spatial),
         );
         let state_analysis = Arc::new(state_analysis);
@@ -983,7 +988,10 @@ fn build_node_with_key(
                 )
             }
         });
-        let posture = Arc::new(StrategicPosture::from_state(&state));
+        let posture = Arc::new(match profile {
+            AnalysisProfile::Full => StrategicPosture::from_state(&state),
+            AnalysisProfile::BeamLean => StrategicPosture::default(),
+        });
         let enclosure = Arc::new(match profile {
             AnalysisProfile::Full => {
                 EnclosureAnalysis::from_parts(&state, &territory, &tactical)
