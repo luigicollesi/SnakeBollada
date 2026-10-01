@@ -1032,8 +1032,11 @@ fn build_node_with_key(
         let actor_snapshots = state
             .snakes
             .par_iter()
-            .filter(|snake| snake.alive)
-            .filter_map(|snake| {
+            .map(|snake| {
+                if !snake.alive {
+                    return None;
+                }
+
                 let context = ActorContext::from_state(&state, &snake.id)?;
                 let metrics = ActorUtilityMetrics::from_parts(
                     &state,
@@ -1044,9 +1047,9 @@ fn build_node_with_key(
                     &enclosure,
                     &border,
                 )?;
-                Some((snake.id.clone(), ActorSnapshot::new(context, metrics)))
+                Some(ActorSnapshot::new(context, metrics))
             })
-            .collect();
+            .collect::<Vec<_>>();
         Some(Arc::new(NodeAnalysis {
             state: state_analysis,
             mobility,
@@ -1117,18 +1120,24 @@ mod tests {
             .active_analysis()
             .expect("running root must have analysis");
 
+        let root = graph.node(graph.root());
         let ours = analysis
-            .actor_snapshots
-            .get("ours")
+            .actor_snapshot(&root.state, "ours")
             .expect("our actor evaluation must exist");
         let enemy = analysis
-            .actor_snapshots
-            .get("enemy")
+            .actor_snapshot(&root.state, "enemy")
             .expect("enemy actor evaluation must exist");
 
         assert_eq!(ours.weights.total(), 1000);
         assert_eq!(enemy.weights.total(), 1000);
-        assert_eq!(analysis.actor_snapshots.len(), 2);
+        assert_eq!(
+            analysis
+                .actor_snapshots
+                .iter()
+                .filter(|snapshot| snapshot.is_some())
+                .count(),
+            2
+        );
     }
 
     #[test]
