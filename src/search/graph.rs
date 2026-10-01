@@ -506,7 +506,11 @@ fn build_node(state: SimulatedGameState) -> SearchNode {
             &state, &tracing, &mobility,
         ));
         let territory = Arc::new(TerritoryAnalysis::from_state(&state));
-        let border = Arc::new(BorderFobicAnalysis::from_parts(&state, &tactical));
+        let border = Arc::new(BorderFobicAnalysis::from_parts_with_territory(
+            &state,
+            &tactical,
+            &territory,
+        ));
         let posture = Arc::new(StrategicPosture::from_state(&state));
         let enclosure = Arc::new(EnclosureAnalysis::from_parts(&state, &territory, &tactical));
         let survival = Arc::new(survival::analyze_with_border(&state, &tactical, &border));
