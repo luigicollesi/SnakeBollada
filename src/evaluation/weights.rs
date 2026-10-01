@@ -58,25 +58,6 @@ mod tests {
 
     fn context() -> ActorContext {
         ActorContext {
-            actor_id: "ours".to_string(),
-            health_milli: 900,
-            length: 6,
-            enemy_count: 1,
-            largest_enemy_length: 6,
-            average_enemy_length: 6,
-            lead_over_largest: 0,
-            stronger_enemies: 0,
-            equal_enemies: 1,
-            weaker_enemies: 0,
-            board_cells: 121,
-            board_occupancy_milli: 100,
-            free_space_milli: 900,
-            body_density_milli: 50,
-            food_density_milli: 25,
-            food_per_snake_milli: 500,
-            hazard_density_milli: 0,
-            crowding_milli: 150,
-            duel_milli: 1000,
             size_advantage_milli: 0,
             size_disadvantage_milli: 0,
         }
