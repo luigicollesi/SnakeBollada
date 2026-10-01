@@ -582,6 +582,58 @@ mod tests {
         }
     }
 
+    fn multi_enemy_state() -> SimulatedGameState {
+        SimulatedGameState {
+            turn: 1,
+            width: 7,
+            height: 7,
+            food: vec![],
+            hazards: vec![],
+            snakes: vec![
+                snake("ours", &[(2, 2), (2, 1)]),
+                snake("enemy-a", &[(5, 2), (5, 1)]),
+                snake("enemy-b", &[(5, 5), (5, 4)]),
+            ],
+            our_snake_id: "ours".to_string(),
+            rules: RulesContext {
+                name: "standard".to_string(),
+                max_health: 100,
+                hazard_damage_per_turn: 0,
+            },
+            aggression: AggressionState::default(),
+        }
+    }
+
+    fn synthetic_multi_enemy_line(
+        ours: i64,
+        enemy_a: i64,
+        enemy_b: i64,
+        child: NodeId,
+    ) -> EvaluatedLine {
+        let opponents = enemy_a.saturating_add(enemy_b);
+        let value = route_value(ours, opponents);
+        EvaluatedLine {
+            value,
+            benefit_total: ours.max(0),
+            harm_total: ours.max(0).saturating_sub(ours),
+            our_utility_total: ours,
+            opponent_utility_total: opponents,
+            actor_utility_totals: HashMap::from([
+                ("ours".to_string(), ours),
+                ("enemy-a".to_string(), enemy_a),
+                ("enemy-b".to_string(), enemy_b),
+            ]),
+            terminal: LineTerminal::Running,
+            bound: ValueBound::Exact(value),
+            steps: vec![BeamStep {
+                node: 0,
+                joint_action: JointAction::new().with_move("ours", Direction::Up),
+                child,
+                transition: TransitionScore::default(),
+            }],
+        }
+    }
+
     fn synthetic_line(ours: i64, opponents: i64, child: NodeId) -> EvaluatedLine {
         let value = route_value(ours, opponents);
         EvaluatedLine {
@@ -723,6 +775,25 @@ mod tests {
 
         assert_eq!(chosen.opponent_utility_total, 200);
         assert_eq!(chosen.our_utility_total, -50);
+    }
+
+    #[test]
+    fn multiple_opponents_are_not_collapsed_to_team_sum_during_prediction() {
+        let graph = FutureGraph::new(multi_enemy_state());
+        let node = graph.node(graph.root());
+
+        let enemy_a_extreme = synthetic_multi_enemy_line(0, 300, 0, 1);
+        let enemy_b_extreme = synthetic_multi_enemy_line(0, 0, 300, 2);
+        let individually_balanced = synthetic_multi_enemy_line(0, 140, 140, 3);
+
+        let chosen = select_selfish_opponent_response(
+            node,
+            vec![enemy_a_extreme, enemy_b_extreme, individually_balanced],
+        );
+
+        assert_eq!(chosen.opponent_utility_total, 280);
+        assert_eq!(actor_utility(&chosen, "enemy-a"), 140);
+        assert_eq!(actor_utility(&chosen, "enemy-b"), 140);
     }
 
     #[test]
