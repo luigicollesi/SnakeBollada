@@ -237,11 +237,14 @@ mod tests {
         assert!(decision.aggression.fruits_eaten < OPENING_FOOD_TARGET_FRUITS);
 
         decision.aggression.record_food();
-        assert!((decision.aggression.value - 0.10).abs() < f32::EPSILON);
+        assert!((decision.aggression.value - 0.05).abs() < f32::EPSILON);
         assert!(decision.aggression.fruits_eaten < OPENING_FOOD_TARGET_FRUITS);
 
-        decision.aggression.record_food();
+        while decision.aggression.fruits_eaten < OPENING_FOOD_TARGET_FRUITS {
+            decision.aggression.record_food();
+        }
         assert_eq!(decision.aggression.fruits_eaten, OPENING_FOOD_TARGET_FRUITS);
+        assert!((decision.aggression.value - 0.20).abs() < f32::EPSILON);
         assert!(!(decision.aggression.fruits_eaten < OPENING_FOOD_TARGET_FRUITS));
     }
 
