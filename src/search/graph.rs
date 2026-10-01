@@ -49,8 +49,18 @@ pub(crate) struct NodeAnalysis {
 pub(crate) struct SearchNode {
     pub(crate) state: SimulatedGameState,
     pub(crate) key: StateKey,
-    pub(crate) analysis: Arc<NodeAnalysis>,
+    pub(crate) analysis: Option<Arc<NodeAnalysis>>,
     pub(crate) children: Vec<SearchEdge>,
+}
+
+impl SearchNode {
+    pub(crate) fn active_analysis(&self) -> Option<&NodeAnalysis> {
+        self.analysis.as_deref()
+    }
+
+    pub(crate) fn is_terminal(&self) -> bool {
+        is_terminal_state(&self.state)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -317,8 +327,11 @@ impl FutureGraph {
         }
 
         let state = self.nodes[node_id].state.clone();
-        let tracing = Arc::clone(&self.nodes[node_id].analysis.tracing);
-        let before_tactical = Arc::clone(&self.nodes[node_id].analysis.tactical);
+        let Some(parent_analysis) = self.nodes[node_id].analysis.as_ref() else {
+            return Ok(true);
+        };
+        let tracing = Arc::clone(&parent_analysis.tracing);
+        let before_tactical = Arc::clone(&parent_analysis.tactical);
 
         let our_moves = if before_tactical.ours.deterministic_moves.is_empty() {
             MoveMask::all()
@@ -348,12 +361,16 @@ impl FutureGraph {
                 child
             };
 
-            let after_tactical = Arc::clone(&self.nodes[child].analysis.tactical);
-            let transition = analyze_transition(&before_tactical, &resolution, &after_tactical);
+            let events = if let Some(child_analysis) = self.nodes[child].analysis.as_ref() {
+                let after_tactical = Arc::clone(&child_analysis.tactical);
+                analyze_transition(&before_tactical, &resolution, &after_tactical).events
+            } else {
+                resolution.events.clone()
+            };
 
             edges.push(SearchEdge {
                 joint_action,
-                events: transition.events,
+                events,
                 forecast_delta: resolution.forecast_delta,
                 child,
             });
@@ -365,33 +382,40 @@ impl FutureGraph {
     }
 
     fn is_terminal(&self, node_id: NodeId) -> bool {
-        let state = &self.nodes[node_id].state;
-        let ours_alive = state
-            .snake(&state.our_snake_id)
-            .is_some_and(|snake| snake.alive);
-        let living_enemies = state
-            .snakes
-            .iter()
-            .any(|snake| snake.alive && snake.id != state.our_snake_id);
-
-        !ours_alive || !living_enemies
+        self.nodes[node_id].is_terminal()
     }
+}
+
+fn is_terminal_state(state: &SimulatedGameState) -> bool {
+    let ours_alive = state
+        .snake(&state.our_snake_id)
+        .is_some_and(|snake| snake.alive);
+    let living_enemies = state
+        .snakes
+        .iter()
+        .any(|snake| snake.alive && snake.id != state.our_snake_id);
+
+    !ours_alive || !living_enemies
 }
 
 fn build_node(state: SimulatedGameState) -> SearchNode {
     let key = StateKey::from_state(&state);
-    let state_analysis = Arc::new(StateAnalysis::from_simulated(&state));
-    let mobility = Arc::new(MobilityAnalysis::from_state(&state));
-    let tracing = Arc::new(trace_with_mobility(&state, &state_analysis, &mobility));
-    let tactical = Arc::new(TacticalStateAnalysis::from_parts(
-        &state, &tracing, &mobility,
-    ));
-    let analysis = Arc::new(NodeAnalysis {
-        state: state_analysis,
-        mobility,
-        tracing,
-        tactical,
-    });
+    let analysis = if is_terminal_state(&state) {
+        None
+    } else {
+        let state_analysis = Arc::new(StateAnalysis::from_simulated(&state));
+        let mobility = Arc::new(MobilityAnalysis::from_state(&state));
+        let tracing = Arc::new(trace_with_mobility(&state, &state_analysis, &mobility));
+        let tactical = Arc::new(TacticalStateAnalysis::from_parts(
+            &state, &tracing, &mobility,
+        ));
+        Some(Arc::new(NodeAnalysis {
+            state: state_analysis,
+            mobility,
+            tracing,
+            tactical,
+        }))
+    };
 
     SearchNode {
         state,
@@ -525,6 +549,22 @@ mod tests {
         assert_eq!(report.completed_depth, 2);
         assert!(report.nodes > 1);
         assert!(report.edges > 0);
+    }
+
+    #[test]
+    fn terminal_nodes_skip_expensive_analysis() {
+        let mut terminal = state();
+        terminal
+            .snakes
+            .iter_mut()
+            .find(|snake| snake.id == "enemy")
+            .unwrap()
+            .alive = false;
+
+        let graph = FutureGraph::new(terminal);
+
+        assert!(graph.node(graph.root()).is_terminal());
+        assert!(graph.node(graph.root()).analysis.is_none());
     }
 
     #[test]
