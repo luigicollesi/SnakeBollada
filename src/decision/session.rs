@@ -695,6 +695,39 @@ mod tests {
     }
 
     #[test]
+    fn escape_decision_overrides_existing_food_intent() {
+        use crate::decision::intent::{DecisionIntent, FoodIntent};
+
+        let game = state(3, vec![Coord { x: 3, y: 3 }, Coord { x: 3, y: 2 }]);
+        let graph = FutureGraph::new(SimulatedGameState::from(&game));
+        let mut decision_state = DecisionState {
+            intent: Some(DecisionIntent::Food(FoodIntent::new(Coord { x: 4, y: 4 }, 2))),
+            ..DecisionState::default()
+        };
+        let decision = Decision {
+            direction: Direction::Up,
+            reason: crate::strategy::DecisionReason::SurvivalCritical,
+            target_food: None,
+            target_enemy: None,
+            hunt_kind: None,
+            path_distance: None,
+            reachable_cells: 10,
+            search: crate::strategy::SearchMetadata {
+                escape_pressure_milli: 750,
+                escape_selected: true,
+                ..crate::strategy::SearchMetadata::default()
+            },
+        };
+
+        decision_state.update_intent_after_decision(&game, &graph, &decision);
+
+        assert!(matches!(
+            decision_state.intent,
+            Some(DecisionIntent::Escape(_))
+        ));
+    }
+
+    #[test]
     fn runtime_history_uses_bounded_jitter_window() {
         let mut history = RuntimeHistory::default();
         for index in 0..20_u64 {
