@@ -676,8 +676,12 @@ fn choose_food_opening<'a>(
 }
 
 fn food_is_on_edge(state: &SimulatedGameState, food: crate::Coord) -> bool {
-    let right = i32::try_from(state.width).unwrap_or(i32::MAX).saturating_sub(1);
-    let top = i32::try_from(state.height).unwrap_or(i32::MAX).saturating_sub(1);
+    let right = i32::try_from(state.width)
+        .unwrap_or(i32::MAX)
+        .saturating_sub(1);
+    let top = i32::try_from(state.height)
+        .unwrap_or(i32::MAX)
+        .saturating_sub(1);
     food.x == 0 || food.y == 0 || food.x == right || food.y == top
 }
 
