@@ -312,22 +312,23 @@ fn choose_food_opening<'a>(
     robust_safe_moves: crate::direction::MoveMask,
     policy: ReservedCellPolicy,
 ) -> Option<(&'a DirectionEvaluation, food::FoodCandidate)> {
-    let viable = |candidate: &food::FoodCandidate| {
+    let viable = |candidate: &food::FoodCandidate, committed: bool| {
         evaluations
             .iter()
             .find(|evaluation| evaluation.direction == candidate.first_move)
             .filter(|evaluation| {
+                let death_limit = if committed { 750 } else { 500 };
                 (robust_safe_moves.is_empty() || robust_safe_moves.contains(evaluation.direction))
-                    && !evaluation.survival.has_death_response()
-                    && !evaluation.survival.has_dead_end_response()
-                    && !evaluation.survival.has_forced_response()
-                    && evaluation.survival.max_self_enclosure_risk < 2
+                    && !evaluation.survival.is_forced_death()
+                    && !evaluation.survival.is_forced_dead_end()
+                    && evaluation.survival.death_rate_milli() <= death_limit
+                    && evaluation.survival.max_self_enclosure_risk < 3
             })
     };
 
     let preferred = preferred_candidates
         .iter()
-        .filter_map(|candidate| viable(candidate).map(|evaluation| (evaluation, candidate)))
+        .filter_map(|candidate| viable(candidate, true).map(|evaluation| (evaluation, candidate)))
         .min_by(|(left, _), (right, _)| {
             crate::decision::evaluation::compare_direction(left, right, state, policy)
         });
@@ -336,9 +337,9 @@ fn choose_food_opening<'a>(
         return Some((evaluation, candidate.clone()));
     }
 
-    ranked_candidates
-        .iter()
-        .find_map(|candidate| viable(candidate).map(|evaluation| (evaluation, candidate.clone())))
+    ranked_candidates.iter().find_map(|candidate| {
+        viable(candidate, false).map(|evaluation| (evaluation, candidate.clone()))
+    })
 }
 
 fn baseline_fallback(state: &GameState) -> Decision {
@@ -399,23 +400,33 @@ fn survival_compare(left: &DirectionEvaluation, right: &DirectionEvaluation) -> 
     terminal_survival_rank(left.terminal, right.terminal)
         .then_with(|| {
             left.survival
-                .has_death_response()
-                .cmp(&right.survival.has_death_response())
+                .is_forced_death()
+                .cmp(&right.survival.is_forced_death())
         })
         .then_with(|| {
             left.survival
-                .has_dead_end_response()
-                .cmp(&right.survival.has_dead_end_response())
+                .is_forced_dead_end()
+                .cmp(&right.survival.is_forced_dead_end())
         })
         .then_with(|| {
             left.survival
-                .has_forced_response()
-                .cmp(&right.survival.has_forced_response())
+                .death_rate_milli()
+                .cmp(&right.survival.death_rate_milli())
         })
         .then_with(|| {
             left.survival
-                .has_constrained_response()
-                .cmp(&right.survival.has_constrained_response())
+                .dead_end_rate_milli()
+                .cmp(&right.survival.dead_end_rate_milli())
+        })
+        .then_with(|| {
+            left.survival
+                .forced_rate_milli()
+                .cmp(&right.survival.forced_rate_milli())
+        })
+        .then_with(|| {
+            left.survival
+                .constrained_rate_milli()
+                .cmp(&right.survival.constrained_rate_milli())
         })
         .then_with(|| {
             left.survival

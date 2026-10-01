@@ -89,17 +89,58 @@ impl DirectionSurvivalSummary {
         self.death_routes > 0
     }
 
+    pub(crate) fn is_forced_death(&self) -> bool {
+        self.total_routes > 0 && self.death_routes >= self.total_routes
+    }
+
+    pub(crate) fn death_rate_milli(&self) -> u16 {
+        route_rate_milli(self.death_routes, self.total_routes)
+    }
+
     pub(crate) fn has_dead_end_response(&self) -> bool {
         self.dead_end_routes > 0
+    }
+
+    pub(crate) fn is_forced_dead_end(&self) -> bool {
+        self.total_routes > 0
+            && self
+                .death_routes
+                .saturating_add(self.dead_end_routes)
+                >= self.total_routes
+    }
+
+    pub(crate) fn dead_end_rate_milli(&self) -> u16 {
+        route_rate_milli(self.dead_end_routes, self.total_routes)
     }
 
     pub(crate) fn has_forced_response(&self) -> bool {
         self.forced_routes > 0
     }
 
+    pub(crate) fn forced_rate_milli(&self) -> u16 {
+        route_rate_milli(self.forced_routes, self.total_routes)
+    }
+
     pub(crate) fn has_constrained_response(&self) -> bool {
         self.constrained_routes > 0
     }
+
+    pub(crate) fn constrained_rate_milli(&self) -> u16 {
+        route_rate_milli(self.constrained_routes, self.total_routes)
+    }
+}
+
+fn route_rate_milli(routes: u64, total_routes: u64) -> u16 {
+    if total_routes == 0 {
+        return 0;
+    }
+
+    routes
+        .saturating_mul(1000)
+        .saturating_div(total_routes)
+        .min(1000)
+        .try_into()
+        .unwrap_or(1000)
 }
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -512,11 +553,20 @@ fn aggregate_direction(
         sum.saturating_add(outcome.survival.total_routes)
     });
 
-    let terminal = outcomes
+    let terminal = if outcomes
         .iter()
-        .map(|outcome| outcome.terminal)
-        .min_by_key(|terminal| terminal.rank())
-        .unwrap_or(TerminalAssessment::Lost);
+        .all(|outcome| outcome.terminal == TerminalAssessment::Lost)
+    {
+        TerminalAssessment::Lost
+    } else if !outcomes.is_empty()
+        && outcomes
+            .iter()
+            .all(|outcome| outcome.terminal == TerminalAssessment::Won)
+    {
+        TerminalAssessment::Won
+    } else {
+        TerminalAssessment::Running
+    };
 
     let survival = DirectionSurvivalSummary {
         total_routes,
@@ -885,23 +935,13 @@ pub(crate) fn compare_direction(
     terminal_compare(left.terminal, right.terminal)
         .then_with(|| {
             left.survival
-                .has_death_response()
-                .cmp(&right.survival.has_death_response())
+                .is_forced_death()
+                .cmp(&right.survival.is_forced_death())
         })
         .then_with(|| {
             left.survival
-                .has_dead_end_response()
-                .cmp(&right.survival.has_dead_end_response())
-        })
-        .then_with(|| {
-            left.survival
-                .has_forced_response()
-                .cmp(&right.survival.has_forced_response())
-        })
-        .then_with(|| {
-            left.survival
-                .has_constrained_response()
-                .cmp(&right.survival.has_constrained_response())
+                .is_forced_dead_end()
+                .cmp(&right.survival.is_forced_dead_end())
         })
         .then_with(|| {
             left.survival
@@ -914,13 +954,33 @@ pub(crate) fn compare_direction(
         })
         .then_with(|| {
             right
+                .average_strategic_utility
+                .total_cmp(&left.average_strategic_utility)
+        })
+        .then_with(|| {
+            left.survival
+                .death_rate_milli()
+                .cmp(&right.survival.death_rate_milli())
+        })
+        .then_with(|| {
+            right
                 .worst_strategic_utility
                 .total_cmp(&left.worst_strategic_utility)
         })
         .then_with(|| {
-            right
-                .average_strategic_utility
-                .total_cmp(&left.average_strategic_utility)
+            left.survival
+                .dead_end_rate_milli()
+                .cmp(&right.survival.dead_end_rate_milli())
+        })
+        .then_with(|| {
+            left.survival
+                .forced_rate_milli()
+                .cmp(&right.survival.forced_rate_milli())
+        })
+        .then_with(|| {
+            left.survival
+                .constrained_rate_milli()
+                .cmp(&right.survival.constrained_rate_milli())
         })
         .then_with(|| {
             right
@@ -952,11 +1012,25 @@ fn effective_reserved_penalty(
     state: &crate::simulation::state::SimulatedGameState,
     evaluation: &DirectionEvaluation,
 ) -> f32 {
-    if evaluation.reserved_override {
+    if evaluation.reserved_override || reserved_move_has_supported_purpose(evaluation) {
         0.0
     } else {
         policy.penalty(state, evaluation.direction)
     }
+}
+
+fn reserved_move_has_supported_purpose(evaluation: &DirectionEvaluation) -> bool {
+    if evaluation.survival.is_forced_death()
+        || evaluation.survival.is_forced_dead_end()
+        || evaluation.survival.max_self_enclosure_risk >= 3
+    {
+        return false;
+    }
+
+    evaluation.average_food_value > 0.0
+        || evaluation.average_leaf_food_potential >= 0.08
+        || evaluation.average_hunting_value > 0.0
+        || evaluation.average_leaf_hunting_potential >= 0.20
 }
 
 #[cfg(test)]
