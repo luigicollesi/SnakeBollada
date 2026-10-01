@@ -367,9 +367,11 @@ fn survival_policy_moves(current: MoveMask, reachable_space: &[u32; 4]) -> MoveM
         .unwrap_or(0);
     let floor = best_space.saturating_mul(3).saturating_div(4);
 
-    MoveMask::from_iter(current.iter().filter(|direction| {
-        reachable_space[usize::from(direction.rank())] >= floor
-    }))
+    MoveMask::from_iter(
+        current
+            .iter()
+            .filter(|direction| reachable_space[usize::from(direction.rank())] >= floor),
+    )
 }
 
 fn food_policy_moves(
