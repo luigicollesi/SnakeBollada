@@ -87,8 +87,10 @@ async fn handle_start(start_req: Json<GameState>, runtime: &State<GameRuntime>) 
 async fn handle_move(move_req: Json<GameState>, runtime: &State<GameRuntime>) -> Json<Value> {
     let decision = runtime.decide(&move_req).await;
 
+    let chosen_outcome =
+        decision.search.direction_outcomes[usize::from(decision.direction.rank())];
     info!(
-        "MOVE {}: {} ({:?}) depth={} phase={:?} hunt={} food={} dom={} control={} border={} pin={}",
+        "MOVE {}: {} ({:?}) depth={} phase={:?} hunt={} food={} dom={} control={} border={} pin={} escape={} escape_selected={} edge_ticks={} edge_cost={}",
         move_req.turn,
         decision.direction.as_str(),
         decision.reason,
@@ -100,6 +102,10 @@ async fn handle_move(move_req: Json<GameState>, runtime: &State<GameRuntime>) ->
         decision.search.control_ratio_milli,
         decision.search.border_risk_milli,
         decision.search.enemy_pin_risk_milli,
+        decision.search.escape_pressure_milli,
+        decision.search.escape_selected,
+        chosen_outcome.average_border_ticks_milli,
+        chosen_outcome.average_border_cost_milli,
     );
 
     Json(json!({
