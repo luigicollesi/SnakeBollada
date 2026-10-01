@@ -25,7 +25,7 @@ impl ActorUtilityMetrics {
         border: &BorderFobicAnalysis,
     ) -> Option<Self> {
         state.snake(actor_id).filter(|snake| snake.alive)?;
-        let safe_moves = actor_mobility(state, tactical, actor_id).0;
+        let safe_moves = actor_utility_mobility(state, tactical, actor_id);
         let territory_snapshot = territory.for_snake(actor_id)?;
         let enclosure_snapshot = enclosure.for_snake(actor_id)?;
         let border_snapshot = border.for_snake(actor_id);
@@ -170,6 +170,21 @@ impl ActorMetrics {
             pressure_opportunity_milli,
         })
     }
+}
+
+fn actor_utility_mobility(
+    state: &SimulatedGameState,
+    tactical: &TacticalStateAnalysis,
+    actor_id: &str,
+) -> u8 {
+    if actor_id == state.our_snake_id {
+        return tactical.ours.safe_moves.len();
+    }
+
+    tactical
+        .enemies
+        .get(actor_id)
+        .map_or(0, |enemy| enemy.legal_moves.len())
 }
 
 fn actor_mobility(
