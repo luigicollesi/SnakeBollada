@@ -403,6 +403,7 @@ fn choose_hunt_intent<'a>(
                 && evaluation.survival.death_rate_milli() <= death_limit
                 && evaluation.survival.max_self_enclosure_risk < 3
                 && evaluation.survival.max_border_structural_risk_milli < 800
+                && evaluation.survival.max_enemy_pin_risk_milli < 800
         })
         .filter_map(|evaluation| {
             hunting_intent_progress(graph, evaluation.direction, intent)
@@ -609,6 +610,7 @@ fn choose_guaranteed_kill<'a>(
                 && !evaluation.survival.has_forced_response()
                 && evaluation.survival.max_self_enclosure_risk < 2
                 && evaluation.survival.max_border_structural_risk_milli < 900
+                && evaluation.survival.max_enemy_pin_risk_milli < 900
         })
         .min_by(|left, right| {
             crate::decision::evaluation::compare_direction(left, right, state, policy)
@@ -640,7 +642,9 @@ fn choose_food_opening<'a>(
                 let edge_route_safe = critical
                     || !edge_food
                     || (evaluation.survival.max_border_structural_risk_milli < 550
-                        && evaluation.survival.min_future_mobility >= 2);
+                        && evaluation.survival.max_enemy_pin_risk_milli < 450
+                        && evaluation.survival.min_future_mobility >= 2
+                        && evaluation.survival.min_inward_control_milli >= 500);
 
                 (robust_safe_moves.is_empty() || robust_safe_moves.contains(evaluation.direction))
                     && !evaluation.survival.is_forced_death()
@@ -650,6 +654,7 @@ fn choose_food_opening<'a>(
                     && evaluation.survival.constrained_rate_milli() <= constrained_limit
                     && evaluation.survival.max_self_enclosure_risk < 2
                     && evaluation.survival.max_border_structural_risk_milli < border_limit
+                    && (critical || evaluation.survival.max_enemy_pin_risk_milli < 700)
                     && edge_route_safe
             })
     };
@@ -766,6 +771,11 @@ fn survival_compare(left: &DirectionEvaluation, right: &DirectionEvaluation) -> 
             left.survival
                 .max_self_enclosure_risk
                 .cmp(&right.survival.max_self_enclosure_risk)
+        })
+        .then_with(|| {
+            left.survival
+                .max_enemy_pin_risk_milli
+                .cmp(&right.survival.max_enemy_pin_risk_milli)
         })
         .then_with(|| {
             right
@@ -949,6 +959,8 @@ mod tests {
                 max_self_enclosure_risk: 0,
                 max_border_structural_risk_milli: 0,
                 max_border_preference_milli: 0,
+                max_enemy_pin_risk_milli: 0,
+                min_inward_control_milli: 1000,
                 min_future_mobility: 2,
                 min_reachable_space: 10,
                 min_second_order_mobility: 2,
@@ -1007,6 +1019,8 @@ mod tests {
                 max_self_enclosure_risk: 0,
                 max_border_structural_risk_milli: 0,
                 max_border_preference_milli: 0,
+                max_enemy_pin_risk_milli: 0,
+                min_inward_control_milli: 1000,
                 min_future_mobility: 3,
                 min_reachable_space: space,
                 min_second_order_mobility: 3,
@@ -1064,6 +1078,8 @@ mod tests {
                 max_self_enclosure_risk: 0,
                 max_border_structural_risk_milli: 0,
                 max_border_preference_milli: 0,
+                max_enemy_pin_risk_milli: 0,
+                min_inward_control_milli: 1000,
                 min_future_mobility: 3,
                 min_reachable_space: 20,
                 min_second_order_mobility: 3,
@@ -1118,6 +1134,8 @@ mod tests {
                 max_self_enclosure_risk: 2,
                 max_border_structural_risk_milli: 0,
                 max_border_preference_milli: 0,
+                max_enemy_pin_risk_milli: 0,
+                min_inward_control_milli: 1000,
                 min_future_mobility: 3,
                 min_reachable_space: 20,
                 min_second_order_mobility: 3,
@@ -1169,6 +1187,8 @@ mod tests {
                 max_self_enclosure_risk: 0,
                 max_border_structural_risk_milli: 0,
                 max_border_preference_milli: 0,
+                max_enemy_pin_risk_milli: 0,
+                min_inward_control_milli: 1000,
                 min_future_mobility: 2,
                 min_reachable_space: 12,
                 min_second_order_mobility: 2,
@@ -1218,6 +1238,8 @@ mod tests {
                 max_self_enclosure_risk: 0,
                 max_border_structural_risk_milli: 0,
                 max_border_preference_milli: 0,
+                max_enemy_pin_risk_milli: 0,
+                min_inward_control_milli: 1000,
                 min_future_mobility: 3,
                 min_reachable_space: 20,
                 min_second_order_mobility: 3,
@@ -1258,6 +1280,8 @@ mod tests {
                 max_self_enclosure_risk: 0,
                 max_border_structural_risk_milli: 0,
                 max_border_preference_milli: 0,
+                max_enemy_pin_risk_milli: 0,
+                min_inward_control_milli: 1000,
                 min_future_mobility: 2,
                 min_reachable_space: 10,
                 min_second_order_mobility: 2,
@@ -1309,6 +1333,8 @@ mod tests {
                 max_self_enclosure_risk: 0,
                 max_border_structural_risk_milli: 0,
                 max_border_preference_milli: 0,
+                max_enemy_pin_risk_milli: 0,
+                min_inward_control_milli: 1000,
                 min_future_mobility: 2,
                 min_reachable_space: 10,
                 min_second_order_mobility: 2,
@@ -1334,6 +1360,8 @@ mod tests {
                 max_self_enclosure_risk: 0,
                 max_border_structural_risk_milli: 0,
                 max_border_preference_milli: 0,
+                max_enemy_pin_risk_milli: 0,
+                min_inward_control_milli: 1000,
                 min_future_mobility: 4,
                 min_reachable_space: 30,
                 min_second_order_mobility: 4,
