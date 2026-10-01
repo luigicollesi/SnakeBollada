@@ -8,8 +8,6 @@ use crate::navigation::{reachable_after_move, NavigationMap};
 use crate::simulation::state::SimulatedGameState;
 use crate::{Coord, GameState};
 
-pub(crate) const STRATEGY_VERSION: &str = "adversarial-dag-v1";
-
 #[derive(Deserialize, Serialize, Debug, Clone, Copy, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum DecisionReason {
