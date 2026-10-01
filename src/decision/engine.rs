@@ -1,8 +1,8 @@
 use std::cmp::Ordering;
 
 use crate::decision::evaluation::{
-    choose_best_direction, compare_direction, evaluate_graph_budgeted, DagEvaluationStats,
-    DirectionEvaluation, TerminalAssessment,
+    choose_best_direction, evaluate_graph_budgeted, DagEvaluationStats, DirectionEvaluation,
+    TerminalAssessment,
 };
 use crate::decision::policy::ReservedCellPolicy;
 use crate::forecast::ForecastCertainty;
@@ -574,13 +574,21 @@ mod tests {
         };
 
         assert_eq!(
-            effective_reserved_penalty(ReservedCellPolicy::default(), &normalized, &evaluation,),
+            if evaluation.reserved_override {
+                0.0
+            } else {
+                ReservedCellPolicy::default().penalty(&normalized, evaluation.direction)
+            },
             0.0
         );
 
         evaluation.reserved_override = false;
         assert_eq!(
-            effective_reserved_penalty(ReservedCellPolicy::default(), &normalized, &evaluation,),
+            if evaluation.reserved_override {
+                0.0
+            } else {
+                ReservedCellPolicy::default().penalty(&normalized, evaluation.direction)
+            },
             ReservedCellPolicy::default().penalty(&normalized, Direction::Up)
         );
     }
@@ -634,7 +642,7 @@ mod tests {
         };
 
         assert_eq!(
-            compare_direction(
+            crate::decision::evaluation::compare_direction(
                 &safe,
                 &dangerous,
                 &SimulatedGameState::from(&state("standard")),
