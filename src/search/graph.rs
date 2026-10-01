@@ -702,7 +702,8 @@ impl FutureGraph {
             return Ok(true);
         };
         let tracing = Arc::clone(&parent_analysis.tracing);
-        let before_tactical = Arc::clone(&parent_analysis.tactical);
+        let before_tactical = (self.analysis_profile == AnalysisProfile::Full)
+            .then(|| Arc::clone(&parent_analysis.tactical));
 
         let our_moves = if before_tactical.ours.deterministic_moves.is_empty() {
             MoveMask::all()
@@ -834,19 +835,27 @@ impl FutureGraph {
                 .into_par_iter()
                 .zip(child_ids.into_par_iter())
                 .map(|(candidate, child)| {
-                    let mut events = if let Some(child_analysis) = nodes[child].analysis.as_ref() {
-                        let after_tactical = Arc::clone(&child_analysis.tactical);
-                        analyze_transition_parts(
-                            &before_tactical,
-                            &nodes[child].state,
-                            &candidate.resolution_events,
-                            &after_tactical,
-                        )
-                        .events
+                    let mut events = if profile == AnalysisProfile::Full {
+                        if let (Some(before_tactical), Some(child_analysis)) =
+                            (before_tactical.as_ref(), nodes[child].analysis.as_ref())
+                        {
+                            analyze_transition_parts(
+                                before_tactical,
+                                &nodes[child].state,
+                                &candidate.resolution_events,
+                                &child_analysis.tactical,
+                            )
+                            .events
+                        } else {
+                            candidate.resolution_events.clone()
+                        }
                     } else {
                         candidate.resolution_events.clone()
                     };
-                    append_border_exposure_event(&nodes[child], &mut events);
+
+                    if profile == AnalysisProfile::Full {
+                        append_border_exposure_event(&nodes[child], &mut events);
+                    }
 
                     let transition = TransitionScore::from_parts(parent, &events, &nodes[child]);
 
