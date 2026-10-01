@@ -2,6 +2,8 @@ use std::collections::VecDeque;
 
 use crate::decision::intent::{committable_hunt_plan, DecisionIntent, FoodIntent, HuntIntent};
 use crate::decision::state_key::StateKey;
+use crate::direction::Direction;
+use crate::enemy::profile::OpponentProfiles;
 use crate::search::graph::FutureGraph;
 use crate::simulation::state::{
     AggressionState, SimulatedGameState, SimulationSupport, OPENING_FOOD_TARGET_FRUITS,
@@ -44,6 +46,7 @@ pub(crate) struct DecisionState {
     previous_our_length: Option<usize>,
     previous_observed_food: Option<Vec<crate::Coord>>,
     intent: Option<DecisionIntent>,
+    opponent_profiles: OpponentProfiles,
     runtime_history: RuntimeHistory,
 }
 
@@ -51,6 +54,7 @@ impl DecisionState {
     pub(crate) fn decide(&mut self, state: &GameState) -> Decision {
         let runtime_jitter_reserve_ms = self.runtime_history.jitter_reserve_ms();
         self.observe_aggression(state);
+        self.observe_opponents(state);
 
         self.reconcile_intent_with_observation(state);
 
@@ -88,6 +92,7 @@ impl DecisionState {
             }
             None => FutureGraph::new(normalized),
         };
+        graph.set_opponent_profiles(self.opponent_profiles.clone());
 
         self.refresh_food_intent(&graph);
         self.refresh_hunt_intent(&graph);
@@ -113,6 +118,44 @@ impl DecisionState {
         );
 
         decision
+    }
+
+    fn observe_opponents(&mut self, state: &GameState) {
+        let Some(graph) = self.graph.as_ref() else {
+            return;
+        };
+        let previous = graph.node(graph.root());
+        if previous.state.turn >= state.turn {
+            return;
+        }
+        let Some(analysis) = previous.active_analysis() else {
+            return;
+        };
+
+        for enemy in state
+            .board
+            .snakes
+            .iter()
+            .filter(|snake| snake.id != state.you.id)
+        {
+            let Some(previous_enemy) = previous.state.snake(&enemy.id) else {
+                continue;
+            };
+            let Some(previous_head) = previous_enemy.head() else {
+                continue;
+            };
+            let Some(direction) = direction_between(previous_head, enemy.head) else {
+                continue;
+            };
+            let Some(move_set) = analysis.tracing.for_enemy(&enemy.id) else {
+                continue;
+            };
+
+            self.opponent_profiles
+                .entry(enemy.id.clone())
+                .or_default()
+                .observe(move_set, direction);
+        }
     }
 
     fn reconcile_intent_with_observation(&mut self, state: &GameState) {
@@ -226,6 +269,12 @@ impl DecisionState {
     }
 }
 
+fn direction_between(from: crate::Coord, to: crate::Coord) -> Option<Direction> {
+    Direction::ALL
+        .into_iter()
+        .find(|direction| direction.apply(from) == to)
+}
+
 fn push_bounded(values: &mut VecDeque<u64>, value: u64) {
     if values.len() == RUNTIME_HISTORY_LIMIT {
         values.pop_front();
@@ -297,6 +346,21 @@ mod tests {
             },
             you: ours,
         }
+    }
+
+    #[test]
+    fn direction_between_recovers_observed_enemy_move() {
+        let from = Coord { x: 3, y: 3 };
+
+        assert_eq!(
+            direction_between(from, Coord { x: 3, y: 4 }),
+            Some(Direction::Up)
+        );
+        assert_eq!(
+            direction_between(from, Coord { x: 2, y: 3 }),
+            Some(Direction::Left)
+        );
+        assert_eq!(direction_between(from, Coord { x: 5, y: 3 }), None);
     }
 
     #[test]
