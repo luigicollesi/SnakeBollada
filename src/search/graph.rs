@@ -235,9 +235,8 @@ impl FutureGraph {
                     Some(edge)
                 })
                 .collect();
-            edge_count = edge_count.saturating_add(
-                node.children.len().try_into().unwrap_or(u32::MAX),
-            );
+            edge_count =
+                edge_count.saturating_add(node.children.len().try_into().unwrap_or(u32::MAX));
             nodes.push(node);
         }
 
