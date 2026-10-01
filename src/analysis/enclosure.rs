@@ -107,10 +107,7 @@ impl EnclosureAnalysis {
         self.snakes.get(snake_id)
     }
 
-    pub(crate) fn ours<'a>(
-        &'a self,
-        state: &SimulatedGameState,
-    ) -> Option<&'a EnclosureSnapshot> {
+    pub(crate) fn ours<'a>(&'a self, state: &SimulatedGameState) -> Option<&'a EnclosureSnapshot> {
         self.for_snake(&state.our_snake_id)
     }
 }
@@ -126,10 +123,7 @@ fn classify_risk(
 ) -> EnclosureRisk {
     let length = u32::try_from(length).unwrap_or(u32::MAX);
 
-    if reachable_space <= length
-        || (ratio_milli <= 1250 && moves <= 1)
-        || (moves == 0)
-    {
+    if reachable_space <= length || (ratio_milli <= 1250 && moves <= 1) || (moves == 0) {
         return EnclosureRisk::Critical;
     }
 
@@ -210,28 +204,10 @@ mod tests {
     #[test]
     fn tiny_region_is_critical() {
         let state = state(vec![
-            snake(
-                "ours",
-                &[
-                    (1, 1),
-                    (1, 0),
-                    (0, 0),
-                    (0, 1),
-                    (0, 2),
-                    (1, 2),
-                ],
-            ),
+            snake("ours", &[(1, 1), (1, 0), (0, 0), (0, 1), (0, 2), (1, 2)]),
             snake(
                 "enemy",
-                &[
-                    (3, 3),
-                    (3, 2),
-                    (3, 1),
-                    (2, 1),
-                    (2, 2),
-                    (2, 3),
-                    (2, 4),
-                ],
+                &[(3, 3), (3, 2), (3, 1), (2, 1), (2, 2), (2, 3), (2, 4)],
             ),
         ]);
 
