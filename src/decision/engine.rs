@@ -193,19 +193,18 @@ impl DecisionEngine {
         let guaranteed_kill_choice =
             choose_guaranteed_kill(&evaluations, &root.state, robust_safe_moves, policy);
 
-        let critical_food_choice = (posture.food_is_critical()
-            && guaranteed_kill_choice.is_none())
-        .then(|| {
-            choose_food_opening(
-                &evaluations,
-                &food_candidates.candidates,
-                &preferred_candidates,
-                &root.state,
-                robust_safe_moves,
-                policy,
-            )
-        })
-        .flatten();
+        let critical_food_choice = (posture.food_is_critical() && guaranteed_kill_choice.is_none())
+            .then(|| {
+                choose_food_opening(
+                    &evaluations,
+                    &food_candidates.candidates,
+                    &preferred_candidates,
+                    &root.state,
+                    robust_safe_moves,
+                    policy,
+                )
+            })
+            .flatten();
 
         let dominant_hunt_plan = (posture.favors_dominant_hunt()
             && guaranteed_kill_choice.is_none()
@@ -218,8 +217,8 @@ impl DecisionEngine {
                 .find(|plan| committable_hunt_plan(plan) && plan.score_milli >= 400)
         })
         .flatten();
-        let dominant_hunt_intent = dominant_hunt_plan
-            .map(|plan| HuntIntent::new(plan, root.state.turn));
+        let dominant_hunt_intent =
+            dominant_hunt_plan.map(|plan| HuntIntent::new(plan, root.state.turn));
         let dominant_hunt_choice = dominant_hunt_intent.as_ref().and_then(|hunt| {
             choose_hunt_intent(&evaluations, graph, hunt, robust_safe_moves, policy)
         });
@@ -681,10 +680,8 @@ fn classify_decision_reason(
     let average_food = best.average_food_value;
     let average_hunting = best.average_hunting_value;
     let posture = StrategicPosture::from_state(state);
-    let food_contribution =
-        average_food * (f32::from(posture.food_drive_milli()) / 1000.0);
-    let hunting_contribution =
-        average_hunting * (f32::from(posture.hunt_drive_milli) / 1000.0);
+    let food_contribution = average_food * (f32::from(posture.food_drive_milli()) / 1000.0);
+    let hunting_contribution = average_hunting * (f32::from(posture.hunt_drive_milli) / 1000.0);
 
     if hunting_contribution > food_contribution && hunting_contribution > 0.0 {
         DecisionReason::HuntingTactical
