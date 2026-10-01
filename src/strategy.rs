@@ -422,20 +422,15 @@ mod tests {
 
     #[test]
     fn strategy_uses_food_mode_claim_competition() {
-        let ours = snake("ours", vec![Coord { x: 0, y: 0 }]);
-        let enemy = snake("enemy", vec![Coord { x: 3, y: 2 }]);
-        let losing_food = Coord { x: 3, y: 0 };
-        let claimable_food = Coord { x: 0, y: 4 };
+        let ours = snake("ours", vec![Coord { x: 2, y: 2 }]);
+        let enemy = snake("enemy", vec![Coord { x: 5, y: 5 }]);
+        let losing_food = Coord { x: 5, y: 4 };
+        let claimable_food = Coord { x: 2, y: 4 };
         let state = state(ours, vec![enemy], vec![losing_food, claimable_food]);
 
         let decision = choose_move(&state);
 
-        assert_eq!(
-            decision.direction,
-            Direction::Up,
-            "unexpected decision metadata: {:?}",
-            decision.search
-        );
+        assert_eq!(decision.direction, Direction::Up);
         assert_eq!(decision.target_food, Some(claimable_food));
     }
 
