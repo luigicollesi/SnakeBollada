@@ -173,8 +173,7 @@ impl DecisionEngine {
             .expect("active root must have analysis");
         let robust_safe_moves = root_analysis.tactical.ours.safe_moves;
         let policy = ReservedCellPolicy::default();
-        let escape_pressure_milli =
-            root_escape_pressure_milli(&evaluations, robust_safe_moves);
+        let escape_pressure_milli = root_escape_pressure_milli(&evaluations, robust_safe_moves);
         let escape_choice = if intent.and_then(DecisionIntent::escape).is_some()
             || escape_pressure_milli >= ESCAPE_ACTIVATION_THRESHOLD_MILLI
         {
@@ -202,9 +201,10 @@ impl DecisionEngine {
             .unwrap_or_default();
 
         let posture = *root_analysis.posture;
-        let guaranteed_kill_choice = escape_choice.is_none().then(|| {
-            choose_guaranteed_kill(&evaluations, &root.state, robust_safe_moves, policy)
-        }).flatten();
+        let guaranteed_kill_choice = escape_choice
+            .is_none()
+            .then(|| choose_guaranteed_kill(&evaluations, &root.state, robust_safe_moves, policy))
+            .flatten();
 
         let critical_food_choice = (posture.food_is_critical() && guaranteed_kill_choice.is_none())
             .then(|| {
