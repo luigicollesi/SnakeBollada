@@ -91,7 +91,7 @@ pub(crate) fn root_escape_pressure_milli(
         pressure = pressure.saturating_add(100);
     }
     if !robust_safe_moves.is_empty() && robust_safe_moves.len() <= 1 {
-        pressure = pressure.max(650);
+        pressure = pressure.saturating_add(100);
     }
 
     pressure.min(1000).try_into().unwrap_or(1000)
