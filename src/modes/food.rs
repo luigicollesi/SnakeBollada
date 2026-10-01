@@ -223,9 +223,15 @@ mod tests {
         );
 
         assert_eq!(candidates.len(), 2);
-        assert!(candidates.iter().all(|candidate| candidate.target_food == target));
-        assert!(candidates.iter().any(|candidate| candidate.first_move == Direction::Up));
-        assert!(candidates.iter().any(|candidate| candidate.first_move == Direction::Right));
+        assert!(candidates
+            .iter()
+            .all(|candidate| candidate.target_food == target));
+        assert!(candidates
+            .iter()
+            .any(|candidate| candidate.first_move == Direction::Up));
+        assert!(candidates
+            .iter()
+            .any(|candidate| candidate.first_move == Direction::Right));
     }
 
     #[test]
