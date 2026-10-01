@@ -286,7 +286,8 @@ impl MaximinEvaluator<'_> {
         }
 
         let mut policies = Vec::new();
-        policies.push(select_selfish_opponent_response(node, 
+        policies.push(select_selfish_opponent_response(
+            node,
             edge_variants
                 .iter()
                 .filter_map(|variants| variants.first().cloned())
@@ -465,7 +466,7 @@ fn opponent_regret(
     maxima: &HashMap<&str, i64>,
 ) -> (i64, i64) {
     enemies.iter().fold((0_i64, 0_i64), |(worst, total), enemy_id| {
-        let best = maxima.get(enemy_id).copied().unwrap_or(0);
+        let best = maxima.get(*enemy_id).copied().unwrap_or(0);
         let regret = best.saturating_sub(actor_utility(line, enemy_id)).max(0);
         (worst.max(regret), total.saturating_add(regret))
     })
