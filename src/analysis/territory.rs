@@ -4,6 +4,7 @@ use std::collections::{HashMap, HashSet, VecDeque};
 
 use crate::direction::Direction;
 use crate::simulation::state::SimulatedGameState;
+use crate::spatial::SpatialOccupancy;
 use crate::Coord;
 
 const MAX_CHOKES_PER_SNAKE: usize = 8;
@@ -96,15 +97,19 @@ struct TerritoryCore {
 
 impl TerritoryCore {
     fn from_state(state: &SimulatedGameState) -> Self {
-        let width = state.width as u16;
-        let height = state.height as u16;
+        let spatial = SpatialOccupancy::from_state(state);
+        Self::from_spatial(state, &spatial)
+    }
+
+    fn from_spatial(state: &SimulatedGameState, spatial: &SpatialOccupancy) -> Self {
+        let width = spatial.width();
+        let height = spatial.height();
         let cells = usize::from(width).saturating_mul(usize::from(height));
         if cells == 0 {
             return Self::default();
         }
 
-        let occupied = retained_occupancy(state, width, height);
-        let open = (0..cells).map(|index| !occupied[index]).collect::<Vec<_>>();
+        let open = spatial.territory_open(state);
 
         let living = state
             .snakes
@@ -286,7 +291,15 @@ pub(crate) struct TerritoryAnalysis {
 
 impl TerritoryAnalysis {
     pub(crate) fn from_state(state: &SimulatedGameState) -> Self {
-        let core = TerritoryCore::from_state(state);
+        let spatial = SpatialOccupancy::from_state(state);
+        Self::from_spatial(state, &spatial)
+    }
+
+    pub(crate) fn from_spatial(
+        state: &SimulatedGameState,
+        spatial: &SpatialOccupancy,
+    ) -> Self {
+        let core = TerritoryCore::from_spatial(state, spatial);
         let structural = TerritoryStructural::from_core(state, &core);
         Self::from_parts(core, structural)
     }
@@ -598,29 +611,6 @@ fn control_weight(state: &SimulatedGameState, coord: Coord) -> u32 {
     } else {
         EMPTY_CONTROL_WEIGHT
     }
-}
-
-fn retained_occupancy(state: &SimulatedGameState, width: u16, height: u16) -> Vec<bool> {
-    let mut occupied = vec![false; usize::from(width).saturating_mul(usize::from(height))];
-
-    for snake in state.snakes.iter().filter(|snake| snake.alive) {
-        let retained_len = snake.body.len().saturating_sub(1);
-        for segment in snake.body.iter().take(retained_len) {
-            if let Some(index) = index_of(width, height, *segment) {
-                occupied[index] = true;
-            }
-        }
-    }
-
-    for snake in state.snakes.iter().filter(|snake| snake.alive) {
-        if let Some(head) = snake.head() {
-            if let Some(index) = index_of(width, height, head) {
-                occupied[index] = false;
-            }
-        }
-    }
-
-    occupied
 }
 
 fn bfs_distances(
