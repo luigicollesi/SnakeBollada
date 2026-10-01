@@ -2,9 +2,7 @@
 
 use std::collections::HashMap;
 
-use crate::analysis::{
-    EnclosureAnalysis, StateAnalysis, TacticalStateAnalysis, TerritoryAnalysis,
-};
+use crate::analysis::{EnclosureAnalysis, StateAnalysis, TacticalStateAnalysis, TerritoryAnalysis};
 use crate::direction::{Direction, MoveMask};
 use crate::forecast::ForecastCertainty;
 use crate::modes::{food, hunting};
@@ -201,11 +199,7 @@ fn survival_policy_moves(
             )
         })
         .collect::<Vec<_>>();
-    let best_space = scored
-        .iter()
-        .map(|(_, space)| *space)
-        .max()
-        .unwrap_or(0);
+    let best_space = scored.iter().map(|(_, space)| *space).max().unwrap_or(0);
     let floor = best_space.saturating_mul(3).saturating_div(4);
 
     MoveMask::from_iter(
@@ -226,12 +220,8 @@ fn food_policy_moves(
         return MoveMask::empty();
     }
 
-    let output = food::candidates_for_actor(
-        state,
-        analysis,
-        &enemy.id,
-        ForecastCertainty::FoodProvisional,
-    );
+    let output =
+        food::candidates_for_actor(state, analysis, &enemy.id, ForecastCertainty::FoodProvisional);
     let candidates = MoveMask::from_iter(
         output
             .candidates
@@ -256,8 +246,7 @@ fn hunting_policy_moves(
 
     let mobility = MobilityAnalysis::from_state(&perspective);
     let structural_tracing = structural_trace(&perspective, &mobility);
-    let tactical =
-        TacticalStateAnalysis::from_parts(&perspective, &structural_tracing, &mobility);
+    let tactical = TacticalStateAnalysis::from_parts(&perspective, &structural_tracing, &mobility);
     let territory = TerritoryAnalysis::from_state(&perspective);
     let enclosure = EnclosureAnalysis::from_parts(&perspective, &territory, &tactical);
     let output = hunting::analyze(
@@ -284,10 +273,7 @@ fn head_threat_moves(
     enemy: &SimulatedSnake,
     current: MoveMask,
 ) -> MoveMask {
-    let Some(ours) = state
-        .snake(&state.our_snake_id)
-        .filter(|snake| snake.alive)
-    else {
+    let Some(ours) = state.snake(&state.our_snake_id).filter(|snake| snake.alive) else {
         return MoveMask::empty();
     };
     if enemy.length() < ours.length() {
@@ -313,10 +299,7 @@ fn head_threat_moves(
     }))
 }
 
-fn structural_trace(
-    state: &SimulatedGameState,
-    mobility: &MobilityAnalysis,
-) -> EnemyTracingOutput {
+fn structural_trace(state: &SimulatedGameState, mobility: &MobilityAnalysis) -> EnemyTracingOutput {
     let mut enemies = HashMap::new();
 
     for snake in state
