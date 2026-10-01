@@ -45,7 +45,6 @@ impl SearchBudget {
         }
     }
 
-    #[cfg(test)]
     pub(crate) fn for_duration(duration: Duration) -> Self {
         let started = Instant::now();
         Self {
