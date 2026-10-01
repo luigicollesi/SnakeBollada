@@ -1192,6 +1192,30 @@ mod tests {
     }
 
     #[test]
+    fn beam_food_utility_reuses_territory_distance_without_route_analysis() {
+        let mut initial = state();
+        initial.food = vec![Coord { x: 3, y: 1 }];
+
+        let legacy = FutureGraph::new(initial);
+        let beam = legacy.independent_beam_graph();
+        let root = beam.node(beam.root());
+        let analysis = root.active_analysis().expect("beam root must have analysis");
+        let ours = analysis
+            .actor_snapshot("ours")
+            .expect("our actor snapshot must exist");
+
+        assert!(analysis
+            .state
+            .route_for("ours", Coord { x: 3, y: 1 })
+            .is_none());
+        assert_eq!(ours.metrics.best_food_distance, Some(2));
+        assert_eq!(
+            analysis.territory.distance_for("ours", Coord { x: 3, y: 1 }),
+            Some(2)
+        );
+    }
+
+    #[test]
     fn independent_beam_graph_starts_clean_and_lean_from_current_root() {
         let mut legacy = FutureGraph::new(state());
         legacy.expand_to_depth(1).unwrap();
