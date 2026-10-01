@@ -460,12 +460,13 @@ impl FutureGraph {
                 child
             };
 
-            let events = if let Some(child_analysis) = self.nodes[child].analysis.as_ref() {
+            let mut events = if let Some(child_analysis) = self.nodes[child].analysis.as_ref() {
                 let after_tactical = Arc::clone(&child_analysis.tactical);
                 analyze_transition(&before_tactical, &resolution, &after_tactical).events
             } else {
                 resolution.events.clone()
             };
+            append_border_exposure_event(&self.nodes[child], &mut events);
 
             self.nodes[node_id].children.push(SearchEdge {
                 joint_action,
@@ -480,6 +481,36 @@ impl FutureGraph {
     fn is_terminal(&self, node_id: NodeId) -> bool {
         self.nodes[node_id].is_terminal()
     }
+}
+
+fn append_border_exposure_event(child: &SearchNode, events: &mut Vec<InstantEvent>) {
+    let Some(ours) = child
+        .state
+        .snake(&child.state.our_snake_id)
+        .filter(|snake| snake.alive)
+    else {
+        return;
+    };
+    let Some(head) = ours.head() else {
+        return;
+    };
+    let right = child.state.width as i32 - 1;
+    let top = child.state.height as i32 - 1;
+    let on_edge = head.x == 0 || head.y == 0 || head.x == right || head.y == top;
+    if !on_edge {
+        return;
+    }
+
+    let fear_milli = child
+        .active_analysis()
+        .and_then(|analysis| analysis.border.ours())
+        .map_or(0, |snapshot| snapshot.fear_milli);
+    let corner = (head.x == 0 || head.x == right) && (head.y == 0 || head.y == top);
+
+    events.push(InstantEvent::SelfBorderExposure {
+        fear_milli,
+        corner,
+    });
 }
 
 fn is_terminal_state(state: &SimulatedGameState) -> bool {
