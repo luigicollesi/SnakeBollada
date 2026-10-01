@@ -2,13 +2,11 @@
 
 use std::collections::HashMap;
 
-use crate::analysis::{
-    EnclosureAnalysis, StateAnalysis, StrategicPosture, TacticalStateAnalysis, TerritoryAnalysis,
-};
+use crate::analysis::StateAnalysis;
 use crate::direction::{Direction, MoveMask};
 use crate::enemy::profile::OpponentProfile;
 use crate::forecast::ForecastCertainty;
-use crate::modes::{food, hunting};
+use crate::modes::food;
 use crate::simulation::mobility::{DeterministicMoveBlock, MobilityAnalysis};
 use crate::simulation::state::{SimulatedGameState, SimulatedSnake};
 
@@ -409,190 +407,21 @@ fn hunting_policy_moves(
         return current;
     }
 
-    let mut perspective = state.clone();
-    perspective.our_snake_id = enemy.id.clone();
-
-    let mobility = MobilityAnalysis::from_state(&perspective);
-    let structural_tracing = structural_trace(&perspective, &mobility);
-    let tactical = TacticalStateAnalysis::from_parts(&perspective, &structural_tracing, &mobility);
-    let territory = TerritoryAnalysis::from_state(&perspective);
-    let enclosure = EnclosureAnalysis::from_parts(&perspective, &territory, &tactical);
-    let posture = StrategicPosture::from_state(&perspective);
-    let output = hunting::analyze(
-        &perspective,
-        &tactical,
-        &structural_tracing,
-        &territory,
-        &enclosure,
-        &posture,
-    );
-
-    let mut candidates = MoveMask::from_iter(
-        output
-            .candidates
-            .iter()
-            .map(|candidate| candidate.first_move),
-    );
-    candidates.union_with(project_hunting_plan_moves(
-        &perspective,
-        &enemy.id,
-        current,
-        &territory,
-        &output,
-    ));
-
-    current.intersection(candidates)
-}
-
-fn project_hunting_plan_moves(
-    state: &SimulatedGameState,
-    actor_id: &str,
-    current: MoveMask,
-    territory: &TerritoryAnalysis,
-    output: &hunting::HuntingModeOutput,
-) -> MoveMask {
-    let Some(actor_head) = state.snake(actor_id).and_then(SimulatedSnake::head) else {
-        return MoveMask::empty();
-    };
-
-    let mut projected = MoveMask::empty();
-
-    for plan in output
-        .plans
+    // Hunting intent is no longer recomputed through a full actor-perspective
+    // analysis here. The actor-relative search evaluates the actual utility of
+    // each resolved child state. Tracing only keeps hunting-capable structural
+    // moves available so it does not prune them before the utility layer sees
+    // them.
+    let has_size_advantage = state
+        .snakes
         .iter()
-        .filter(|plan| plan.kind != hunting::HuntingPlanKind::HeadPressure)
-        .take(2)
-    {
-        let Some(target_head) = state.snake(&plan.target).and_then(SimulatedSnake::head) else {
-            continue;
-        };
-        let focus = hunting_focus_cells(state, territory, plan, target_head);
-        if focus.is_empty() {
-            continue;
-        }
+        .any(|target| target.alive && target.id != enemy.id && enemy.length() > target.length());
 
-        let scored = current
-            .iter()
-            .map(|direction| {
-                let destination = direction.apply(actor_head);
-                let distance = focus
-                    .iter()
-                    .map(|coord| manhattan(destination, *coord))
-                    .min()
-                    .unwrap_or(u32::MAX);
-                (direction, distance)
-            })
-            .collect::<Vec<_>>();
-        let best_distance = scored
-            .iter()
-            .map(|(_, distance)| *distance)
-            .min()
-            .unwrap_or(u32::MAX);
-
-        for (direction, distance) in scored {
-            if distance == best_distance {
-                projected.insert(direction);
-            }
-        }
+    if has_size_advantage {
+        current
+    } else {
+        MoveMask::empty()
     }
-
-    projected
-}
-
-fn hunting_focus_cells(
-    state: &SimulatedGameState,
-    territory: &TerritoryAnalysis,
-    plan: &hunting::HuntingPlanCandidate,
-    target_head: crate::Coord,
-) -> Vec<crate::Coord> {
-    match plan.kind {
-        hunting::HuntingPlanKind::HeadPressure => Vec::new(),
-        hunting::HuntingPlanKind::EdgePin => {
-            let edge = inward_edge_cells(state, target_head);
-            if edge.is_empty() {
-                adjacent_in_bounds(state, target_head)
-            } else {
-                edge
-            }
-        }
-        hunting::HuntingPlanKind::ChokeCut => territory
-            .for_snake(&plan.target)
-            .and_then(|snapshot| snapshot.nearest_choke())
-            .map(|choke| vec![choke.coord])
-            .unwrap_or_else(|| adjacent_in_bounds(state, target_head)),
-        hunting::HuntingPlanKind::TerritorySqueeze
-        | hunting::HuntingPlanKind::PartialWrap
-        | hunting::HuntingPlanKind::FullEnclosure
-        | hunting::HuntingPlanKind::StarvationSiege => {
-            let mut focus = territory
-                .for_snake(&plan.target)
-                .and_then(|snapshot| snapshot.nearest_choke())
-                .map(|choke| vec![choke.coord])
-                .unwrap_or_default();
-            focus.extend(adjacent_in_bounds(state, target_head));
-            focus.sort_unstable();
-            focus.dedup();
-            focus
-        }
-    }
-}
-
-fn inward_edge_cells(state: &SimulatedGameState, head: crate::Coord) -> Vec<crate::Coord> {
-    let mut cells = Vec::new();
-    let max_x = i32::try_from(state.width)
-        .unwrap_or(i32::MAX)
-        .saturating_sub(1);
-    let max_y = i32::try_from(state.height)
-        .unwrap_or(i32::MAX)
-        .saturating_sub(1);
-
-    if head.x <= 1 && head.x < max_x {
-        cells.push(crate::Coord {
-            x: head.x + 1,
-            y: head.y,
-        });
-    }
-    if head.x >= max_x.saturating_sub(1) && head.x > 0 {
-        cells.push(crate::Coord {
-            x: head.x - 1,
-            y: head.y,
-        });
-    }
-    if head.y <= 1 && head.y < max_y {
-        cells.push(crate::Coord {
-            x: head.x,
-            y: head.y + 1,
-        });
-    }
-    if head.y >= max_y.saturating_sub(1) && head.y > 0 {
-        cells.push(crate::Coord {
-            x: head.x,
-            y: head.y - 1,
-        });
-    }
-
-    cells.sort_unstable();
-    cells.dedup();
-    cells
-}
-
-fn adjacent_in_bounds(state: &SimulatedGameState, head: crate::Coord) -> Vec<crate::Coord> {
-    Direction::ALL
-        .into_iter()
-        .map(|direction| direction.apply(head))
-        .filter(|coord| {
-            coord.x >= 0
-                && coord.y >= 0
-                && coord.x < i32::try_from(state.width).unwrap_or(i32::MAX)
-                && coord.y < i32::try_from(state.height).unwrap_or(i32::MAX)
-        })
-        .collect()
-}
-
-fn manhattan(left: crate::Coord, right: crate::Coord) -> u32 {
-    left.x
-        .abs_diff(right.x)
-        .saturating_add(left.y.abs_diff(right.y))
 }
 
 fn head_threat_moves(
@@ -879,7 +708,7 @@ mod tests {
     }
 
     #[test]
-    fn edge_pin_plan_projects_toward_inward_escape_cell() {
+    fn size_advantage_preserves_structural_hunting_options_without_reanalysis() {
         let state = state(
             vec![
                 snake("ours", 100, &[(0, 3), (0, 2), (0, 1)]),
@@ -891,26 +720,15 @@ mod tests {
             ],
             vec![],
         );
-        let territory = TerritoryAnalysis::from_state(&state);
-        let output = hunting::HuntingModeOutput {
-            candidates: vec![],
-            plans: vec![hunting::HuntingPlanCandidate {
-                target: "ours".to_string(),
-                kind: hunting::HuntingPlanKind::EdgePin,
-                score_milli: 500,
-                length_advantage: 3,
-            }],
-        };
-        let moves = project_hunting_plan_moves(
+        let current = MoveMask::from_iter([Direction::Left, Direction::Up]);
+
+        let moves = hunting_policy_moves(
             &state,
-            "enemy",
-            MoveMask::from_iter([Direction::Left, Direction::Up]),
-            &territory,
-            &output,
+            state.snake("enemy").unwrap(),
+            current,
         );
 
-        assert!(moves.contains(Direction::Left));
-        assert!(!moves.contains(Direction::Up));
+        assert_eq!(moves, current);
     }
 
     #[test]
