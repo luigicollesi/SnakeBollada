@@ -9,20 +9,28 @@ pub(crate) const HUNT_INTENT_STALE_LIMIT: u8 = 2;
 pub(crate) enum DecisionIntent {
     Food(FoodIntent),
     Hunt(HuntIntent),
+    Escape(EscapeIntent),
 }
 
 impl DecisionIntent {
     pub(crate) fn food_target(&self) -> Option<Coord> {
         match self {
             Self::Food(intent) => Some(intent.target),
-            Self::Hunt(_) => None,
+            Self::Hunt(_) | Self::Escape(_) => None,
         }
     }
 
     pub(crate) fn hunt(&self) -> Option<&HuntIntent> {
         match self {
-            Self::Food(_) => None,
+            Self::Food(_) | Self::Escape(_) => None,
             Self::Hunt(intent) => Some(intent),
+        }
+    }
+
+    pub(crate) fn escape(&self) -> Option<&EscapeIntent> {
+        match self {
+            Self::Escape(intent) => Some(intent),
+            Self::Food(_) | Self::Hunt(_) => None,
         }
     }
 }
@@ -39,6 +47,36 @@ impl FoodIntent {
             target,
             started_turn,
         }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct EscapeIntent {
+    pub(crate) started_turn: i32,
+    pub(crate) last_pressure_milli: u16,
+    pub(crate) stable_turns: u8,
+}
+
+impl EscapeIntent {
+    pub(crate) const fn new(started_turn: i32, pressure_milli: u16) -> Self {
+        Self {
+            started_turn,
+            last_pressure_milli: pressure_milli,
+            stable_turns: 0,
+        }
+    }
+
+    pub(crate) fn record_pressure(&mut self, pressure_milli: u16) {
+        self.last_pressure_milli = pressure_milli;
+        if pressure_milli <= crate::decision::escape::ESCAPE_RELEASE_THRESHOLD_MILLI {
+            self.stable_turns = self.stable_turns.saturating_add(1);
+        } else {
+            self.stable_turns = 0;
+        }
+    }
+
+    pub(crate) fn should_release(&self) -> bool {
+        self.stable_turns >= 2
     }
 }
 
