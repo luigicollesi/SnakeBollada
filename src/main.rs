@@ -24,6 +24,7 @@ mod navigation;
 mod runtime;
 mod search;
 mod simulation;
+mod spatial;
 mod strategy;
 
 use runtime::GameRuntime;

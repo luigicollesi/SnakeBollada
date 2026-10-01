@@ -4,7 +4,7 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::Arc;
 use std::time::Duration;
 
-use crate::analysis::transition::analyze_transition;
+use crate::analysis::transition::analyze_transition_parts;
 use crate::analysis::{
     BorderFobicAnalysis, EnclosureAnalysis, StateAnalysis, StrategicPosture, TacticalStateAnalysis,
     TerritoryAnalysis,
@@ -18,8 +18,11 @@ use crate::modes::hunting::{self, HuntingModeOutput};
 use crate::modes::survival::{self, SurvivalModeOutput};
 use crate::simulation::joint_action::JointAction;
 use crate::simulation::mobility::MobilityAnalysis;
-use crate::simulation::resolver::{resolve_turn, ForecastDelta, InstantEvent, ResolveError};
+use crate::simulation::resolver::{
+    resolve_turn, ForecastDelta, InstantEvent, ResolveError, TurnResolution,
+};
 use crate::simulation::state::SimulatedGameState;
+use crate::spatial::SpatialOccupancy;
 
 use super::budget::SearchBudget;
 
@@ -44,6 +47,12 @@ pub(crate) struct NodeExpansion {
     pub(crate) new_edges: u32,
     pub(crate) transposition_hits: u32,
     pub(crate) elapsed_us: u64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct DepthExpansion {
+    pub(crate) completed: bool,
+    pub(crate) frontier_nodes: u32,
 }
 
 #[derive(Debug, Clone)]
@@ -159,15 +168,11 @@ impl FutureGraph {
         self.transpositions.get(key).copied()
     }
 
-    pub(crate) fn root_children_match_food(&self, actual_food: &[crate::Coord]) -> bool {
-        let mut actual = actual_food.to_vec();
-        actual.sort_unstable();
-
-        self.nodes[self.root].children.iter().any(|edge| {
-            let mut expected = self.nodes[edge.child].state.food.clone();
-            expected.sort_unstable();
-            expected == actual
-        })
+    pub(crate) fn root_children_match_food(&self, actual_key: &StateKey) -> bool {
+        self.nodes[self.root]
+            .children
+            .iter()
+            .any(|edge| self.nodes[edge.child].key.food() == actual_key.food())
     }
 
     pub(crate) fn retain_chosen_direction(&mut self, direction: crate::direction::Direction) {
@@ -187,7 +192,6 @@ impl FutureGraph {
 
     pub(crate) fn reroot(&mut self, node_id: NodeId) {
         self.root = node_id;
-        self.garbage_collect();
     }
 
     fn garbage_collect(&mut self) {
@@ -212,9 +216,15 @@ impl FutureGraph {
             .map(|(new_id, old_id)| (*old_id, new_id))
             .collect::<HashMap<_, _>>();
 
+        let old_nodes = std::mem::take(&mut self.nodes);
+        let mut old_nodes = old_nodes.into_iter().map(Some).collect::<Vec<_>>();
         let mut nodes = Vec::with_capacity(order.len());
+        let mut edge_count = 0_u32;
+
         for old_id in order {
-            let mut node = self.nodes[old_id].clone();
+            let mut node = old_nodes[old_id]
+                .take()
+                .expect("reachable node must exist during compaction");
             node.children = node
                 .children
                 .into_iter()
@@ -224,6 +234,8 @@ impl FutureGraph {
                     Some(edge)
                 })
                 .collect();
+            edge_count =
+                edge_count.saturating_add(node.children.len().try_into().unwrap_or(u32::MAX));
             nodes.push(node);
         }
 
@@ -235,11 +247,7 @@ impl FutureGraph {
             .enumerate()
             .map(|(node_id, node)| (node.key.clone(), node_id))
             .collect();
-        self.edge_count = self
-            .nodes
-            .iter()
-            .map(|node| node.children.len() as u32)
-            .sum();
+        self.edge_count = edge_count;
     }
 
     pub(crate) fn expand_iteratively(
@@ -267,8 +275,8 @@ impl FutureGraph {
             }
 
             let layer_started = std::time::Instant::now();
-            let complete = self.expand_depth(depth, budget)?;
-            if !complete {
+            let expansion = self.expand_depth(depth, budget)?;
+            if !expansion.completed {
                 self.garbage_collect();
                 break;
             }
@@ -295,22 +303,32 @@ impl FutureGraph {
         &mut self,
         depth: u8,
         budget: &SearchBudget,
-    ) -> Result<bool, SearchError> {
+    ) -> Result<DepthExpansion, SearchError> {
         let parents = self.nodes_at_depth(depth.saturating_sub(1));
+        let frontier_nodes = parents.len().try_into().unwrap_or(u32::MAX);
 
         for node_id in parents {
             if budget.expired() {
                 self.garbage_collect();
-                return Ok(false);
+                return Ok(DepthExpansion {
+                    completed: false,
+                    frontier_nodes,
+                });
             }
 
             if !self.expand_node_budgeted(node_id, Some(budget))? {
                 self.garbage_collect();
-                return Ok(false);
+                return Ok(DepthExpansion {
+                    completed: false,
+                    frontier_nodes,
+                });
             }
         }
 
-        Ok(true)
+        Ok(DepthExpansion {
+            completed: true,
+            frontier_nodes,
+        })
     }
 
     pub(crate) fn expand_frontier(
@@ -448,13 +466,18 @@ impl FutureGraph {
 
             let resolution = resolve_turn(&state, &joint_action)?;
             let child_key = StateKey::from_state(&resolution.state);
+            let TurnResolution {
+                state: resolved_state,
+                events: resolution_events,
+                forecast_delta,
+            } = resolution;
 
             let child = if let Some(existing) = self.transpositions.get(&child_key).copied() {
                 self.transposition_hits = self.transposition_hits.saturating_add(1);
                 existing
             } else {
                 let child = self.nodes.len();
-                let node = build_node(resolution.state.clone());
+                let node = build_node_with_key(resolved_state, child_key.clone());
                 self.transpositions.insert(child_key, child);
                 self.nodes.push(node);
                 child
@@ -462,16 +485,22 @@ impl FutureGraph {
 
             let mut events = if let Some(child_analysis) = self.nodes[child].analysis.as_ref() {
                 let after_tactical = Arc::clone(&child_analysis.tactical);
-                analyze_transition(&before_tactical, &resolution, &after_tactical).events
+                analyze_transition_parts(
+                    &before_tactical,
+                    &self.nodes[child].state,
+                    &resolution_events,
+                    &after_tactical,
+                )
+                .events
             } else {
-                resolution.events.clone()
+                resolution_events.clone()
             };
             append_border_exposure_event(&self.nodes[child], &mut events);
 
             self.nodes[node_id].children.push(SearchEdge {
                 joint_action,
                 events,
-                forecast_delta: resolution.forecast_delta,
+                forecast_delta,
                 child,
             });
             self.edge_count = self.edge_count.saturating_add(1);
@@ -524,16 +553,21 @@ fn is_terminal_state(state: &SimulatedGameState) -> bool {
 
 fn build_node(state: SimulatedGameState) -> SearchNode {
     let key = StateKey::from_state(&state);
+    build_node_with_key(state, key)
+}
+
+fn build_node_with_key(state: SimulatedGameState, key: StateKey) -> SearchNode {
     let analysis = if is_terminal_state(&state) {
         None
     } else {
         let state_analysis = Arc::new(StateAnalysis::from_simulated(&state));
-        let mobility = Arc::new(MobilityAnalysis::from_state(&state));
+        let spatial = Arc::new(SpatialOccupancy::from_state(&state));
+        let mobility = Arc::new(MobilityAnalysis::from_spatial(Arc::clone(&spatial)));
         let tracing = Arc::new(trace_with_mobility(&state, &state_analysis, &mobility));
         let tactical = Arc::new(TacticalStateAnalysis::from_parts(
             &state, &tracing, &mobility,
         ));
-        let territory = Arc::new(TerritoryAnalysis::from_state(&state));
+        let territory = Arc::new(TerritoryAnalysis::from_spatial(&state, &spatial));
         let border = Arc::new(BorderFobicAnalysis::from_parts_with_territory(
             &state, &tactical, &territory,
         ));
@@ -541,7 +575,7 @@ fn build_node(state: SimulatedGameState) -> SearchNode {
         let enclosure = Arc::new(EnclosureAnalysis::from_parts(&state, &territory, &tactical));
         let survival = Arc::new(survival::analyze_with_border(&state, &tactical, &border));
         let hunting = Arc::new(hunting::analyze(
-            &state, &tactical, &tracing, &territory, &enclosure,
+            &state, &tactical, &tracing, &territory, &enclosure, &posture,
         ));
         Some(Arc::new(NodeAnalysis {
             state: state_analysis,
@@ -690,7 +724,7 @@ mod tests {
     }
 
     #[test]
-    fn reroot_discards_unreachable_past() {
+    fn reroot_preserves_node_ids_until_direction_retention_compacts() {
         let mut graph = FutureGraph::new(state());
         graph.expand_to_depth(2).unwrap();
 
@@ -700,9 +734,41 @@ mod tests {
 
         graph.reroot(child);
 
+        assert_eq!(graph.root(), child);
+        assert_eq!(graph.node(graph.root()).key, child_key);
+        assert_eq!(graph.node_count(), old_count);
+
+        let our_id = graph.node(graph.root()).state.our_snake_id.clone();
+        let direction = graph.node(graph.root()).children[0]
+            .joint_action
+            .direction_for(&our_id)
+            .unwrap();
+
+        graph.retain_chosen_direction(direction);
+
         assert_eq!(graph.root(), 0);
-        assert_eq!(graph.node(0).key, child_key);
+        assert_eq!(graph.node(graph.root()).key, child_key);
         assert!(graph.node_count() < old_count);
+    }
+
+    #[test]
+    fn evaluation_and_expansion_support_non_zero_root() {
+        use crate::decision::evaluation::evaluate_graph;
+
+        let mut graph = FutureGraph::new(state());
+        graph.expand_to_depth(2).unwrap();
+
+        let child = graph.node(graph.root()).children[0].child;
+        graph.reroot(child);
+
+        assert_ne!(graph.root(), 0);
+
+        let evaluations = evaluate_graph(&graph, 1);
+        assert!(!evaluations.is_empty());
+
+        let budget = SearchBudget::for_duration(Duration::from_secs(1));
+        let report = graph.expand_depth(1, &budget).unwrap();
+        assert!(report.completed);
     }
 
     #[test]
@@ -796,13 +862,37 @@ mod tests {
         let mut graph = FutureGraph::new(initial);
         graph.expand_to_depth(1).unwrap();
 
-        let child_food = graph
+        let child_state = graph
             .node(graph.node(graph.root()).children[0].child)
             .state
-            .food
             .clone();
+        let child_key = StateKey::from_state(&child_state);
 
-        assert!(graph.root_children_match_food(&child_food));
-        assert!(!graph.root_children_match_food(&[Coord { x: 0, y: 0 }]));
+        assert!(graph.root_children_match_food(&child_key));
+
+        let mut unexpected = child_state;
+        unexpected.food = vec![Coord { x: 0, y: 0 }];
+        assert!(!graph.root_children_match_food(&StateKey::from_state(&unexpected)));
+    }
+
+    #[test]
+    fn build_node_reuses_precomputed_state_key() {
+        let initial = state();
+        let key = StateKey::from_state(&initial);
+
+        let node = build_node_with_key(initial, key.clone());
+
+        assert_eq!(node.key, key);
+    }
+
+    #[test]
+    fn depth_expansion_reports_frontier_size_used_for_expansion() {
+        let mut graph = FutureGraph::new(state());
+        let budget = SearchBudget::for_duration(Duration::from_secs(1));
+
+        let report = graph.expand_depth(1, &budget).unwrap();
+
+        assert!(report.completed);
+        assert_eq!(report.frontier_nodes, 1);
     }
 }

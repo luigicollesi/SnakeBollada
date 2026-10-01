@@ -1,7 +1,9 @@
 use std::collections::VecDeque;
+use std::sync::Arc;
 
 use crate::board_mask::BoardMask;
 use crate::direction::{Direction, MoveMask};
+use crate::spatial::SpatialOccupancy;
 use crate::Coord;
 
 use super::state::{SimulatedGameState, SimulatedSnake};
@@ -16,29 +18,16 @@ pub(crate) enum DeterministicMoveBlock {
 
 #[derive(Debug, Clone)]
 pub(crate) struct MobilityAnalysis {
-    width: u16,
-    height: u16,
-    retained_body: BoardMask,
+    spatial: Arc<SpatialOccupancy>,
 }
 
 impl MobilityAnalysis {
     pub(crate) fn from_state(state: &SimulatedGameState) -> Self {
-        let width = state.width as u16;
-        let height = state.height as u16;
-        let mut retained_body = BoardMask::new(width, height);
+        Self::from_spatial(Arc::new(SpatialOccupancy::from_state(state)))
+    }
 
-        for snake in state.snakes.iter().filter(|snake| snake.alive) {
-            let retained_len = snake.body.len().saturating_sub(1);
-            for segment in snake.body.iter().take(retained_len) {
-                retained_body.set(*segment, true);
-            }
-        }
-
-        Self {
-            width,
-            height,
-            retained_body,
-        }
+    pub(crate) fn from_spatial(spatial: Arc<SpatialOccupancy>) -> Self {
+        Self { spatial }
     }
 
     pub(crate) fn classify_move(
@@ -54,7 +43,7 @@ impl MobilityAnalysis {
             return Some(DeterministicMoveBlock::OutOfBounds);
         }
 
-        if self.retained_body.contains(target) {
+        if self.spatial.retained_contains(target) {
             return Some(DeterministicMoveBlock::DeterministicBodyCollision);
         }
 
@@ -116,7 +105,7 @@ impl MobilityAnalysis {
         };
         let destination = direction.apply(head);
 
-        let mut visited = BoardMask::new(self.width, self.height);
+        let mut visited = BoardMask::new(self.spatial.width(), self.spatial.height());
         let mut queue = VecDeque::new();
         let mut reachable = 0_u32;
 
@@ -129,7 +118,7 @@ impl MobilityAnalysis {
             for next_direction in Direction::ALL {
                 let next = next_direction.apply(current);
                 if !self.in_bounds(next)
-                    || self.retained_body.contains(next)
+                    || self.spatial.retained_contains(next)
                     || visited.contains(next)
                 {
                     continue;
@@ -144,10 +133,7 @@ impl MobilityAnalysis {
     }
 
     fn in_bounds(&self, coord: Coord) -> bool {
-        coord.x >= 0
-            && coord.y >= 0
-            && coord.x < i32::from(self.width)
-            && coord.y < i32::from(self.height)
+        self.spatial.in_bounds(coord)
     }
 }
 

@@ -14,22 +14,30 @@ pub(crate) fn analyze_transition(
     resolution: &TurnResolution,
     after: &TacticalStateAnalysis,
 ) -> TransitionAnalysis {
-    let mut events = resolution.events.clone();
+    analyze_transition_parts(before, &resolution.state, &resolution.events, after)
+}
 
-    derive_survival_events(&mut events, resolution, after);
-    derive_hunting_events(&mut events, before, resolution, after);
+pub(crate) fn analyze_transition_parts(
+    before: &TacticalStateAnalysis,
+    state: &crate::simulation::state::SimulatedGameState,
+    base_events: &[InstantEvent],
+    after: &TacticalStateAnalysis,
+) -> TransitionAnalysis {
+    let mut events = base_events.to_vec();
+
+    derive_survival_events(&mut events, state, after);
+    derive_hunting_events(&mut events, before, state, after);
 
     TransitionAnalysis { events }
 }
 
 fn derive_survival_events(
     events: &mut Vec<InstantEvent>,
-    resolution: &TurnResolution,
+    state: &crate::simulation::state::SimulatedGameState,
     after: &TacticalStateAnalysis,
 ) {
-    let ours_alive = resolution
-        .state
-        .snake(&resolution.state.our_snake_id)
+    let ours_alive = state
+        .snake(&state.our_snake_id)
         .is_some_and(|snake| snake.alive);
 
     if !ours_alive
@@ -51,7 +59,7 @@ fn derive_survival_events(
 fn derive_hunting_events(
     events: &mut Vec<InstantEvent>,
     before: &TacticalStateAnalysis,
-    resolution: &TurnResolution,
+    state: &crate::simulation::state::SimulatedGameState,
     after: &TacticalStateAnalysis,
 ) {
     for (enemy_id, before_enemy) in &before.enemies {
@@ -63,7 +71,7 @@ fn derive_hunting_events(
             continue;
         };
 
-        let caused_by_ours = our_body_contributes(&resolution.state, enemy_id, after_enemy);
+        let caused_by_ours = our_body_contributes(state, enemy_id, after_enemy);
 
         if after_enemy.legal_moves.is_empty() {
             events.push(InstantEvent::EnemyTrapped {
@@ -349,5 +357,32 @@ mod tests {
                 .count(),
             0
         );
+    }
+    #[test]
+    fn transition_parts_match_turn_resolution_wrapper() {
+        let state = state(vec![snake("ours", &[(0, 0)]), snake("enemy", &[(2, 0)])]);
+        let before_tracing = tracing(
+            "enemy",
+            MoveMask::from_iter([Direction::Up, Direction::Left]),
+            MoveMask::from_iter([Direction::Up, Direction::Left]),
+        );
+        let after_tracing = tracing(
+            "enemy",
+            MoveMask::single(Direction::Left),
+            MoveMask::single(Direction::Left),
+        );
+        let before = TacticalStateAnalysis::from_state(&state, &before_tracing);
+        let after = TacticalStateAnalysis::from_state(&state, &after_tracing);
+        let resolution = TurnResolution {
+            state: state.clone(),
+            events: vec![],
+            forecast_delta: ForecastDelta::None,
+        };
+
+        let wrapped = analyze_transition(&before, &resolution, &after);
+        let parts =
+            analyze_transition_parts(&before, &resolution.state, &resolution.events, &after);
+
+        assert_eq!(wrapped, parts);
     }
 }
