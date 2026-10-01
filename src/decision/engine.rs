@@ -1190,6 +1190,78 @@ mod tests {
     }
 
     #[test]
+    fn edge_food_requires_low_pin_risk_and_inward_control() {
+        use crate::decision::evaluation::DirectionSurvivalSummary;
+        use crate::direction::{Direction, MoveMask};
+
+        let normalized = SimulatedGameState::from(&state("standard"));
+        let candidate = food::FoodCandidate {
+            target_food: Coord { x: 6, y: 2 },
+            first_move: Direction::Right,
+            distance: 4,
+            claim_margin: Some(2),
+            contested: false,
+            certainty: ForecastCertainty::Deterministic,
+        };
+        let safe = DirectionEvaluation {
+            direction: Direction::Right,
+            terminal: TerminalAssessment::Running,
+            survival: DirectionSurvivalSummary {
+                total_routes: 4,
+                death_routes: 0,
+                dead_end_routes: 0,
+                forced_routes: 0,
+                constrained_routes: 0,
+                max_self_enclosure_risk: 0,
+                max_border_structural_risk_milli: 300,
+                max_border_preference_milli: 700,
+                max_enemy_pin_risk_milli: 200,
+                min_inward_control_milli: 700,
+                min_future_mobility: 2,
+                min_reachable_space: 20,
+                min_second_order_mobility: 2,
+            },
+            worst_strategic_utility: 0.0,
+            average_strategic_utility: 0.0,
+            average_food_value: 1.0,
+            average_hunting_value: 0.0,
+            average_leaf_food_potential: 0.0,
+            average_leaf_hunting_potential: 0.0,
+            guaranteed_enemy_kills: 0,
+            reserved_override: false,
+        };
+
+        assert!(choose_food_opening(
+            &[safe.clone()],
+            &[candidate.clone()],
+            &[],
+            &normalized,
+            MoveMask::all(),
+            ReservedCellPolicy::default(),
+            false,
+        )
+        .is_some());
+
+        let pinned = DirectionEvaluation {
+            survival: DirectionSurvivalSummary {
+                max_enemy_pin_risk_milli: 700,
+                ..safe.survival
+            },
+            ..safe
+        };
+        assert!(choose_food_opening(
+            &[pinned],
+            &[candidate],
+            &[],
+            &normalized,
+            MoveMask::all(),
+            ReservedCellPolicy::default(),
+            false,
+        )
+        .is_none());
+    }
+
+    #[test]
     fn guaranteed_kill_overrides_food_opening() {
         use crate::decision::evaluation::DirectionSurvivalSummary;
         use crate::direction::{Direction, MoveMask};
