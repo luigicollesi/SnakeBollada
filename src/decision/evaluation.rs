@@ -56,14 +56,12 @@ impl DirectionSurvivalSummary {
                 .ours(&node.state)
                 .map_or(0, |snapshot| snapshot.risk.rank())
         });
-        let (border_structural, border_preference) = node.active_analysis().map_or(
-            (0, 0),
-            |analysis| {
+        let (border_structural, border_preference) =
+            node.active_analysis().map_or((0, 0), |analysis| {
                 analysis.border.ours().map_or((0, 0), |snapshot| {
                     (snapshot.structural_risk_milli, snapshot.preference_milli)
                 })
-            },
-        );
+            });
 
         Self {
             total_routes: 1,
@@ -89,15 +87,14 @@ impl DirectionSurvivalSummary {
             .enclosure
             .ours(&parent.state)
             .map_or(0, |snapshot| snapshot.risk.rank());
-        let (border_structural, border_preference) = analysis.border.ours().map_or((0, 0), |snapshot| {
-            (snapshot.structural_risk_milli, snapshot.preference_milli)
-        });
+        let (border_structural, border_preference) =
+            analysis.border.ours().map_or((0, 0), |snapshot| {
+                (snapshot.structural_risk_milli, snapshot.preference_milli)
+            });
         self.max_self_enclosure_risk = self.max_self_enclosure_risk.max(enclosure_risk);
-        self.max_border_structural_risk_milli = self
-            .max_border_structural_risk_milli
-            .max(border_structural);
-        self.max_border_preference_milli =
-            self.max_border_preference_milli.max(border_preference);
+        self.max_border_structural_risk_milli =
+            self.max_border_structural_risk_milli.max(border_structural);
+        self.max_border_preference_milli = self.max_border_preference_milli.max(border_preference);
         self.min_future_mobility = self.min_future_mobility.min(safe_moves);
         self.min_reachable_space = self
             .min_reachable_space
@@ -853,8 +850,7 @@ fn competitive_territory_delta(parent: &SearchNode, child: &SearchNode) -> f32 {
             let before = parent_analysis.territory.competitive_for_snake(&snake.id)?;
             let after = child_analysis.territory.competitive_for_snake(&snake.id)?;
             Some(
-                (f32::from(before.control_ratio_milli)
-                    - f32::from(after.control_ratio_milli))
+                (f32::from(before.control_ratio_milli) - f32::from(after.control_ratio_milli))
                     / 1000.0,
             )
         })
@@ -1070,9 +1066,7 @@ pub(crate) fn compare_direction(
             effective_reserved_penalty(policy, state, left)
                 .total_cmp(&effective_reserved_penalty(policy, state, right))
         })
-        .then_with(|| {
-            effective_border_preference(left).cmp(&effective_border_preference(right))
-        })
+        .then_with(|| effective_border_preference(left).cmp(&effective_border_preference(right)))
         .then_with(|| {
             right
                 .average_strategic_utility
