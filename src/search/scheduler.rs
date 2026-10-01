@@ -5,6 +5,7 @@ use std::collections::{BinaryHeap, HashSet, VecDeque};
 use std::time::Duration;
 
 use crate::decision::evaluation::{compare_direction, DirectionEvaluation};
+use crate::decision::intent::DecisionIntent;
 use crate::decision::policy::ReservedCellPolicy;
 use crate::direction::Direction;
 use crate::search::budget::SearchBudget;
@@ -62,6 +63,7 @@ impl SelectiveSearchScheduler {
         base_evaluations: &[DirectionEvaluation],
         budget: &SearchBudget,
         base_depth: u8,
+        intent: Option<&DecisionIntent>,
     ) -> Result<SelectiveSearchStats, SearchError> {
         if base_evaluations.is_empty() || budget.soft_expired() {
             return Ok(SelectiveSearchStats::default());
@@ -83,6 +85,7 @@ impl SelectiveSearchScheduler {
                     base_depth,
                     root_relevance: relevance[usize::from(root_direction.rank())],
                 },
+                intent,
             );
         }
 
@@ -134,6 +137,7 @@ impl SelectiveSearchScheduler {
                         base_depth,
                         root_relevance,
                     },
+                    intent,
                 );
             }
 
@@ -185,6 +189,7 @@ fn enqueue(
     frontier: &mut BinaryHeap<FrontierEntry>,
     enqueued: &mut HashSet<(NodeId, u8, u8)>,
     context: EnqueueContext,
+    intent: Option<&DecisionIntent>,
 ) {
     if graph.node(context.node_id).is_terminal() {
         return;
@@ -204,6 +209,7 @@ fn enqueue(
         context.node_id,
         context.root_relevance,
         context.depth.saturating_sub(context.base_depth),
+        intent,
     );
     frontier.push(FrontierEntry {
         node_id: context.node_id,
@@ -223,6 +229,7 @@ fn priority_signals(
     node_id: NodeId,
     root_relevance: u16,
     depth_beyond_base: u8,
+    intent: Option<&DecisionIntent>,
 ) -> PrioritySignals {
     let node = graph.node(node_id);
     let Some(analysis) = node.active_analysis() else {
@@ -249,13 +256,17 @@ fn priority_signals(
         risk.max(mobility).max(space).min(1000)
     });
 
-    let tactical = (analysis.hunting.best_plan_score() * 1000.0)
+    let intent_focus = intent_focus(node, intent);
+    let tactical = ((analysis.hunting.best_plan_score() * 1000.0)
         .round()
-        .clamp(0.0, 1000.0) as u16;
+        .clamp(0.0, 1000.0) as u16)
+        .max(intent_focus);
 
     let forcing = forcing_score(node);
     let relevance_penalty = u16::from(depth_beyond_base).saturating_mul(45);
-    let relevance = root_relevance.saturating_sub(relevance_penalty);
+    let relevance = root_relevance
+        .saturating_sub(relevance_penalty)
+        .max(intent_focus.saturating_sub(relevance_penalty / 2));
     let refutation = u32::from(danger)
         .saturating_mul(u32::from(root_relevance))
         .saturating_div(1000)
@@ -269,6 +280,66 @@ fn priority_signals(
         tactical,
         forcing,
         uncertainty: 0,
+    }
+}
+
+fn intent_focus(
+    node: &crate::search::graph::SearchNode,
+    intent: Option<&DecisionIntent>,
+) -> u16 {
+    let Some(intent) = intent else {
+        return 0;
+    };
+    let Some(analysis) = node.active_analysis() else {
+        return 0;
+    };
+
+    match intent {
+        DecisionIntent::Food(food) => {
+            if !node.state.food.contains(&food.target) {
+                return 1000;
+            }
+
+            let Some(route) = analysis
+                .state
+                .route_for(&node.state.our_snake_id, food.target)
+            else {
+                return 0;
+            };
+            let Some(distance) = route.distance else {
+                return 0;
+            };
+
+            1000_u32
+                .saturating_div(u32::from(distance).saturating_add(1))
+                .try_into()
+                .unwrap_or(0)
+        }
+        DecisionIntent::Hunt(hunt) => {
+            let enclosure = analysis.enclosure.for_snake(&hunt.target);
+            let risk = enclosure.map_or(0, |snapshot| {
+                u16::from(snapshot.risk.rank()).saturating_mul(180)
+            });
+            let escape = enclosure.map_or(0, |snapshot| {
+                4_u16
+                    .saturating_sub(u16::from(snapshot.escape_frontier.min(4)))
+                    .saturating_mul(90)
+            });
+            let boundary = enclosure.map_or(0, |snapshot| {
+                u16::from(snapshot.boundary_support).saturating_mul(70)
+            });
+            let plan = analysis
+                .hunting
+                .plans
+                .iter()
+                .find(|plan| plan.target == hunt.target && plan.kind == hunt.kind)
+                .map_or(0, |plan| plan.score_milli);
+
+            risk.saturating_add(escape)
+                .saturating_add(boundary)
+                .max(plan)
+                .min(1000)
+        }
     }
 }
 
