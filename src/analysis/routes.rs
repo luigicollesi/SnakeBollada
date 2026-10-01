@@ -2,6 +2,8 @@
 
 use std::collections::{HashMap, VecDeque};
 
+use rayon::prelude::*;
+
 use crate::board_mask::BoardMask;
 use crate::direction::{Direction, MoveMask};
 use crate::simulation::state::SimulatedGameState;
@@ -152,18 +154,20 @@ impl StateAnalysis {
     }
 
     fn from_analysis_state(state: &AnalysisState) -> Self {
-        let mut routes = HashMap::new();
-
-        for snake in &state.snakes {
-            let field = build_route_field(state, &snake.id);
-            let food_routes = state
-                .food
-                .iter()
-                .copied()
-                .map(|food| (food, field.route_to(food)))
-                .collect::<HashMap<_, _>>();
-            routes.insert(snake.id.clone(), food_routes);
-        }
+        let routes = state
+            .snakes
+            .par_iter()
+            .map(|snake| {
+                let field = build_route_field(state, &snake.id);
+                let food_routes = state
+                    .food
+                    .iter()
+                    .copied()
+                    .map(|food| (food, field.route_to(food)))
+                    .collect::<HashMap<_, _>>();
+                (snake.id.clone(), food_routes)
+            })
+            .collect::<HashMap<_, _>>();
 
         let claims = state
             .food
