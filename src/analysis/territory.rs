@@ -232,54 +232,51 @@ impl TerritoryStructural {
         }
 
         let articulation = articulation_points(core.width, core.height, &core.open);
-        let mut useful_chokes_by_snake = HashMap::new();
 
-        for snake in state.snakes.iter().filter(|snake| snake.alive) {
-            let Some(head) = snake.head() else {
-                continue;
-            };
-            let Some(field) = core.distances.get(&snake.id) else {
-                continue;
-            };
-            let Some(snapshot) = core.snakes.get(&snake.id) else {
-                continue;
-            };
+        let useful_chokes = state
+            .snakes
+            .par_iter()
+            .filter(|snake| snake.alive)
+            .filter_map(|snake| {
+                let head = snake.head()?;
+                let field = core.distances.get(&snake.id)?;
+                let snapshot = core.snakes.get(&snake.id)?;
 
-            let mut useful_chokes = articulation
-                .iter()
-                .filter_map(|coord| {
-                    let index = index_of(core.width, core.height, *coord)?;
-                    let distance = field[index];
-                    if distance == u16::MAX || *coord == head || distance > 8 {
-                        return None;
-                    }
+                let mut useful_chokes = articulation
+                    .iter()
+                    .filter_map(|coord| {
+                        let index = index_of(core.width, core.height, *coord)?;
+                        let distance = field[index];
+                        if distance == u16::MAX || *coord == head || distance > 8 {
+                            return None;
+                        }
 
-                    let trapped_space =
-                        reachable_count(core.width, core.height, &core.open, head, Some(*coord));
-                    let cut_gain = snapshot.reachable_space.saturating_sub(trapped_space);
-                    let minimum_gain = u32::try_from(snake.length()).unwrap_or(u32::MAX).max(4);
-                    (cut_gain >= minimum_gain).then_some(ChokePoint {
-                        coord: *coord,
-                        distance,
-                        trapped_space,
-                        cut_gain,
+                        let trapped_space =
+                            reachable_count(core.width, core.height, &core.open, head, Some(*coord));
+                        let cut_gain = snapshot.reachable_space.saturating_sub(trapped_space);
+                        let minimum_gain =
+                            u32::try_from(snake.length()).unwrap_or(u32::MAX).max(4);
+                        (cut_gain >= minimum_gain).then_some(ChokePoint {
+                            coord: *coord,
+                            distance,
+                            trapped_space,
+                            cut_gain,
+                        })
                     })
-                })
-                .collect::<Vec<_>>();
-            useful_chokes.sort_by(|left, right| {
-                left.distance
-                    .cmp(&right.distance)
-                    .then_with(|| right.cut_gain.cmp(&left.cut_gain))
-                    .then_with(|| left.coord.cmp(&right.coord))
-            });
-            useful_chokes.truncate(MAX_CHOKES_PER_SNAKE);
+                    .collect::<Vec<_>>();
+                useful_chokes.sort_by(|left, right| {
+                    left.distance
+                        .cmp(&right.distance)
+                        .then_with(|| right.cut_gain.cmp(&left.cut_gain))
+                        .then_with(|| left.coord.cmp(&right.coord))
+                });
+                useful_chokes.truncate(MAX_CHOKES_PER_SNAKE);
 
-            useful_chokes_by_snake.insert(snake.id.clone(), useful_chokes);
-        }
+                Some((snake.id.clone(), useful_chokes))
+            })
+            .collect::<HashMap<_, _>>();
 
-        Self {
-            useful_chokes: useful_chokes_by_snake,
-        }
+        Self { useful_chokes }
     }
 }
 
