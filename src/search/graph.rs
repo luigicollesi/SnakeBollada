@@ -14,6 +14,7 @@ use crate::decision::state_key::StateKey;
 use crate::direction::MoveMask;
 use crate::enemy::profile::OpponentProfiles;
 use crate::enemy::tracing::{trace_with_mobility, EnemyTracingOutput};
+use crate::evaluation::{ActorContext, ActorEvaluation, ActorMetrics};
 use crate::modes::hunting::{self, HuntingModeOutput};
 use crate::modes::survival::{self, SurvivalModeOutput};
 use crate::simulation::joint_action::JointAction;
@@ -75,6 +76,7 @@ pub(crate) struct NodeAnalysis {
     pub(crate) enclosure: Arc<EnclosureAnalysis>,
     pub(crate) survival: Arc<SurvivalModeOutput>,
     pub(crate) hunting: Arc<HuntingModeOutput>,
+    pub(crate) actor_evaluations: HashMap<String, ActorEvaluation>,
 }
 
 #[derive(Debug, Clone)]
@@ -577,6 +579,27 @@ fn build_node_with_key(state: SimulatedGameState, key: StateKey) -> SearchNode {
         let hunting = Arc::new(hunting::analyze(
             &state, &tactical, &tracing, &territory, &enclosure, &posture,
         ));
+        let actor_evaluations = state
+            .snakes
+            .iter()
+            .filter(|snake| snake.alive)
+            .filter_map(|snake| {
+                let context = ActorContext::from_state(&state, &snake.id)?;
+                let metrics = ActorMetrics::from_parts(
+                    &state,
+                    &snake.id,
+                    &state_analysis,
+                    &tactical,
+                    &territory,
+                    &enclosure,
+                    &border,
+                )?;
+                Some((
+                    snake.id.clone(),
+                    ActorEvaluation::from_metrics(context, metrics),
+                ))
+            })
+            .collect();
         Some(Arc::new(NodeAnalysis {
             state: state_analysis,
             mobility,
@@ -588,6 +611,7 @@ fn build_node_with_key(state: SimulatedGameState, key: StateKey) -> SearchNode {
             enclosure,
             survival,
             hunting,
+            actor_evaluations,
         }))
     };
 
@@ -636,6 +660,28 @@ mod tests {
             },
             aggression: AggressionState::default(),
         }
+    }
+
+    #[test]
+    fn node_analysis_scores_every_living_actor() {
+        let graph = FutureGraph::new(state());
+        let analysis = graph
+            .node(graph.root())
+            .active_analysis()
+            .expect("running root must have analysis");
+
+        let ours = analysis
+            .actor_evaluations
+            .get("ours")
+            .expect("our actor evaluation must exist");
+        let enemy = analysis
+            .actor_evaluations
+            .get("enemy")
+            .expect("enemy actor evaluation must exist");
+
+        assert_eq!(ours.net, ours.benefit_total - ours.harm_total);
+        assert_eq!(enemy.net, enemy.benefit_total - enemy.harm_total);
+        assert_eq!(analysis.actor_evaluations.len(), 2);
     }
 
     #[test]
