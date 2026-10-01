@@ -50,11 +50,15 @@ pub(crate) fn candidates_for_actor(
         let Some(distance) = route.distance else {
             continue;
         };
-        let claim = analysis.claim_for(food);
+        let claim = analysis.claim_for_actor(actor_id, food);
 
         for first_move in route.first_moves.iter() {
             expanded.push(candidate_from_route(
-                route, claim, first_move, distance, certainty,
+                route,
+                claim.as_ref(),
+                first_move,
+                distance,
+                certainty,
             ));
         }
     }
@@ -107,12 +111,20 @@ pub(crate) fn candidates_for_target_actor(
     let Some(distance) = route.distance else {
         return Vec::new();
     };
-    let claim = analysis.claim_for(target_food);
+    let claim = analysis.claim_for_actor(actor_id, target_food);
 
     let mut candidates = route
         .first_moves
         .iter()
-        .map(|first_move| candidate_from_route(route, claim, first_move, distance, certainty))
+        .map(|first_move| {
+            candidate_from_route(
+                route,
+                claim.as_ref(),
+                first_move,
+                distance,
+                certainty,
+            )
+        })
         .collect::<Vec<_>>();
     candidates.sort_by_key(candidate_rank);
     candidates
