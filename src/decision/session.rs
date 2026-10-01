@@ -1,12 +1,15 @@
 use std::collections::VecDeque;
 
+use crate::decision::intent::{
+    committable_hunt_plan, DecisionIntent, FoodIntent, HuntIntent,
+};
 use crate::decision::state_key::StateKey;
 use crate::search::graph::FutureGraph;
 use crate::simulation::state::{
     AggressionState, SimulatedGameState, SimulationSupport, OPENING_FOOD_TARGET_FRUITS,
 };
 use crate::strategy::{choose_move_baseline, Decision};
-use crate::{Coord, GameState};
+use crate::GameState;
 
 use super::DecisionEngine;
 
@@ -42,7 +45,7 @@ pub(crate) struct DecisionState {
     aggression: AggressionState,
     previous_our_length: Option<usize>,
     previous_observed_food: Option<Vec<crate::Coord>>,
-    committed_food: Option<Coord>,
+    intent: Option<DecisionIntent>,
     runtime_history: RuntimeHistory,
 }
 
@@ -51,12 +54,7 @@ impl DecisionState {
         let runtime_jitter_reserve_ms = self.runtime_history.jitter_reserve_ms();
         self.observe_aggression(state);
 
-        if self
-            .committed_food
-            .is_some_and(|target| !state.board.food.contains(&target))
-        {
-            self.committed_food = None;
-        }
+        self.reconcile_intent_with_observation(state);
 
         let prioritize_food = self.aggression.fruits_eaten < OPENING_FOOD_TARGET_FRUITS;
 
@@ -65,7 +63,7 @@ impl DecisionState {
 
         if normalized.rules.simulation_support() != SimulationSupport::StandardLike {
             self.graph = None;
-            self.committed_food = None;
+            self.intent = None;
             self.previous_our_length = Some(state.you.body.len());
             return choose_move_baseline(state);
         }
@@ -93,22 +91,17 @@ impl DecisionState {
             None => FutureGraph::new(normalized),
         };
 
-        let decision = DecisionEngine::stateless()
-            .decide_with_graph_with_reserve_and_food_preference(
-                state,
-                &mut graph,
-                runtime_jitter_reserve_ms,
-                self.committed_food,
-                prioritize_food,
-            );
+        self.refresh_hunt_intent(&graph);
 
-        if prioritize_food {
-            if let Some(target) = decision.target_food {
-                self.committed_food = Some(target);
-            }
-        } else {
-            self.committed_food = None;
-        }
+        let decision = DecisionEngine::stateless().decide_with_graph_with_reserve_and_intent(
+            state,
+            &mut graph,
+            runtime_jitter_reserve_ms,
+            self.intent.as_ref(),
+            prioritize_food,
+        );
+
+        self.update_intent_after_decision(state, &graph, &decision);
 
         graph.retain_chosen_direction(decision.direction);
 
@@ -121,6 +114,87 @@ impl DecisionState {
         );
 
         decision
+    }
+
+    fn reconcile_intent_with_observation(&mut self, state: &GameState) {
+        let release = match self.intent.as_ref() {
+            Some(DecisionIntent::Food(intent)) => !state.board.food.contains(&intent.target),
+            Some(DecisionIntent::Hunt(intent)) => !state
+                .board
+                .snakes
+                .iter()
+                .any(|snake| snake.id == intent.target),
+            None => false,
+        };
+
+        if release {
+            self.intent = None;
+        }
+    }
+
+    fn refresh_hunt_intent(&mut self, graph: &FutureGraph) {
+        let Some(DecisionIntent::Hunt(intent)) = self.intent.as_mut() else {
+            return;
+        };
+
+        let root = graph.node(graph.root());
+        let score = root
+            .active_analysis()
+            .and_then(|analysis| {
+                analysis
+                    .hunting
+                    .plans
+                    .iter()
+                    .find(|plan| plan.target == intent.target && plan.kind == intent.kind)
+            })
+            .map(|plan| plan.score_milli);
+        intent.record_plan(score);
+
+        if intent.should_release(root.state.turn) {
+            self.intent = None;
+        }
+    }
+
+    fn update_intent_after_decision(
+        &mut self,
+        state: &GameState,
+        graph: &FutureGraph,
+        decision: &Decision,
+    ) {
+        if let Some(DecisionIntent::Food(current)) = self.intent.as_ref() {
+            if state.board.food.contains(&current.target) {
+                return;
+            }
+        }
+
+        if matches!(self.intent, Some(DecisionIntent::Hunt(_))) {
+            return;
+        }
+
+        if let Some(target) = decision.target_food {
+            self.intent = Some(DecisionIntent::Food(FoodIntent::new(target, state.turn)));
+            return;
+        }
+
+        if decision.reason != crate::strategy::DecisionReason::HuntingTactical {
+            return;
+        }
+
+        let root = graph.node(graph.root());
+        let Some(plan) = root
+            .active_analysis()
+            .and_then(|analysis| {
+                analysis
+                    .hunting
+                    .plans
+                    .iter()
+                    .find(|plan| committable_hunt_plan(plan))
+            })
+        else {
+            return;
+        };
+
+        self.intent = Some(DecisionIntent::Hunt(HuntIntent::new(plan, state.turn)));
     }
 
     fn observe_aggression(&mut self, state: &GameState) {

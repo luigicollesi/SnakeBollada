@@ -4,9 +4,10 @@ use crate::decision::evaluation::{
     choose_best_direction, evaluate_graph_budgeted, DagEvaluationStats, DirectionEvaluation,
     TerminalAssessment,
 };
+use crate::decision::intent::{DecisionIntent, HuntIntent};
 use crate::decision::policy::ReservedCellPolicy;
 use crate::forecast::ForecastCertainty;
-use crate::modes::food;
+use crate::modes::{food, hunting::HuntingPlanKind};
 use crate::search::budget::SearchBudget;
 use crate::search::graph::FutureGraph;
 use crate::search::scheduler::SelectiveSearchScheduler;
@@ -56,21 +57,15 @@ impl DecisionEngine {
         graph: &mut FutureGraph,
         extra_reserve_ms: u64,
     ) -> Decision {
-        self.decide_with_graph_with_reserve_and_food_preference(
-            state,
-            graph,
-            extra_reserve_ms,
-            None,
-            false,
-        )
+        self.decide_with_graph_with_reserve_and_intent(state, graph, extra_reserve_ms, None, false)
     }
 
-    pub(crate) fn decide_with_graph_with_reserve_and_food_preference(
+    pub(crate) fn decide_with_graph_with_reserve_and_intent(
         &self,
         state: &GameState,
         graph: &mut FutureGraph,
         extra_reserve_ms: u64,
-        preferred_food: Option<Coord>,
+        intent: Option<&DecisionIntent>,
         prioritize_food: bool,
     ) -> Decision {
         let budget = SearchBudget::from_state_with_extra_reserve(state, extra_reserve_ms);
@@ -174,6 +169,7 @@ impl DecisionEngine {
             &root_analysis.state,
             ForecastCertainty::Deterministic,
         );
+        let preferred_food = intent.and_then(DecisionIntent::food_target);
         let preferred_candidates = preferred_food
             .filter(|target| root.state.food.contains(target))
             .map(|target| {
@@ -186,24 +182,55 @@ impl DecisionEngine {
             })
             .unwrap_or_default();
 
-        let guaranteed_kill_choice = prioritize_food
-            .then(|| choose_guaranteed_kill(&evaluations, &root.state, robust_safe_moves, policy))
-            .flatten();
+        let guaranteed_kill_choice =
+            choose_guaranteed_kill(&evaluations, &root.state, robust_safe_moves, policy);
 
-        let opening_food_choice = (prioritize_food && guaranteed_kill_choice.is_none())
-            .then(|| {
-                choose_food_opening(
+        let committed_food_choice = (!preferred_candidates.is_empty()
+            && guaranteed_kill_choice.is_none())
+        .then(|| {
+            choose_food_opening(
+                &evaluations,
+                &[],
+                &preferred_candidates,
+                &root.state,
+                robust_safe_moves,
+                policy,
+            )
+        })
+        .flatten();
+
+        let hunt_intent_choice = intent
+            .and_then(DecisionIntent::hunt)
+            .filter(|_| committed_food_choice.is_none() && guaranteed_kill_choice.is_none())
+            .and_then(|hunt| {
+                choose_hunt_intent(
                     &evaluations,
-                    &food_candidates.candidates,
-                    &preferred_candidates,
-                    &root.state,
+                    graph,
+                    hunt,
                     robust_safe_moves,
                     policy,
                 )
-            })
-            .flatten();
+            });
+
+        let opening_food_choice = (prioritize_food
+            && committed_food_choice.is_none()
+            && hunt_intent_choice.is_none()
+            && guaranteed_kill_choice.is_none())
+        .then(|| {
+            choose_food_opening(
+                &evaluations,
+                &food_candidates.candidates,
+                &[],
+                &root.state,
+                robust_safe_moves,
+                policy,
+            )
+        })
+        .flatten();
 
         let Some(best) = guaranteed_kill_choice
+            .or_else(|| committed_food_choice.as_ref().map(|(evaluation, _)| *evaluation))
+            .or(hunt_intent_choice)
             .or_else(|| {
                 opening_food_choice
                     .as_ref()
@@ -216,11 +243,13 @@ impl DecisionEngine {
             return baseline_fallback(state);
         };
 
-        let food_target = if guaranteed_kill_choice.is_some() {
+        let selected_food_choice = committed_food_choice
+            .as_ref()
+            .or(opening_food_choice.as_ref());
+        let food_target = if guaranteed_kill_choice.is_some() || hunt_intent_choice.is_some() {
             None
         } else {
-            opening_food_choice
-                .as_ref()
+            selected_food_choice
                 .map(|(_, candidate)| candidate)
                 .or_else(|| {
                     food_candidates
@@ -236,9 +265,9 @@ impl DecisionEngine {
             .mobility
             .reachable_space(&root.state, &root.state.our_snake_id, best.direction);
 
-        let reason = if guaranteed_kill_choice.is_some() {
+        let reason = if guaranteed_kill_choice.is_some() || hunt_intent_choice.is_some() {
             DecisionReason::HuntingTactical
-        } else if opening_food_choice.is_some() {
+        } else if committed_food_choice.is_some() || opening_food_choice.is_some() {
             DecisionReason::FoodStrategic
         } else {
             classify_decision_reason(best, &evaluations, &root.state, robust_safe_moves, policy)
@@ -280,6 +309,155 @@ impl DecisionEngine {
             },
         }
     }
+}
+
+fn choose_hunt_intent<'a>(
+    evaluations: &'a [DirectionEvaluation],
+    graph: &FutureGraph,
+    intent: &HuntIntent,
+    robust_safe_moves: crate::direction::MoveMask,
+    policy: ReservedCellPolicy,
+) -> Option<&'a DirectionEvaluation> {
+    let root = graph.node(graph.root());
+    let our_health = root
+        .state
+        .snake(&root.state.our_snake_id)
+        .map_or(0, |snake| snake.health);
+    if our_health <= 30 {
+        return None;
+    }
+
+    let locked = intent.is_locked(root.state.turn);
+    let death_limit = if locked { 750 } else { 500 };
+    let mut candidates = evaluations
+        .iter()
+        .filter(|evaluation| {
+            (robust_safe_moves.is_empty() || robust_safe_moves.contains(evaluation.direction))
+                && !evaluation.survival.is_forced_death()
+                && !evaluation.survival.is_forced_dead_end()
+                && evaluation.survival.death_rate_milli() <= death_limit
+                && evaluation.survival.max_self_enclosure_risk < 3
+        })
+        .filter_map(|evaluation| {
+            hunting_intent_progress(graph, evaluation.direction, intent)
+                .map(|progress| (evaluation, progress))
+        })
+        .collect::<Vec<_>>();
+
+    candidates.sort_by(|(left_eval, left_progress), (right_eval, right_progress)| {
+        right_progress.cmp(left_progress).then_with(|| {
+            crate::decision::evaluation::compare_direction(
+                left_eval,
+                right_eval,
+                &root.state,
+                policy,
+            )
+        })
+    });
+
+    let (best, progress) = candidates.first().copied()?;
+    if progress >= 0 || (locked && progress >= -250) {
+        Some(best)
+    } else {
+        None
+    }
+}
+
+fn hunting_intent_progress(
+    graph: &FutureGraph,
+    direction: crate::direction::Direction,
+    intent: &HuntIntent,
+) -> Option<i32> {
+    let root = graph.node(graph.root());
+    let root_analysis = root.active_analysis()?;
+    let before = root_analysis.enclosure.for_snake(&intent.target)?;
+    let before_plan = root_analysis
+        .hunting
+        .plans
+        .iter()
+        .find(|plan| plan.target == intent.target && plan.kind == intent.kind)
+        .map_or(i32::from(intent.last_score_milli), |plan| {
+            i32::from(plan.score_milli)
+        });
+
+    let mut scores = Vec::new();
+    for edge in &root.children {
+        if edge
+            .joint_action
+            .direction_for(&root.state.our_snake_id)
+            != Some(direction)
+        {
+            continue;
+        }
+
+        let child = graph.node(edge.child);
+        if !child
+            .state
+            .snake(&intent.target)
+            .is_some_and(|snake| snake.alive)
+        {
+            scores.push(1200);
+            continue;
+        }
+
+        let Some(analysis) = child.active_analysis() else {
+            continue;
+        };
+        let Some(after) = analysis.enclosure.for_snake(&intent.target) else {
+            continue;
+        };
+
+        let risk_delta = i32::from(after.risk.rank()) - i32::from(before.risk.rank());
+        let escape_delta = i32::from(before.escape_frontier) - i32::from(after.escape_frontier);
+        let space_delta = i64::from(before.space_to_length_milli)
+            .saturating_sub(i64::from(after.space_to_length_milli))
+            .clamp(-2400, 2400) as i32;
+        let boundary_delta =
+            i32::from(after.boundary_support) - i32::from(before.boundary_support);
+        let edge_delta = i32::from(before.edge_distance) - i32::from(after.edge_distance);
+        let after_plan = analysis
+            .hunting
+            .plans
+            .iter()
+            .find(|plan| plan.target == intent.target && plan.kind == intent.kind)
+            .map_or(0, |plan| i32::from(plan.score_milli));
+        let plan_delta = after_plan - before_plan;
+        let our_risk = analysis
+            .enclosure
+            .ours(&child.state)
+            .map_or(0, |snapshot| i32::from(snapshot.risk.rank()));
+
+        let edge_weight = match intent.kind {
+            HuntingPlanKind::EdgePin
+            | HuntingPlanKind::PartialWrap
+            | HuntingPlanKind::FullEnclosure => 60,
+            _ => 20,
+        };
+
+        scores.push(
+            risk_delta
+                .saturating_mul(180)
+                .saturating_add(escape_delta.saturating_mul(110))
+                .saturating_add(space_delta.saturating_div(8))
+                .saturating_add(boundary_delta.saturating_mul(90))
+                .saturating_add(edge_delta.saturating_mul(edge_weight))
+                .saturating_add(plan_delta.saturating_div(2))
+                .saturating_sub(our_risk.saturating_mul(120)),
+        );
+    }
+
+    if scores.is_empty() {
+        return None;
+    }
+
+    let worst = scores.iter().copied().min().unwrap_or(0);
+    let average = scores.iter().copied().sum::<i32>() / i32::try_from(scores.len()).unwrap_or(1);
+    Some(
+        average
+            .saturating_mul(3)
+            .saturating_add(worst)
+            .saturating_div(4),
+    )
 }
 
 fn choose_guaranteed_kill<'a>(
