@@ -182,34 +182,46 @@ pub(crate) fn deepen_while_affordable(
 }
 
 fn append_continuation(line: &BeamLine, continuation: ContinuationEvaluation) -> BeamLine {
-    let prefix_benefit = line.steps.iter().fold(0_i64, |sum, step| {
-        sum.saturating_add(step.transition.instant_benefit)
-    });
-    let prefix_harm = line.steps.iter().fold(0_i64, |sum, step| {
-        sum.saturating_add(step.transition.instant_harm)
-    });
-    let prefix_net = prefix_benefit.saturating_sub(prefix_harm);
+    let prefix_value = line
+        .our_utility_total
+        .saturating_sub(line.opponent_utility_total);
 
     let mut steps = line.steps.clone();
     steps.extend(continuation.steps);
 
-    let value = if continuation.terminal == LineTerminal::Running {
-        prefix_net.saturating_add(continuation.value)
-    } else {
-        continuation.value
-    };
-    let bound = if continuation.terminal == LineTerminal::Running {
-        shift_bound(continuation.bound, prefix_net)
-    } else {
-        continuation.bound
-    };
+    let (our_utility_total, opponent_utility_total, value, bound) =
+        if continuation.terminal == LineTerminal::Running {
+            let ours = line
+                .our_utility_total
+                .saturating_add(continuation.our_utility_total);
+            let opponents = line
+                .opponent_utility_total
+                .saturating_add(continuation.opponent_utility_total);
+            (
+                ours,
+                opponents,
+                ours.saturating_sub(opponents),
+                shift_bound(continuation.bound, prefix_value),
+            )
+        } else {
+            (
+                continuation.our_utility_total,
+                continuation.opponent_utility_total,
+                continuation.value,
+                continuation.bound,
+            )
+        };
 
     BeamLine {
         id: line.id,
         root_direction: line.root_direction,
         depth: steps.len().try_into().unwrap_or(u8::MAX),
-        benefit_total: prefix_benefit.saturating_add(continuation.benefit_total),
-        harm_total: prefix_harm.saturating_add(continuation.harm_total),
+        benefit_total: line
+            .benefit_total
+            .saturating_add(continuation.benefit_total),
+        harm_total: line.harm_total.saturating_add(continuation.harm_total),
+        our_utility_total,
+        opponent_utility_total,
         value,
         terminal: continuation.terminal,
         bound,
@@ -386,16 +398,12 @@ mod tests {
     fn append_replaces_old_leaf_value_instead_of_double_counting_it() {
         let (_, checkpoint) = seeded();
         let line = checkpoint.lines.first().unwrap().clone();
-        let prefix_benefit = line.steps.iter().fold(0_i64, |sum, step| {
-            sum.saturating_add(step.transition.instant_benefit)
-        });
-        let prefix_harm = line.steps.iter().fold(0_i64, |sum, step| {
-            sum.saturating_add(step.transition.instant_harm)
-        });
         let continuation = ContinuationEvaluation {
             depth: 2,
             benefit_total: 900,
             harm_total: 300,
+            our_utility_total: 900,
+            opponent_utility_total: 300,
             value: 600,
             terminal: LineTerminal::Running,
             bound: ValueBound::Exact(600),
@@ -406,9 +414,17 @@ mod tests {
 
         assert_eq!(
             deepened.value,
-            prefix_benefit.saturating_sub(prefix_harm) + 600
+            line.value.saturating_add(600)
         );
-        assert_eq!(deepened.benefit_total, prefix_benefit + 900);
-        assert_eq!(deepened.harm_total, prefix_harm + 300);
+        assert_eq!(deepened.benefit_total, line.benefit_total + 900);
+        assert_eq!(deepened.harm_total, line.harm_total + 300);
+        assert_eq!(
+            deepened.our_utility_total,
+            line.our_utility_total.saturating_add(900)
+        );
+        assert_eq!(
+            deepened.opponent_utility_total,
+            line.opponent_utility_total.saturating_add(300)
+        );
     }
 }
