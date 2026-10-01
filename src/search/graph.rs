@@ -784,12 +784,7 @@ fn build_node_with_key(state: SimulatedGameState, key: StateKey) -> SearchNode {
             || survival::analyze_with_border(&state, &tactical, &border),
             || {
                 hunting::analyze(
-                    &state,
-                    &tactical,
-                    &tracing,
-                    &territory,
-                    &enclosure,
-                    &posture,
+                    &state, &tactical, &tracing, &territory, &enclosure, &posture,
                 )
             },
         );
@@ -811,10 +806,7 @@ fn build_node_with_key(state: SimulatedGameState, key: StateKey) -> SearchNode {
                     &enclosure,
                     &border,
                 )?;
-                Some((
-                    snake.id.clone(),
-                    ActorSnapshot::new(context, metrics),
-                ))
+                Some((snake.id.clone(), ActorSnapshot::new(context, metrics)))
             })
             .collect();
         Some(Arc::new(NodeAnalysis {
