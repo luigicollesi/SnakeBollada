@@ -121,6 +121,10 @@ pub(crate) struct SearchRecord {
     pub(crate) elapsed_us: u64,
     pub(crate) safety_reserve_us: u64,
     pub(crate) runtime_jitter_reserve_us: u64,
+    pub(crate) dag_nodes_evaluated: u32,
+    pub(crate) dag_memo_hits: u32,
+    pub(crate) dag_deterministic_evaluations: u32,
+    pub(crate) dag_provisional_evaluations: u32,
     pub(crate) aggression_milli: u16,
     pub(crate) enemy_moves_observed: u16,
     pub(crate) enemy_moves_legal_covered: u16,
@@ -165,6 +169,10 @@ impl DecisionRecord {
                 elapsed_us: decision.search.elapsed_us,
                 safety_reserve_us: decision.search.safety_reserve_us,
                 runtime_jitter_reserve_us: decision.search.runtime_jitter_reserve_us,
+                dag_nodes_evaluated: decision.search.dag_nodes_evaluated,
+                dag_memo_hits: decision.search.dag_memo_hits,
+                dag_deterministic_evaluations: decision.search.dag_deterministic_evaluations,
+                dag_provisional_evaluations: decision.search.dag_provisional_evaluations,
                 aggression_milli: decision.search.aggression_milli,
                 enemy_moves_observed: decision.search.enemy_moves_observed,
                 enemy_moves_legal_covered: decision.search.enemy_moves_legal_covered,
@@ -210,7 +218,7 @@ impl GameRecord {
         let initial_turn = start.initial_snapshot.turn;
 
         Self {
-            schema_version: 4,
+            schema_version: 5,
             game_id: start.game_id,
             ruleset: start.ruleset,
             timeout_ms: start.timeout_ms,
