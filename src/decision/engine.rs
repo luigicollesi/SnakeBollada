@@ -203,13 +203,7 @@ impl DecisionEngine {
             .and_then(DecisionIntent::hunt)
             .filter(|_| committed_food_choice.is_none() && guaranteed_kill_choice.is_none())
             .and_then(|hunt| {
-                choose_hunt_intent(
-                    &evaluations,
-                    graph,
-                    hunt,
-                    robust_safe_moves,
-                    policy,
-                )
+                choose_hunt_intent(&evaluations, graph, hunt, robust_safe_moves, policy)
             });
 
         let opening_food_choice = (prioritize_food
@@ -229,7 +223,11 @@ impl DecisionEngine {
         .flatten();
 
         let Some(best) = guaranteed_kill_choice
-            .or_else(|| committed_food_choice.as_ref().map(|(evaluation, _)| *evaluation))
+            .or_else(|| {
+                committed_food_choice
+                    .as_ref()
+                    .map(|(evaluation, _)| *evaluation)
+            })
             .or(hunt_intent_choice)
             .or_else(|| {
                 opening_food_choice
@@ -382,11 +380,7 @@ fn hunting_intent_progress(
 
     let mut scores = Vec::new();
     for edge in &root.children {
-        if edge
-            .joint_action
-            .direction_for(&root.state.our_snake_id)
-            != Some(direction)
-        {
+        if edge.joint_action.direction_for(&root.state.our_snake_id) != Some(direction) {
             continue;
         }
 
@@ -412,8 +406,7 @@ fn hunting_intent_progress(
         let space_delta = i64::from(before.space_to_length_milli)
             .saturating_sub(i64::from(after.space_to_length_milli))
             .clamp(-2400, 2400) as i32;
-        let boundary_delta =
-            i32::from(after.boundary_support) - i32::from(before.boundary_support);
+        let boundary_delta = i32::from(after.boundary_support) - i32::from(before.boundary_support);
         let edge_delta = i32::from(before.edge_distance) - i32::from(after.edge_distance);
         let after_plan = analysis
             .hunting

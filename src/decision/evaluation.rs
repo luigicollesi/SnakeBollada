@@ -103,10 +103,7 @@ impl DirectionSurvivalSummary {
 
     pub(crate) fn is_forced_dead_end(&self) -> bool {
         self.total_routes > 0
-            && self
-                .death_routes
-                .saturating_add(self.dead_end_routes)
-                >= self.total_routes
+            && self.death_routes.saturating_add(self.dead_end_routes) >= self.total_routes
     }
 
     pub(crate) fn dead_end_rate_milli(&self) -> u16 {

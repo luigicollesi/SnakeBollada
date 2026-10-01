@@ -1,8 +1,6 @@
 use std::collections::VecDeque;
 
-use crate::decision::intent::{
-    committable_hunt_plan, DecisionIntent, FoodIntent, HuntIntent,
-};
+use crate::decision::intent::{committable_hunt_plan, DecisionIntent, FoodIntent, HuntIntent};
 use crate::decision::state_key::StateKey;
 use crate::search::graph::FutureGraph;
 use crate::simulation::state::{
@@ -181,16 +179,13 @@ impl DecisionState {
         }
 
         let root = graph.node(graph.root());
-        let Some(plan) = root
-            .active_analysis()
-            .and_then(|analysis| {
-                analysis
-                    .hunting
-                    .plans
-                    .iter()
-                    .find(|plan| committable_hunt_plan(plan))
-            })
-        else {
+        let Some(plan) = root.active_analysis().and_then(|analysis| {
+            analysis
+                .hunting
+                .plans
+                .iter()
+                .find(|plan| committable_hunt_plan(plan))
+        }) else {
             return;
         };
 

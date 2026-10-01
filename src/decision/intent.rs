@@ -85,9 +85,7 @@ pub(crate) fn committable_hunt_plan(plan: &HuntingPlanCandidate) -> bool {
     match plan.kind {
         HuntingPlanKind::HeadPressure => false,
         HuntingPlanKind::EdgePin => plan.score_milli >= 300,
-        HuntingPlanKind::ChokeCut | HuntingPlanKind::TerritorySqueeze => {
-            plan.score_milli >= 400
-        }
+        HuntingPlanKind::ChokeCut | HuntingPlanKind::TerritorySqueeze => plan.score_milli >= 400,
         HuntingPlanKind::PartialWrap => plan.score_milli >= 460,
         HuntingPlanKind::FullEnclosure => plan.score_milli >= 650,
         HuntingPlanKind::StarvationSiege => plan.score_milli >= 500,
