@@ -298,11 +298,7 @@ mod tests {
             )]),
         };
 
-        let legacy = JointActionGenerator::new(
-            &state,
-            MoveMask::single(Direction::Up),
-            &tracing,
-        );
+        let legacy = JointActionGenerator::new(&state, MoveMask::single(Direction::Up), &tracing);
         let actor_relative = JointActionGenerator::new_actor_relative_with_profiles(
             &state,
             MoveMask::single(Direction::Up),
