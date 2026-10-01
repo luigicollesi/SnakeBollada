@@ -154,7 +154,11 @@ impl DecisionEngine {
         let Some(best) = choose_best_direction(
             &evaluations,
             &root.state,
-            root.active_analysis().expect("active root must have analysis").tactical.ours.safe_moves,
+            root.active_analysis()
+                .expect("active root must have analysis")
+                .tactical
+                .ours
+                .safe_moves,
             ReservedCellPolicy::default(),
         ) else {
             return baseline_fallback(state);
@@ -162,7 +166,10 @@ impl DecisionEngine {
 
         let food_candidates = food::candidates(
             &root.state,
-            &root.active_analysis().expect("active root must have analysis").state,
+            &root
+                .active_analysis()
+                .expect("active root must have analysis")
+                .state,
             ForecastCertainty::Deterministic,
         );
         let food_target = food_candidates
@@ -174,11 +181,7 @@ impl DecisionEngine {
             .active_analysis()
             .expect("active root must have analysis")
             .mobility
-            .reachable_space(
-            &root.state,
-            &root.state.our_snake_id,
-            best.direction,
-        );
+            .reachable_space(&root.state, &root.state.our_snake_id, best.direction);
 
         let reason = classify_decision_reason(
             best,
