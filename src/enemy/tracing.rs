@@ -220,8 +220,12 @@ fn food_policy_moves(
         return MoveMask::empty();
     }
 
-    let output =
-        food::candidates_for_actor(state, analysis, &enemy.id, ForecastCertainty::FoodProvisional);
+    let output = food::candidates_for_actor(
+        state,
+        analysis,
+        &enemy.id,
+        ForecastCertainty::FoodProvisional,
+    );
     let candidates = MoveMask::from_iter(
         output
             .candidates
