@@ -4,9 +4,9 @@ use crate::{Battlesnake, Coord, GameState};
 
 pub(crate) const DEFAULT_MAX_HEALTH: i32 = 100;
 pub(crate) const BASE_AGGRESSION: f32 = 0.0;
-pub(crate) const AGGRESSION_PER_FOOD: f32 = 0.10;
+pub(crate) const AGGRESSION_PER_FOOD: f32 = 0.05;
 pub(crate) const MAX_AGGRESSION: f32 = 0.80;
-pub(crate) const OPENING_FOOD_TARGET_FRUITS: u32 = 2;
+pub(crate) const OPENING_FOOD_TARGET_FRUITS: u32 = 4;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) struct AggressionState {
@@ -182,7 +182,7 @@ mod tests {
 
         aggression.record_food();
         assert_eq!(aggression.fruits_eaten, 1);
-        assert!((aggression.value - 0.10).abs() < f32::EPSILON);
+        assert!((aggression.value - 0.05).abs() < f32::EPSILON);
 
         for _ in 0..20 {
             aggression.record_food();
