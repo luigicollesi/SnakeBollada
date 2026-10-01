@@ -268,10 +268,11 @@ fn priority_signals(
             2201..=2800 => 250,
             _ => 0,
         };
-        let border = analysis
-            .border
-            .ours()
-            .map_or(0, |snapshot| snapshot.structural_risk_milli);
+        let border = analysis.border.ours().map_or(0, |snapshot| {
+            snapshot
+                .structural_risk_milli
+                .max(snapshot.enemy_pin_risk_milli)
+        });
         risk.max(mobility).max(space).max(border).min(1000)
     });
     let danger = state_danger.max(trend.danger_priority_milli());
