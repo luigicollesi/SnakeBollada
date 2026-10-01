@@ -32,6 +32,9 @@ pub(crate) struct CompetitiveTerritorySnapshot {
     pub(crate) contested_food: u8,
     pub(crate) winning_frontier: u16,
     pub(crate) losing_frontier: u16,
+    pub(crate) dominance_claim_cells: u16,
+    pub(crate) dominance_frontier_cells: u16,
+    pub(crate) favorable_head_frontier: u16,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -246,6 +249,9 @@ struct CompetitiveBuilder {
     contested_food: u8,
     winning_frontier: u16,
     losing_frontier: u16,
+    dominance_claim_cells: u16,
+    dominance_frontier_cells: u16,
+    favorable_head_frontier: u16,
 }
 
 fn competitive_snapshots(
@@ -258,6 +264,8 @@ fn competitive_snapshots(
 ) -> HashMap<String, CompetitiveTerritorySnapshot> {
     let cells = open.len();
     let mut claims = vec![CompetitiveClaim::Unclaimed; cells];
+    let mut dominance_owner = vec![None; cells];
+    let mut favorable_head_owner = vec![None; cells];
 
     for (snake_index, (snake, _)) in living.iter().enumerate() {
         for segment in snake.body.iter().take(snake.body.len().saturating_sub(1)) {
@@ -296,6 +304,7 @@ fn competitive_snapshots(
             continue;
         }
 
+        let arrival_count = arrivals.len();
         let best_length = arrivals
             .iter()
             .map(|snake_index| living[*snake_index].0.length())
@@ -305,6 +314,13 @@ fn competitive_snapshots(
             .into_iter()
             .filter(|snake_index| living[*snake_index].0.length() == best_length)
             .collect::<Vec<_>>();
+
+        if winners.len() == 1 && arrival_count > 1 {
+            dominance_owner[index] = Some(winners[0]);
+            if best_distance == 1 {
+                favorable_head_owner[index] = Some(winners[0]);
+            }
+        }
 
         claims[index] = if winners.len() == 1 {
             CompetitiveClaim::Owned(winners[0])
@@ -329,6 +345,14 @@ fn competitive_snapshots(
                 if state.food.contains(&coord) {
                     builder.controlled_food = builder.controlled_food.saturating_add(1);
                 }
+                if dominance_owner[index] == Some(*owner) {
+                    builder.dominance_claim_cells =
+                        builder.dominance_claim_cells.saturating_add(1);
+                }
+                if favorable_head_owner[index] == Some(*owner) {
+                    builder.favorable_head_frontier =
+                        builder.favorable_head_frontier.saturating_add(1);
+                }
             }
             CompetitiveClaim::Contested(winners) => {
                 total_weight = total_weight.saturating_add(weight);
@@ -352,22 +376,26 @@ fn competitive_snapshots(
         let own_length = living[*owner].0.length();
         let mut winning = false;
         let mut losing = false;
+        let mut dominance_frontier = false;
 
         for direction in Direction::ALL {
             let neighbor = direction.apply(coord);
             let Some(neighbor_index) = index_of(width, height, neighbor) else {
                 continue;
             };
-            let CompetitiveClaim::Owned(other) = &claims[neighbor_index] else {
-                continue;
-            };
-            if other == owner {
-                continue;
+            match &claims[neighbor_index] {
+                CompetitiveClaim::Owned(other) if other != owner => {
+                    let other_length = living[*other].0.length();
+                    winning |= own_length > other_length;
+                    losing |= own_length < other_length;
+                    dominance_frontier |= dominance_owner[index] == Some(*owner);
+                }
+                CompetitiveClaim::Contested(winners) => {
+                    dominance_frontier |= dominance_owner[index] == Some(*owner)
+                        && winners.iter().any(|winner| winner != owner);
+                }
+                CompetitiveClaim::Unclaimed | CompetitiveClaim::Owned(_) => {}
             }
-
-            let other_length = living[*other].0.length();
-            winning |= own_length > other_length;
-            losing |= own_length < other_length;
         }
 
         if winning {
@@ -375,6 +403,10 @@ fn competitive_snapshots(
         }
         if losing {
             builders[*owner].losing_frontier = builders[*owner].losing_frontier.saturating_add(1);
+        }
+        if dominance_frontier {
+            builders[*owner].dominance_frontier_cells =
+                builders[*owner].dominance_frontier_cells.saturating_add(1);
         }
     }
 
@@ -408,6 +440,9 @@ fn competitive_snapshots(
                     contested_food: builder.contested_food,
                     winning_frontier: builder.winning_frontier,
                     losing_frontier: builder.losing_frontier,
+                    dominance_claim_cells: builder.dominance_claim_cells,
+                    dominance_frontier_cells: builder.dominance_frontier_cells,
+                    favorable_head_frontier: builder.favorable_head_frontier,
                 },
             )
         })
@@ -693,6 +728,26 @@ mod tests {
 
         assert!(ours.controlled_weight > enemy.controlled_weight);
         assert!(ours.control_ratio_milli > enemy.control_ratio_milli);
+        assert!(ours.dominance_claim_cells > 0);
+    }
+
+    #[test]
+    fn immediate_equal_eta_cell_is_favorable_head_frontier_for_longer_snake() {
+        let state = state(
+            7,
+            7,
+            vec![
+                snake("ours", &[(2, 1), (1, 1), (1, 0), (0, 0)]),
+                snake("enemy", &[(2, 3), (3, 3)]),
+            ],
+        );
+
+        let territory = TerritoryAnalysis::from_state(&state);
+        let ours = territory.competitive_for_snake("ours").unwrap();
+        let enemy = territory.competitive_for_snake("enemy").unwrap();
+
+        assert!(ours.favorable_head_frontier >= 1);
+        assert_eq!(enemy.favorable_head_frontier, 0);
     }
 
     #[test]
