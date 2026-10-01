@@ -29,8 +29,7 @@ pub(crate) fn direction_escape_pressure_milli(evaluation: &DirectionEvaluation) 
     let pin = u32::from(evaluation.survival.max_enemy_pin_risk_milli)
         .saturating_mul(10)
         .saturating_div(100);
-    let enclosure = u32::from(evaluation.survival.max_self_enclosure_risk)
-        .saturating_mul(50);
+    let enclosure = u32::from(evaluation.survival.max_self_enclosure_risk).saturating_mul(50);
     let mobility = match evaluation.survival.min_future_mobility {
         0 => 200,
         1 => 120,
@@ -74,9 +73,14 @@ pub(crate) fn root_escape_pressure_milli(
     let best = u32::from(*pressures.first().unwrap_or(&1000));
     let average = pressures
         .iter()
-        .fold(0_u32, |sum, pressure| sum.saturating_add(u32::from(*pressure)))
+        .fold(0_u32, |sum, pressure| {
+            sum.saturating_add(u32::from(*pressure))
+        })
         .saturating_div(pressures.len().try_into().unwrap_or(1));
-    let bad = pressures.iter().filter(|pressure| **pressure >= 550).count();
+    let bad = pressures
+        .iter()
+        .filter(|pressure| **pressure >= 550)
+        .count();
 
     let mut pressure = best
         .saturating_mul(60)
@@ -118,7 +122,12 @@ mod tests {
 
     use super::*;
 
-    fn evaluation(direction: Direction, death: u64, dead_end: u64, forced: u64) -> DirectionEvaluation {
+    fn evaluation(
+        direction: Direction,
+        death: u64,
+        dead_end: u64,
+        forced: u64,
+    ) -> DirectionEvaluation {
         DirectionEvaluation {
             direction,
             terminal: TerminalAssessment::Running,
@@ -157,8 +166,7 @@ mod tests {
         let pressured = evaluation(Direction::Right, 6, 5, 4);
 
         assert!(
-            direction_escape_pressure_milli(&pressured)
-                > direction_escape_pressure_milli(&safe)
+            direction_escape_pressure_milli(&pressured) > direction_escape_pressure_milli(&safe)
         );
     }
 
