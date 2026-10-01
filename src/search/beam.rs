@@ -66,30 +66,6 @@ impl BeamLine {
         }
     }
 
-    pub(crate) fn from_search(
-        id: u32,
-        root_direction: Direction,
-        depth: u8,
-        benefit_total: i64,
-        harm_total: i64,
-        value: i64,
-        terminal: LineTerminal,
-        bound: ValueBound,
-        steps: Vec<BeamStep>,
-    ) -> Self {
-        Self {
-            id: LineId(id),
-            root_direction,
-            depth,
-            benefit_total,
-            harm_total,
-            value,
-            terminal,
-            bound,
-            steps,
-        }
-    }
-
     pub(crate) fn is_viable(&self) -> bool {
         self.terminal != LineTerminal::Lost
     }
