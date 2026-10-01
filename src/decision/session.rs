@@ -89,6 +89,7 @@ impl DecisionState {
             None => FutureGraph::new(normalized),
         };
 
+        self.refresh_food_intent(&graph);
         self.refresh_hunt_intent(&graph);
 
         let decision = DecisionEngine::stateless().decide_with_graph_with_reserve_and_intent(
@@ -126,6 +127,26 @@ impl DecisionState {
         };
 
         if release {
+            self.intent = None;
+        }
+    }
+
+    fn refresh_food_intent(&mut self, graph: &FutureGraph) {
+        let Some(DecisionIntent::Food(intent)) = self.intent.as_ref() else {
+            return;
+        };
+
+        let root = graph.node(graph.root());
+        let viable = root
+            .active_analysis()
+            .and_then(|analysis| {
+                analysis
+                    .state
+                    .route_for(&root.state.our_snake_id, intent.target)
+            })
+            .is_some_and(|route| route.reachable && route.distance.is_some());
+
+        if !viable {
             self.intent = None;
         }
     }
@@ -315,6 +336,35 @@ mod tests {
         assert_eq!(decision.aggression.fruits_eaten, OPENING_FOOD_TARGET_FRUITS);
         assert!((decision.aggression.value - 0.20).abs() < f32::EPSILON);
         assert!(!(decision.aggression.fruits_eaten < OPENING_FOOD_TARGET_FRUITS));
+    }
+
+    #[test]
+    fn food_intent_is_released_when_target_route_becomes_unreachable() {
+        use crate::decision::intent::{DecisionIntent, FoodIntent};
+
+        let target = Coord { x: 6, y: 6 };
+        let mut game = state(
+            1,
+            vec![Coord { x: 0, y: 0 }, Coord { x: 0, y: 1 }],
+        );
+        game.board.food = vec![target];
+        let mut normalized = SimulatedGameState::from(&game);
+
+        normalized.snakes.push(crate::simulation::state::SimulatedSnake {
+            id: "wall".to_string(),
+            health: 100,
+            body: (0..7).map(|y| Coord { x: 1, y }).collect(),
+            alive: true,
+        });
+        let graph = FutureGraph::new(normalized);
+
+        let mut decision = DecisionState {
+            intent: Some(DecisionIntent::Food(FoodIntent::new(target, 1))),
+            ..DecisionState::default()
+        };
+        decision.refresh_food_intent(&graph);
+
+        assert!(decision.intent.is_none());
     }
 
     #[test]
