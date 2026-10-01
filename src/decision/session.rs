@@ -1,6 +1,8 @@
 use std::collections::VecDeque;
 
-use crate::decision::intent::{committable_hunt_plan, DecisionIntent, FoodIntent, HuntIntent};
+use crate::decision::intent::{
+    committable_hunt_plan, DecisionIntent, EscapeIntent, FoodIntent, HuntIntent,
+};
 use crate::decision::state_key::StateKey;
 use crate::direction::Direction;
 use crate::enemy::profile::OpponentProfiles;
@@ -166,7 +168,7 @@ impl DecisionState {
                 .snakes
                 .iter()
                 .any(|snake| snake.id == intent.target),
-            None => false,
+            Some(DecisionIntent::Escape(_)) | None => false,
         };
 
         if release {
@@ -232,6 +234,21 @@ impl DecisionState {
         graph: &FutureGraph,
         decision: &Decision,
     ) {
+        if let Some(DecisionIntent::Escape(intent)) = self.intent.as_mut() {
+            intent.record_pressure(decision.search.escape_pressure_milli);
+            if intent.should_release() {
+                self.intent = None;
+            }
+            return;
+        }
+
+        if decision.search.escape_selected {
+            self.intent = Some(DecisionIntent::Escape(EscapeIntent::new(
+                state.turn,
+                decision.search.escape_pressure_milli,
+            )));
+            return;
+        }
         if let Some(DecisionIntent::Food(current)) = self.intent.as_ref() {
             if state.board.food.contains(&current.target)
                 && decision.reason != crate::strategy::DecisionReason::HuntingTactical
