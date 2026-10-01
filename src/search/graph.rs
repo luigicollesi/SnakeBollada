@@ -30,6 +30,17 @@ pub(crate) struct ExpansionReport {
     pub(crate) safety_reserve_us: u64,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct NodeExpansion {
+    pub(crate) node_id: NodeId,
+    pub(crate) completed: bool,
+    pub(crate) expanded: bool,
+    pub(crate) new_nodes: u32,
+    pub(crate) new_edges: u32,
+    pub(crate) transposition_hits: u32,
+    pub(crate) elapsed_us: u64,
+}
+
 #[derive(Debug, Clone)]
 pub(crate) struct SearchEdge {
     pub(crate) joint_action: JointAction,
@@ -259,15 +270,56 @@ impl FutureGraph {
 
         for node_id in parents {
             if budget.expired() {
+                self.garbage_collect();
                 return Ok(false);
             }
 
             if !self.expand_node_budgeted(node_id, Some(budget))? {
+                self.garbage_collect();
                 return Ok(false);
             }
         }
 
         Ok(true)
+    }
+
+    pub(crate) fn expand_frontier(
+        &mut self,
+        node_id: NodeId,
+        budget: &SearchBudget,
+    ) -> Result<NodeExpansion, SearchError> {
+        let nodes_before = self.nodes.len();
+        let edges_before = self.edge_count;
+        let transpositions_before = self.transposition_hits;
+        let already_expanded =
+            !self.nodes[node_id].children.is_empty() || self.nodes[node_id].is_terminal();
+        let started = std::time::Instant::now();
+
+        let completed = self.expand_node_budgeted(node_id, Some(budget))?;
+        if !completed {
+            self.garbage_collect();
+        }
+
+        Ok(NodeExpansion {
+            node_id,
+            completed,
+            expanded: completed && !already_expanded,
+            new_nodes: self
+                .nodes
+                .len()
+                .saturating_sub(nodes_before)
+                .try_into()
+                .unwrap_or(u32::MAX),
+            new_edges: self.edge_count.saturating_sub(edges_before),
+            transposition_hits: self
+                .transposition_hits
+                .saturating_sub(transpositions_before),
+            elapsed_us: started
+                .elapsed()
+                .as_micros()
+                .try_into()
+                .unwrap_or(u64::MAX),
+        })
     }
 
     pub(crate) fn node_count_at_depth(&self, depth: u8) -> usize {
@@ -378,9 +430,11 @@ impl FutureGraph {
                 forecast_delta: resolution.forecast_delta,
                 child,
             });
-            self.edge_count = self.edge_count.saturating_add(1);
         }
 
+        self.edge_count = self
+            .edge_count
+            .saturating_add(edges.len().try_into().unwrap_or(u32::MAX));
         self.nodes[node_id].children = edges;
         Ok(true)
     }

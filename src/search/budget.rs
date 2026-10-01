@@ -5,11 +5,13 @@ use crate::GameState;
 const MIN_SAFETY_RESERVE_MS: u64 = 25;
 const TIMEOUT_RESERVE_PERCENT: u64 = 15;
 const MAX_LATENCY_RESERVE_MS: u64 = 100;
+const SOFT_TARGET_PERCENT: u64 = 60;
 
 #[derive(Debug, Clone)]
 pub(crate) struct SearchBudget {
     started: Instant,
-    deadline: Instant,
+    soft_deadline: Instant,
+    hard_deadline: Instant,
     safety_reserve: Duration,
 }
 
@@ -29,11 +31,16 @@ impl SearchBudget {
 
         let started = Instant::now();
         let safety_reserve = Duration::from_millis(reserve_ms);
-        let usable = Duration::from_millis(timeout_ms.saturating_sub(reserve_ms));
+        let hard_usable_ms = timeout_ms.saturating_sub(reserve_ms);
+        let soft_usable_ms = timeout_ms
+            .saturating_mul(SOFT_TARGET_PERCENT)
+            .saturating_div(100)
+            .min(hard_usable_ms);
 
         Self {
             started,
-            deadline: started + usable,
+            soft_deadline: started + Duration::from_millis(soft_usable_ms),
+            hard_deadline: started + Duration::from_millis(hard_usable_ms),
             safety_reserve,
         }
     }
@@ -43,17 +50,34 @@ impl SearchBudget {
         let started = Instant::now();
         Self {
             started,
-            deadline: started + duration,
+            soft_deadline: started + duration,
+            hard_deadline: started + duration,
             safety_reserve: Duration::ZERO,
         }
     }
 
     pub(crate) fn expired(&self) -> bool {
-        Instant::now() >= self.deadline
+        self.hard_expired()
+    }
+
+    pub(crate) fn soft_expired(&self) -> bool {
+        Instant::now() >= self.soft_deadline
+    }
+
+    pub(crate) fn hard_expired(&self) -> bool {
+        Instant::now() >= self.hard_deadline
     }
 
     pub(crate) fn remaining(&self) -> Duration {
-        self.deadline.saturating_duration_since(Instant::now())
+        self.remaining_hard()
+    }
+
+    pub(crate) fn remaining_soft(&self) -> Duration {
+        self.soft_deadline.saturating_duration_since(Instant::now())
+    }
+
+    pub(crate) fn remaining_hard(&self) -> Duration {
+        self.hard_deadline.saturating_duration_since(Instant::now())
     }
 
     pub(crate) fn elapsed(&self) -> Duration {
@@ -65,7 +89,15 @@ impl SearchBudget {
     }
 
     pub(crate) fn can_afford(&self, estimated: Duration) -> bool {
-        !self.expired() && self.remaining() > estimated
+        self.can_afford_hard(estimated)
+    }
+
+    pub(crate) fn can_afford_soft(&self, estimated: Duration) -> bool {
+        !self.soft_expired() && self.remaining_soft() > estimated
+    }
+
+    pub(crate) fn can_afford_hard(&self, estimated: Duration) -> bool {
+        !self.hard_expired() && self.remaining_hard() > estimated
     }
 }
 
@@ -114,6 +146,15 @@ mod tests {
 
         assert!(budget.safety_reserve() >= Duration::from_millis(25));
         assert!(budget.remaining() < Duration::from_millis(500));
+    }
+
+    #[test]
+    fn soft_deadline_targets_sixty_percent_of_timeout() {
+        let budget = SearchBudget::from_state_with_extra_reserve(&state(500, "0"), 0);
+
+        assert!(budget.remaining_soft() <= Duration::from_millis(300));
+        assert!(budget.remaining_soft() >= Duration::from_millis(250));
+        assert!(budget.remaining_hard() > budget.remaining_soft());
     }
 
     #[test]
