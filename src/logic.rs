@@ -6,10 +6,10 @@ pub(crate) fn info() -> Value {
 
     json!({
         "apiversion": "1",
-        "author": "luigicollesi",
-        "color": "#888888",
-        "head": "default",
-        "tail": "default",
+        "author": "Luigi Bolladasso",
+        "color": "#C2410C",
+        "head": "tiger-king",
+        "tail": "mlh-gene",
     })
 }
 
@@ -21,6 +21,9 @@ mod tests {
     fn info_uses_battlesnake_api_v1() {
         let metadata = info();
         assert_eq!(metadata["apiversion"], "1");
-        assert_eq!(metadata["author"], "luigicollesi");
+        assert_eq!(metadata["author"], "Luigi Bolladasso");
+        assert_eq!(metadata["color"], "#C2410C");
+        assert_eq!(metadata["head"], "tiger-king");
+        assert_eq!(metadata["tail"], "mlh-gene");
     }
 }
