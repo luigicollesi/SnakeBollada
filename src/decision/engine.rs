@@ -492,6 +492,7 @@ fn run_beam_shadow(
     let started = Instant::now();
     let mut shadow_graph = graph.clone();
     shadow_graph.use_beam_lean_analysis();
+    shadow_graph.reset_performance();
     let available = budget
         .remaining_hard()
         .saturating_sub(Duration::from_millis(BEAM_SHADOW_RESPONSE_RESERVE_MS));
@@ -510,7 +511,18 @@ fn run_beam_shadow(
         ..BeamShadowMetadata::default()
     };
 
-    if let Ok(Some(result)) = search_beam(&mut shadow_graph, &shadow_budget) {
+    let search_result = search_beam(&mut shadow_graph, &shadow_budget);
+    let perf = shadow_graph.performance();
+    metadata.action_batches = perf.action_batches;
+    metadata.parallel_action_batches = perf.parallel_action_batches;
+    metadata.resolved_actions = perf.resolved_actions;
+    metadata.new_nodes_built = perf.new_nodes_built;
+    metadata.resolve_us = perf.resolve_us;
+    metadata.node_build_us = perf.node_build_us;
+    metadata.merge_us = perf.merge_us;
+    metadata.edge_score_us = perf.edge_score_us;
+
+    if let Ok(Some(result)) = search_result {
         metadata.completed = true;
         metadata.completed_depth = result.completed_depth();
         metadata.attempted_depth = result.deepening.attempted_depth;
