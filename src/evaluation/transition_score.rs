@@ -9,6 +9,7 @@ use crate::simulation::resolver::{EliminationAttribution, InstantEvent};
 const FOOD_DISTANCE_STEP: i64 = 180;
 const FOOD_CONSUMED: i64 = 1000;
 const TERRITORY_DELTA_SCALE: i64 = 2;
+const HUNTING_TERRITORY_BUDGET: i64 = 2000;
 const MOBILITY_STEP: i64 = 320;
 const ENCLOSURE_STEP: i64 = 220;
 const KILL_BENEFIT: i64 = 1400;
@@ -48,13 +49,20 @@ impl TransitionScore {
         child: &SearchNode,
     ) -> Self {
         let mut actors = HashMap::new();
+        let hunting_transfers = territory_transfer_benefits(parent, child);
 
         for actor in parent.state.snakes.iter().filter(|snake| snake.alive) {
             let Some(parent_eval) = actor_evaluation(parent, &actor.id) else {
                 continue;
             };
-            let score =
-                score_actor_transition(parent, events, child, &actor.id, parent_eval.weights);
+            let score = score_actor_transition(
+                parent,
+                events,
+                child,
+                &actor.id,
+                parent_eval.weights,
+                hunting_transfers.get(&actor.id).copied().unwrap_or(0),
+            );
             actors.insert(actor.id.clone(), score);
         }
 
@@ -90,6 +98,7 @@ fn score_actor_transition(
     child: &SearchNode,
     actor_id: &str,
     weights: StrategicWeights,
+    territory_hunting_benefit: i64,
 ) -> ActorTransitionScore {
     let Some(before) = actor_evaluation(parent, actor_id) else {
         return ActorTransitionScore::default();
@@ -109,7 +118,8 @@ fn score_actor_transition(
         )
     };
 
-    let (mut hunting_benefit, mut hunting_harm) = opponent_territory_delta(parent, child, actor_id);
+    let mut hunting_benefit = territory_hunting_benefit;
+    let mut hunting_harm = 0_i64;
 
     for event in events {
         if let InstantEvent::EnemyKilled {
@@ -212,34 +222,47 @@ fn food_distance_delta(before: Option<u16>, after: Option<u16>) -> (i64, i64) {
     }
 }
 
-fn opponent_territory_delta(parent: &SearchNode, child: &SearchNode, actor_id: &str) -> (i64, i64) {
-    let mut benefit = 0_i64;
-    let mut harm = 0_i64;
+fn territory_transfer_benefits(
+    parent: &SearchNode,
+    child: &SearchNode,
+) -> HashMap<String, i64> {
+    let Some(parent_territory) = parent.active_analysis().map(|analysis| &analysis.territory) else {
+        return HashMap::new();
+    };
+    let Some(child_territory) = child.active_analysis().map(|analysis| &analysis.territory) else {
+        return HashMap::new();
+    };
 
-    for opponent in parent
-        .state
-        .snakes
-        .iter()
-        .filter(|snake| snake.alive && snake.id != actor_id)
-    {
-        let Some(before) = actor_evaluation(parent, &opponent.id) else {
-            continue;
-        };
-        let after_share = actor_evaluation(child, &opponent.id)
-            .map_or(0, |evaluation| evaluation.metrics.territory_share_milli);
+    let board_cells = parent.state.width.saturating_mul(parent.state.height).max(1);
+    let cell_value = HUNTING_TERRITORY_BUDGET
+        .saturating_div(i64::from(board_cells))
+        .max(1);
+    let mut benefits = HashMap::<String, i64>::new();
 
-        let delta = i64::from(before.metrics.territory_share_milli)
-            .saturating_sub(i64::from(after_share))
-            .saturating_mul(TERRITORY_DELTA_SCALE);
+    for y in 0..parent.state.height {
+        for x in 0..parent.state.width {
+            let coord = crate::Coord {
+                x: i32::try_from(x).unwrap_or(i32::MAX),
+                y: i32::try_from(y).unwrap_or(i32::MAX),
+            };
+            let before = parent_territory.competitive_owner_at(coord);
+            let after = child_territory.competitive_owner_at(coord);
 
-        if delta > 0 {
-            benefit = benefit.saturating_add(delta);
-        } else {
-            harm = harm.saturating_add(delta.saturating_neg());
+            let (Some(before), Some(after)) = (before, after) else {
+                continue;
+            };
+            if before == after {
+                continue;
+            }
+
+            benefits
+                .entry(after.to_string())
+                .and_modify(|benefit| *benefit = benefit.saturating_add(cell_value))
+                .or_insert(cell_value);
         }
     }
 
-    (benefit, harm)
+    benefits
 }
 
 fn elimination_attributed_to(
