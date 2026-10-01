@@ -1,10 +1,12 @@
 #![allow(dead_code)]
 
+mod actor_table;
 mod context;
 mod metrics;
 mod transition_score;
 mod weights;
 
+pub(crate) use actor_table::ActorTable;
 pub(crate) use context::ActorContext;
 pub(crate) use metrics::ActorUtilityMetrics;
 pub(crate) use transition_score::TransitionScore;
