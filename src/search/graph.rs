@@ -1199,7 +1199,7 @@ mod tests {
         let initial = state();
         let key = StateKey::from_state(&initial);
 
-        let node = build_node_with_key(initial, key.clone());
+        let node = build_node_with_key(initial, key.clone(), AnalysisProfile::Full);
 
         assert_eq!(node.key, key);
     }
