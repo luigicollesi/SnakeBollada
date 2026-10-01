@@ -190,14 +190,9 @@ impl DecisionEngine {
             })
             .unwrap_or_default();
 
-        let guaranteed_kill_choice = prioritize_food.then(|| {
-            choose_guaranteed_kill(
-                &evaluations,
-                &root.state,
-                robust_safe_moves,
-                policy,
-            )
-        }).flatten();
+        let guaranteed_kill_choice = prioritize_food
+            .then(|| choose_guaranteed_kill(&evaluations, &root.state, robust_safe_moves, policy))
+            .flatten();
 
         let opening_food_choice = (prioritize_food && guaranteed_kill_choice.is_none())
             .then(|| {
@@ -213,7 +208,11 @@ impl DecisionEngine {
             .flatten();
 
         let Some(best) = guaranteed_kill_choice
-            .or_else(|| opening_food_choice.as_ref().map(|(evaluation, _)| *evaluation))
+            .or_else(|| {
+                opening_food_choice
+                    .as_ref()
+                    .map(|(evaluation, _)| *evaluation)
+            })
             .or_else(|| {
                 choose_best_direction(&evaluations, &root.state, robust_safe_moves, policy)
             })
