@@ -10,6 +10,7 @@ pub(crate) struct SearchTrend {
     pub(crate) frontier_delta: i16,
     pub(crate) dominance_frontier_delta: i16,
     pub(crate) border_risk_delta_milli: i16,
+    pub(crate) enemy_pin_risk_delta_milli: i16,
     pub(crate) border_chain_delta: i16,
 }
 
@@ -88,13 +89,14 @@ impl SearchTrend {
             })
             .unwrap_or(0);
 
-        let (border_risk_delta_milli, border_chain_delta) =
+        let (border_risk_delta_milli, enemy_pin_risk_delta_milli, border_chain_delta) =
             match (parent_analysis.border.ours(), child_analysis.border.ours()) {
                 (Some(before), Some(after)) => (
                     signed_delta(after.structural_risk_milli, before.structural_risk_milli),
+                    signed_delta(after.enemy_pin_risk_milli, before.enemy_pin_risk_milli),
                     signed_delta(after.leading_edge_chain, before.leading_edge_chain),
                 ),
-                _ => (0, 0),
+                _ => (0, 0, 0),
             };
 
         Self {
@@ -104,6 +106,7 @@ impl SearchTrend {
             frontier_delta,
             dominance_frontier_delta,
             border_risk_delta_milli,
+            enemy_pin_risk_delta_milli,
             border_chain_delta,
         }
     }
@@ -129,10 +132,12 @@ impl SearchTrend {
 
     pub(crate) fn danger_priority_milli(self) -> u16 {
         let border_growth = positive(self.border_risk_delta_milli);
+        let pin_growth = positive(self.enemy_pin_risk_delta_milli);
         let chain_growth = positive(self.border_chain_delta);
 
         u32::from(border_growth)
             .saturating_mul(2)
+            .saturating_add(u32::from(pin_growth).saturating_mul(2))
             .saturating_add(u32::from(chain_growth).saturating_mul(150))
             .min(1000)
             .try_into()
@@ -180,6 +185,7 @@ mod tests {
     fn worsening_border_increases_danger_priority() {
         let trend = SearchTrend {
             border_risk_delta_milli: 180,
+            enemy_pin_risk_delta_milli: 120,
             border_chain_delta: 2,
             ..SearchTrend::default()
         };
