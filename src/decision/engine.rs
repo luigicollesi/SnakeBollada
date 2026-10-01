@@ -176,7 +176,9 @@ impl DecisionEngine {
             ) {
                 let selective_depth = completed_depth.max(stats.max_selective_depth);
                 if selective_depth > completed_depth {
-                    if let Some(refined) = evaluate_graph_budgeted(graph, selective_depth, &budget)
+                    let reevaluation_budget = budget.limited_to_soft_deadline();
+                    if let Some(refined) =
+                        evaluate_graph_budgeted(graph, selective_depth, &reevaluation_budget)
                     {
                         evaluations = refined.directions;
                         dag_stats = refined.stats;
