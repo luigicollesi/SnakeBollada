@@ -854,7 +854,7 @@ mod tests {
         let equilibrium = synthetic_joint_line(0, 100, 100, Direction::Up, Direction::Up, 1);
         let a_deviation = synthetic_joint_line(0, 80, 120, Direction::Down, Direction::Up, 2);
         let b_deviation = synthetic_joint_line(0, 120, 80, Direction::Up, Direction::Down, 3);
-        let unrelated = synthetic_joint_line(0, 250, 250, Direction::Down, Direction::Down, 4);
+        let unrelated = synthetic_joint_line(0, 70, 70, Direction::Down, Direction::Down, 4);
 
         let chosen = select_selfish_opponent_response(
             node,
