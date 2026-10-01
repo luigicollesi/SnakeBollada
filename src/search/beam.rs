@@ -1,8 +1,11 @@
 #![allow(dead_code)]
 
 use crate::direction::Direction;
+use crate::evaluation::TransitionScore;
+use crate::simulation::joint_action::JointAction;
 
 use super::bounds::ValueBound;
+use super::graph::NodeId;
 
 pub(crate) const SEED_DEPTH: u8 = 3;
 pub(crate) const BEAM_WIDTH: usize = 3;
@@ -20,6 +23,14 @@ pub(crate) enum LineTerminal {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct BeamStep {
+    pub(crate) node: NodeId,
+    pub(crate) joint_action: JointAction,
+    pub(crate) child: NodeId,
+    pub(crate) transition: TransitionScore,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct BeamLine {
     pub(crate) id: LineId,
     pub(crate) root_direction: Direction,
@@ -29,6 +40,7 @@ pub(crate) struct BeamLine {
     pub(crate) value: i64,
     pub(crate) terminal: LineTerminal,
     pub(crate) bound: ValueBound,
+    pub(crate) steps: Vec<BeamStep>,
 }
 
 impl BeamLine {
@@ -50,6 +62,31 @@ impl BeamLine {
             value,
             terminal,
             bound: ValueBound::exact(value),
+            steps: Vec::new(),
+        }
+    }
+
+    pub(crate) fn from_search(
+        id: u32,
+        root_direction: Direction,
+        depth: u8,
+        benefit_total: i64,
+        harm_total: i64,
+        value: i64,
+        terminal: LineTerminal,
+        bound: ValueBound,
+        steps: Vec<BeamStep>,
+    ) -> Self {
+        Self {
+            id: LineId(id),
+            root_direction,
+            depth,
+            benefit_total,
+            harm_total,
+            value,
+            terminal,
+            bound,
+            steps,
         }
     }
 
