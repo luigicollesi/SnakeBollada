@@ -10,6 +10,7 @@ use super::graph::NodeId;
 pub(crate) const SEED_DEPTH: u8 = 3;
 pub(crate) const BEAM_WIDTH: usize = 3;
 pub(crate) const ROUND_DEPTH: u8 = 2;
+pub(crate) const MIN_ROOT_DIVERSITY: usize = 2;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub(crate) struct LineId(pub(crate) u32);
@@ -127,6 +128,10 @@ pub(crate) fn select_seed_beam(candidates: &[BeamLine]) -> Vec<BeamLine> {
             .then_with(|| left.id.cmp(&right.id))
     });
 
+    if ranked.is_empty() {
+        return Vec::new();
+    }
+
     let viable = ranked
         .iter()
         .filter(|line| line.is_viable())
@@ -134,21 +139,49 @@ pub(crate) fn select_seed_beam(candidates: &[BeamLine]) -> Vec<BeamLine> {
         .collect::<Vec<_>>();
     let pool = if viable.is_empty() { &ranked } else { &viable };
 
+    let mut viable_directions = pool
+        .iter()
+        .map(|line| line.root_direction)
+        .collect::<Vec<_>>();
+    viable_directions.sort_by_key(|direction| direction.rank());
+    viable_directions.dedup();
+
+    // If every viable future starts with the same move, there is no decision
+    // left to compare. Keep only the best concrete route for that move.
+    if viable_directions.len() == 1 {
+        return pool.first().cloned().into_iter().collect();
+    }
+
     let mut selected = Vec::with_capacity(BEAM_WIDTH);
-    for direction in Direction::ALL {
-        let Some(best_for_direction) = pool
+
+    if let Some(best) = pool.first() {
+        selected.push(best.clone());
+    }
+
+    if selected.len() < MIN_ROOT_DIVERSITY {
+        if let Some(diverse) = pool
             .iter()
-            .filter(|line| line.root_direction == direction)
-            .max_by(|left, right| {
-                left.value
-                    .cmp(&right.value)
-                    .then_with(|| right.id.cmp(&left.id))
+            .find(|line| {
+                selected
+                    .iter()
+                    .all(|chosen| chosen.root_direction != line.root_direction)
             })
             .cloned()
-        else {
+        {
+            selected.push(diverse);
+        }
+    }
+
+    // Fill the remaining beam slot by pure route value. The third route may
+    // share the same root direction as one of the first two.
+    for candidate in pool {
+        if selected.len() == BEAM_WIDTH {
+            break;
+        }
+        if selected.iter().any(|chosen| chosen.id == candidate.id) {
             continue;
-        };
-        selected.push(best_for_direction);
+        }
+        selected.push(candidate.clone());
     }
 
     selected.sort_by(|left, right| {
@@ -158,7 +191,6 @@ pub(crate) fn select_seed_beam(candidates: &[BeamLine]) -> Vec<BeamLine> {
             .then_with(|| left.root_direction.rank().cmp(&right.root_direction.rank()))
             .then_with(|| left.id.cmp(&right.id))
     });
-    selected.truncate(BEAM_WIDTH);
     selected
 }
 
@@ -178,7 +210,7 @@ mod tests {
     }
 
     #[test]
-    fn seed_beam_keeps_at_most_one_line_per_root_direction() {
+    fn seed_beam_prefers_two_root_directions_but_allows_third_route_to_repeat() {
         let candidates = vec![
             line(1, Direction::Right, 920),
             line(2, Direction::Right, 900),
@@ -191,11 +223,16 @@ mod tests {
 
         assert_eq!(beam.len(), BEAM_WIDTH);
         assert!(beam.iter().any(|line| line.id == LineId(1)));
-        assert!(!beam.iter().any(|line| line.id == LineId(2)));
+        assert!(beam.iter().any(|line| line.id == LineId(2)));
         assert!(beam.iter().any(|line| line.root_direction == Direction::Up));
-        assert!(beam
+
+        let mut directions = beam
             .iter()
-            .any(|line| line.root_direction == Direction::Left));
+            .map(|line| line.root_direction.rank())
+            .collect::<Vec<_>>();
+        directions.sort_unstable();
+        directions.dedup();
+        assert_eq!(directions.len(), MIN_ROOT_DIVERSITY);
     }
 
     #[test]
@@ -228,10 +265,27 @@ mod tests {
         let beam = select_seed_beam(&candidates);
 
         assert_eq!(beam.len(), 1);
-        assert!(beam
-            .iter()
-            .all(|line| line.root_direction == Direction::Right));
-        assert!(beam.iter().all(BeamLine::is_viable));
+        assert_eq!(beam[0].id, LineId(1));
+        assert_eq!(beam[0].root_direction, Direction::Right);
+        assert!(beam[0].is_viable());
+    }
+
+    #[test]
+    fn single_viable_root_direction_collapses_to_one_route() {
+        let mut losing_up = line(4, Direction::Up, 950);
+        losing_up.terminal = LineTerminal::Lost;
+        let candidates = vec![
+            line(1, Direction::Right, 900),
+            line(2, Direction::Right, 850),
+            line(3, Direction::Right, 800),
+            losing_up,
+        ];
+
+        let beam = select_seed_beam(&candidates);
+
+        assert_eq!(beam.len(), 1);
+        assert_eq!(beam[0].id, LineId(1));
+        assert_eq!(beam[0].root_direction, Direction::Right);
     }
 
     #[test]
