@@ -637,6 +637,31 @@ mod tests {
     }
 
     #[test]
+    fn entering_border_emits_exposure_event() {
+        let mut graph = FutureGraph::new(state());
+        graph.expand_to_depth(1).unwrap();
+
+        let root = graph.root();
+        let our_id = graph.node(root).state.our_snake_id.clone();
+        let border_edges = graph
+            .node(root)
+            .children
+            .iter()
+            .filter(|edge| {
+                edge.joint_action.direction_for(&our_id)
+                    == Some(crate::direction::Direction::Left)
+            })
+            .collect::<Vec<_>>();
+
+        assert!(!border_edges.is_empty());
+        assert!(border_edges.iter().all(|edge| {
+            edge.events
+                .iter()
+                .any(|event| matches!(event, InstantEvent::SelfBorderExposure { .. }))
+        }));
+    }
+
+    #[test]
     fn chosen_direction_prunes_other_root_moves_but_keeps_enemy_responses() {
         let mut graph = FutureGraph::new(state());
         graph.expand_to_depth(2).unwrap();
