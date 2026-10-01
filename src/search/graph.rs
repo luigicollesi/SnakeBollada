@@ -684,16 +684,25 @@ impl FutureGraph {
             before_tactical.ours.deterministic_moves
         };
 
+        let analysis_profile = self.analysis_profile;
         let mut actions = self.nodes[node_id]
             .pending_actions
             .take()
-            .unwrap_or_else(|| {
-                JointActionGenerator::new_with_profiles(
+            .unwrap_or_else(|| match analysis_profile {
+                AnalysisProfile::Full => JointActionGenerator::new_with_profiles(
                     &state,
                     our_moves,
                     &tracing,
                     &self.opponent_profiles,
-                )
+                ),
+                AnalysisProfile::BeamLean => {
+                    JointActionGenerator::new_actor_relative_with_profiles(
+                        &state,
+                        our_moves,
+                        &tracing,
+                        &self.opponent_profiles,
+                    )
+                }
             });
 
         loop {
