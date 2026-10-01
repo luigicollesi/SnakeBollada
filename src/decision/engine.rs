@@ -34,6 +34,14 @@ impl DecisionEngine {
             return baseline_fallback(state);
         }
 
+        let has_living_enemy = normalized
+            .snakes
+            .iter()
+            .any(|snake| snake.alive && snake.id != normalized.our_snake_id);
+        if !has_living_enemy {
+            return choose_move_baseline(state);
+        }
+
         let mut graph = FutureGraph::new(normalized);
         self.decide_with_graph(state, &mut graph)
     }
@@ -146,7 +154,7 @@ impl DecisionEngine {
         let Some(best) = choose_best_direction(
             &evaluations,
             &root.state,
-            root.analysis.tactical.ours.safe_moves,
+            root.active_analysis().expect("active root must have analysis").tactical.ours.safe_moves,
             ReservedCellPolicy::default(),
         ) else {
             return baseline_fallback(state);
@@ -154,7 +162,7 @@ impl DecisionEngine {
 
         let food_candidates = food::candidates(
             &root.state,
-            &root.analysis.state,
+            &root.active_analysis().expect("active root must have analysis").state,
             ForecastCertainty::Deterministic,
         );
         let food_target = food_candidates
@@ -162,7 +170,11 @@ impl DecisionEngine {
             .iter()
             .find(|candidate| candidate.first_move == best.direction);
 
-        let reachable_cells = root.analysis.mobility.reachable_space(
+        let reachable_cells = root
+            .active_analysis()
+            .expect("active root must have analysis")
+            .mobility
+            .reachable_space(
             &root.state,
             &root.state.our_snake_id,
             best.direction,
@@ -172,7 +184,7 @@ impl DecisionEngine {
             best,
             &evaluations,
             &root.state,
-            root.analysis.tactical.ours.safe_moves,
+            root.active_analysis().expect("active root must have analysis").tactical.ours.safe_moves,
             ReservedCellPolicy::default(),
         );
 
