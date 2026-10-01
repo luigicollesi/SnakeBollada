@@ -1,4 +1,5 @@
 mod engine;
+pub(crate) mod escape;
 pub(crate) mod evaluation;
 pub(crate) mod intent;
 pub(crate) mod joint_actions;
