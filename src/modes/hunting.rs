@@ -89,6 +89,8 @@ pub(crate) fn analyze(
         let Some(enemy_territory) = territory.for_snake(&enemy.id) else {
             continue;
         };
+        let enemy_competitive = territory.competitive_for_snake(&enemy.id);
+        let our_competitive = territory.competitive_for_snake(&state.our_snake_id);
         let Some(enemy_enclosure) = enclosure.for_snake(&enemy.id) else {
             continue;
         };
@@ -157,10 +159,27 @@ pub(crate) fn analyze(
                     .saturating_div(8)
                     .min(280) as u16;
                 let risk_bonus = u16::from(enemy_enclosure.risk.rank()) * 80;
+                let control_bonus = enemy_competitive.map_or(0, |snapshot| {
+                    1000_u16
+                        .saturating_sub(snapshot.control_ratio_milli)
+                        .saturating_div(4)
+                });
+                let frontier_bonus = our_competitive.map_or(0, |snapshot| {
+                    snapshot
+                        .winning_frontier
+                        .saturating_sub(snapshot.losing_frontier)
+                        .min(6)
+                        .saturating_mul(20)
+                });
                 plans.push(HuntingPlanCandidate {
                     target: enemy.id.clone(),
                     kind: HuntingPlanKind::TerritorySqueeze,
-                    score_milli: (260 + ratio_bonus + risk_bonus).min(760),
+                    score_milli: (240
+                        + ratio_bonus
+                        + risk_bonus
+                        + control_bonus
+                        + frontier_bonus)
+                        .min(860),
                     length_advantage,
                 });
             }
@@ -377,6 +396,34 @@ mod tests {
                 | HuntingPlanKind::ChokeCut
                 | HuntingPlanKind::TerritorySqueeze
         )));
+    }
+
+    #[test]
+    fn competitive_control_strengthens_territory_squeeze() {
+        let state = state(
+            vec![
+                snake(
+                    "ours",
+                    &[
+                        (1, 3),
+                        (1, 2),
+                        (1, 1),
+                        (0, 1),
+                        (0, 2),
+                        (0, 3),
+                        (0, 4),
+                        (1, 4),
+                    ],
+                ),
+                snake("enemy", &[(5, 3), (5, 2), (5, 1)]),
+            ],
+            0.5,
+        );
+
+        let output = analyze_state(&state);
+        assert!(output.plans.iter().any(|plan| {
+            plan.kind == HuntingPlanKind::TerritorySqueeze && plan.score_milli >= 400
+        }));
     }
 
     #[test]
