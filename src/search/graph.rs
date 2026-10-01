@@ -1036,9 +1036,7 @@ fn build_node_with_key(
             }
         });
         let tactical = Arc::new(match profile {
-            AnalysisProfile::Full => {
-                TacticalStateAnalysis::from_parts(&state, &tracing, &mobility)
-            }
+            AnalysisProfile::Full => TacticalStateAnalysis::from_parts(&state, &tracing, &mobility),
             AnalysisProfile::BeamLean => {
                 TacticalStateAnalysis::from_parts_actor_relative(&state, &tracing, &mobility)
             }
@@ -1059,14 +1057,9 @@ fn build_node_with_key(
         };
         let enclosure = Arc::new(match profile {
             AnalysisProfile::Full => EnclosureAnalysis::from_parts(&state, &territory, &tactical),
-            AnalysisProfile::BeamLean => {
-                EnclosureAnalysis::from_parts_actor_relative(
-                    &state,
-                    &territory,
-                    &tactical,
-                    &mobility,
-                )
-            }
+            AnalysisProfile::BeamLean => EnclosureAnalysis::from_parts_actor_relative(
+                &state, &territory, &tactical, &mobility,
+            ),
         });
 
         let (survival, hunting) = match profile {
