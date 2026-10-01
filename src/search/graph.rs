@@ -32,6 +32,10 @@ use super::budget::SearchBudget;
 
 pub(crate) type NodeId = usize;
 
+const MAX_PARALLEL_ACTION_BATCH: usize = 8;
+const INITIAL_BATCH_ESTIMATE: Duration = Duration::from_millis(2);
+const BATCH_DEADLINE_RESERVE: Duration = Duration::from_millis(1);
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum AnalysisProfile {
     Full,
@@ -84,6 +88,14 @@ pub(crate) struct SearchEdge {
     pub(crate) forecast_delta: ForecastDelta,
     pub(crate) transition: TransitionScore,
     pub(crate) child: NodeId,
+}
+
+struct ResolvedCandidate {
+    joint_action: JointAction,
+    state: SimulatedGameState,
+    key: StateKey,
+    resolution_events: Vec<InstantEvent>,
+    forecast_delta: ForecastDelta,
 }
 
 #[derive(Debug, Clone)]
@@ -145,6 +157,7 @@ pub(crate) struct FutureGraph {
     edge_count: u32,
     opponent_profiles: OpponentProfiles,
     analysis_profile: AnalysisProfile,
+    action_batch_estimate: Duration,
 }
 
 impl FutureGraph {
@@ -167,6 +180,7 @@ impl FutureGraph {
             edge_count: 0,
             opponent_profiles,
             analysis_profile: AnalysisProfile::Full,
+            action_batch_estimate: INITIAL_BATCH_ESTIMATE,
         }
     }
 
@@ -666,58 +680,155 @@ impl FutureGraph {
                 return Ok(false);
             }
 
-            let Some(joint_action) = actions.next() else {
+            let batch_size = self.action_batch_size(budget);
+            let mut batch_actions = Vec::with_capacity(batch_size);
+            for _ in 0..batch_size {
+                let Some(joint_action) = actions.next() else {
+                    break;
+                };
+                batch_actions.push(joint_action);
+            }
+
+            if batch_actions.is_empty() {
                 self.nodes[node_id].pending_actions = None;
                 self.nodes[node_id].expansion_complete = true;
                 return Ok(true);
-            };
+            }
 
-            let resolution = resolve_turn(&state, &joint_action)?;
-            let child_key = StateKey::from_state(&resolution.state);
-            let TurnResolution {
-                state: resolved_state,
-                events: resolution_events,
-                forecast_delta,
-            } = resolution;
+            let batch_started = std::time::Instant::now();
+            let resolved = batch_actions
+                .into_par_iter()
+                .map(|joint_action| {
+                    resolve_turn(&state, &joint_action).map(|resolution| {
+                        let key = StateKey::from_state(&resolution.state);
+                        let TurnResolution {
+                            state,
+                            events,
+                            forecast_delta,
+                        } = resolution;
+                        ResolvedCandidate {
+                            joint_action,
+                            state,
+                            key,
+                            resolution_events: events,
+                            forecast_delta,
+                        }
+                    })
+                })
+                .collect::<Result<Vec<_>, ResolveError>>()?;
 
-            let child = if let Some(existing) = self.transpositions.get(&child_key).copied() {
-                self.transposition_hits = self.transposition_hits.saturating_add(1);
-                existing
-            } else {
+            let mut unique_new = Vec::new();
+            let mut seen_new = HashSet::new();
+            let mut batch_transposition_hits = 0_u32;
+
+            for candidate in &resolved {
+                if self.transpositions.contains_key(&candidate.key) {
+                    batch_transposition_hits = batch_transposition_hits.saturating_add(1);
+                } else if seen_new.insert(candidate.key.clone()) {
+                    unique_new.push((candidate.key.clone(), candidate.state.clone()));
+                } else {
+                    batch_transposition_hits = batch_transposition_hits.saturating_add(1);
+                }
+            }
+
+            let profile = self.analysis_profile;
+            let built_nodes = unique_new
+                .into_par_iter()
+                .map(|(key, state)| {
+                    let node = build_node_with_key(state, key.clone(), profile);
+                    (key, node)
+                })
+                .collect::<Vec<_>>();
+
+            for (key, node) in built_nodes {
+                if self.transpositions.contains_key(&key) {
+                    batch_transposition_hits = batch_transposition_hits.saturating_add(1);
+                    continue;
+                }
                 let child = self.nodes.len();
-                let node =
-                    build_node_with_key(resolved_state, child_key.clone(), self.analysis_profile);
-                self.transpositions.insert(child_key, child);
+                self.transpositions.insert(key, child);
                 self.nodes.push(node);
-                child
-            };
+            }
+            self.transposition_hits = self
+                .transposition_hits
+                .saturating_add(batch_transposition_hits);
 
-            let mut events = if let Some(child_analysis) = self.nodes[child].analysis.as_ref() {
-                let after_tactical = Arc::clone(&child_analysis.tactical);
-                analyze_transition_parts(
-                    &before_tactical,
-                    &self.nodes[child].state,
-                    &resolution_events,
-                    &after_tactical,
-                )
-                .events
-            } else {
-                resolution_events.clone()
-            };
-            append_border_exposure_event(&self.nodes[child], &mut events);
+            let child_ids = resolved
+                .iter()
+                .map(|candidate| {
+                    self.transpositions
+                        .get(&candidate.key)
+                        .copied()
+                        .expect("resolved child must exist after deterministic merge")
+                })
+                .collect::<Vec<_>>();
 
-            let transition =
-                TransitionScore::from_parts(&self.nodes[node_id], &events, &self.nodes[child]);
+            let parent = &self.nodes[node_id];
+            let nodes = &self.nodes;
+            let prepared_edges = resolved
+                .into_par_iter()
+                .zip(child_ids.into_par_iter())
+                .map(|(candidate, child)| {
+                    let mut events = if let Some(child_analysis) = nodes[child].analysis.as_ref() {
+                        let after_tactical = Arc::clone(&child_analysis.tactical);
+                        analyze_transition_parts(
+                            &before_tactical,
+                            &nodes[child].state,
+                            &candidate.resolution_events,
+                            &after_tactical,
+                        )
+                        .events
+                    } else {
+                        candidate.resolution_events.clone()
+                    };
+                    append_border_exposure_event(&nodes[child], &mut events);
 
-            self.nodes[node_id].children.push(SearchEdge {
-                joint_action,
-                events,
-                forecast_delta,
-                transition,
-                child,
-            });
-            self.edge_count = self.edge_count.saturating_add(1);
+                    let transition = TransitionScore::from_parts(parent, &events, &nodes[child]);
+
+                    SearchEdge {
+                        joint_action: candidate.joint_action,
+                        events,
+                        forecast_delta: candidate.forecast_delta,
+                        transition,
+                        child,
+                    }
+                })
+                .collect::<Vec<_>>();
+
+            let edge_count = prepared_edges.len().try_into().unwrap_or(u32::MAX);
+            self.nodes[node_id].children.extend(prepared_edges);
+            self.edge_count = self.edge_count.saturating_add(edge_count);
+            self.observe_action_batch(batch_started.elapsed());
         }
+    }
+
+    fn action_batch_size(&self, budget: Option<&SearchBudget>) -> usize {
+        let parallelism = rayon::current_num_threads()
+            .max(1)
+            .min(MAX_PARALLEL_ACTION_BATCH);
+        if parallelism == 1 {
+            return 1;
+        }
+
+        let estimated = self
+            .action_batch_estimate
+            .saturating_add(BATCH_DEADLINE_RESERVE);
+        if budget.is_some_and(|budget| !budget.can_afford_hard(estimated)) {
+            1
+        } else {
+            parallelism
+        }
+    }
+
+    fn observe_action_batch(&mut self, observed: Duration) {
+        let previous = self.action_batch_estimate.as_micros();
+        let observed = observed.as_micros();
+        let smoothed = previous
+            .saturating_mul(3)
+            .saturating_add(observed)
+            .saturating_div(4)
+            .min(u128::from(u64::MAX));
+        self.action_batch_estimate = Duration::from_micros(smoothed as u64);
     }
 
     fn is_terminal(&self, node_id: NodeId) -> bool {
