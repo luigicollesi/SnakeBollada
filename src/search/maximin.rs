@@ -32,6 +32,8 @@ pub(crate) struct ContinuationEvaluation {
     pub(crate) depth: u8,
     pub(crate) benefit_total: i64,
     pub(crate) harm_total: i64,
+    pub(crate) our_utility_total: i64,
+    pub(crate) opponent_utility_total: i64,
     pub(crate) value: i64,
     pub(crate) terminal: LineTerminal,
     pub(crate) bound: ValueBound,
@@ -43,6 +45,8 @@ struct EvaluatedLine {
     value: i64,
     benefit_total: i64,
     harm_total: i64,
+    our_utility_total: i64,
+    opponent_utility_total: i64,
     terminal: LineTerminal,
     bound: ValueBound,
     steps: Vec<BeamStep>,
@@ -55,14 +59,15 @@ impl EvaluatedLine {
         edge: &SearchEdge,
         transition: TransitionScore,
     ) -> Self {
-        let instant_net = transition
-            .instant_benefit
-            .saturating_sub(transition.instant_harm);
-
         if self.terminal == LineTerminal::Running {
-            self.value = self.value.saturating_add(instant_net);
-            self.bound = shift_bound(self.bound, instant_net);
+            self.our_utility_total = self.our_utility_total.saturating_add(transition.net);
+            self.opponent_utility_total = self
+                .opponent_utility_total
+                .saturating_add(transition.opponent_net_total);
+            self.value = route_value(self.our_utility_total, self.opponent_utility_total);
+            self.bound = shift_bound(self.bound, transition.route_delta());
         }
+
         self.benefit_total = self
             .benefit_total
             .saturating_add(transition.instant_benefit);
@@ -121,6 +126,8 @@ pub(crate) fn evaluate_seed_lines(graph: &FutureGraph, target_depth: u8) -> Seed
                 depth,
                 benefit_total: line.benefit_total,
                 harm_total: line.harm_total,
+                our_utility_total: line.our_utility_total,
+                opponent_utility_total: line.opponent_utility_total,
                 value: line.value,
                 terminal: line.terminal,
                 bound: line.bound,
@@ -162,6 +169,8 @@ pub(crate) fn evaluate_continuations(
             depth: line.steps.len().try_into().unwrap_or(u8::MAX),
             benefit_total: line.benefit_total,
             harm_total: line.harm_total,
+            our_utility_total: line.our_utility_total,
+            opponent_utility_total: line.opponent_utility_total,
             value: line.value,
             terminal: line.terminal,
             bound: line.bound,
@@ -175,7 +184,7 @@ impl MaximinEvaluator<'_> {
         self.evaluate_node_variants(node_id, remaining_depth)
             .into_iter()
             .next()
-            .unwrap_or_else(|| frontier_line(self.graph.node(node_id), false))
+            .unwrap_or_else(|| frontier_line(false))
     }
 
     fn evaluate_node_variants(
@@ -200,10 +209,10 @@ impl MaximinEvaluator<'_> {
             vec![terminal]
         } else if remaining_depth == 0 {
             self.stats.exact_nodes = self.stats.exact_nodes.saturating_add(1);
-            vec![frontier_line(node, true)]
+            vec![frontier_line(true)]
         } else if !node.expansion_complete() {
             self.stats.bounded_nodes = self.stats.bounded_nodes.saturating_add(1);
-            vec![frontier_line(node, false)]
+            vec![frontier_line(false)]
         } else {
             let mut variants = Vec::new();
             for direction in Direction::ALL {
@@ -216,7 +225,7 @@ impl MaximinEvaluator<'_> {
 
             if variants.is_empty() {
                 self.stats.bounded_nodes = self.stats.bounded_nodes.saturating_add(1);
-                vec![frontier_line(node, false)]
+                vec![frontier_line(false)]
             } else {
                 variants
             }
@@ -253,7 +262,7 @@ impl MaximinEvaluator<'_> {
             let variants = self
                 .evaluate_node_variants(edge.child, remaining_depth.saturating_sub(1))
                 .into_iter()
-                .map(|line| line.shifted_by_edge(node_id, edge, transition))
+                .map(|line| line.shifted_by_edge(node_id, edge, transition.clone()))
                 .collect::<Vec<_>>();
 
             if variants.is_empty() {
@@ -267,7 +276,7 @@ impl MaximinEvaluator<'_> {
         }
 
         let mut policies = Vec::new();
-        policies.push(min_opponent_responses(
+        policies.push(max_opponent_self_utility(
             edge_variants
                 .iter()
                 .filter_map(|variants| variants.first().cloned())
@@ -290,7 +299,7 @@ impl MaximinEvaluator<'_> {
                     .collect::<Vec<_>>();
 
                 if selected.len() == edge_variants.len() {
-                    policies.push(min_opponent_responses(selected));
+                    policies.push(max_opponent_self_utility(selected));
                 }
             }
         }
@@ -306,29 +315,18 @@ impl MaximinEvaluator<'_> {
     }
 }
 
-fn frontier_line(node: &SearchNode, exact: bool) -> EvaluatedLine {
-    let actor_id = &node.state.our_snake_id;
-    let evaluation = node
-        .active_analysis()
-        .and_then(|analysis| analysis.actor_evaluations.get(actor_id));
-
-    let (value, benefit_total, harm_total) = evaluation.map_or((0, 0, 0), |evaluation| {
-        (
-            evaluation.net,
-            evaluation.benefit_total,
-            evaluation.harm_total,
-        )
-    });
-
+fn frontier_line(exact: bool) -> EvaluatedLine {
     EvaluatedLine {
-        value,
-        benefit_total,
-        harm_total,
+        value: 0,
+        benefit_total: 0,
+        harm_total: 0,
+        our_utility_total: 0,
+        opponent_utility_total: 0,
         terminal: LineTerminal::Running,
         bound: if exact {
-            ValueBound::Exact(value)
+            ValueBound::Exact(0)
         } else {
-            incomplete_bound(value)
+            incomplete_bound(0)
         },
         steps: Vec::new(),
     }
@@ -344,6 +342,8 @@ fn terminal_line(node: &SearchNode) -> Option<EvaluatedLine> {
             value: -TERMINAL_VALUE,
             benefit_total: 0,
             harm_total: TERMINAL_VALUE,
+            our_utility_total: -TERMINAL_VALUE,
+            opponent_utility_total: 0,
             terminal: LineTerminal::Lost,
             bound: ValueBound::Exact(-TERMINAL_VALUE),
             steps: Vec::new(),
@@ -363,6 +363,8 @@ fn terminal_line(node: &SearchNode) -> Option<EvaluatedLine> {
         value: TERMINAL_VALUE,
         benefit_total: TERMINAL_VALUE,
         harm_total: 0,
+        our_utility_total: TERMINAL_VALUE,
+        opponent_utility_total: 0,
         terminal: LineTerminal::Won,
         bound: ValueBound::Exact(TERMINAL_VALUE),
         steps: Vec::new(),
@@ -376,7 +378,7 @@ fn max_our_choices(lines: Vec<EvaluatedLine>) -> EvaluatedLine {
         .expect("MAX requires at least one line")
 }
 
-fn min_opponent_responses(lines: Vec<EvaluatedLine>) -> EvaluatedLine {
+fn max_opponent_self_utility(lines: Vec<EvaluatedLine>) -> EvaluatedLine {
     let lower = lines
         .iter()
         .map(|line| line.bound.lower())
@@ -385,19 +387,19 @@ fn min_opponent_responses(lines: Vec<EvaluatedLine>) -> EvaluatedLine {
     let upper = lines
         .iter()
         .map(|line| line.bound.upper())
-        .min()
+        .max()
         .unwrap_or(i64::MAX);
     let all_exact = lines.iter().all(|line| line.bound.is_exact());
 
     let mut chosen = lines
         .into_iter()
-        .min_by(|left, right| {
-            left.bound
-                .lower()
-                .cmp(&right.bound.lower())
-                .then_with(|| left.value.cmp(&right.value))
+        .max_by(|left, right| {
+            left.opponent_utility_total
+                .cmp(&right.opponent_utility_total)
+                .then_with(|| right.value.cmp(&left.value))
+                .then_with(|| left.our_utility_total.cmp(&right.our_utility_total))
         })
-        .expect("MIN requires at least one line");
+        .expect("opponent response selection requires at least one line");
 
     chosen.bound = if all_exact {
         ValueBound::Exact(chosen.value)
@@ -427,10 +429,10 @@ fn rank_and_dedup_variants(lines: &mut Vec<EvaluatedLine>, limit: usize) {
 }
 
 fn compare_our_lines(left: &EvaluatedLine, right: &EvaluatedLine) -> std::cmp::Ordering {
-    left.bound
-        .lower()
-        .cmp(&right.bound.lower())
+    left.our_utility_total
+        .cmp(&right.our_utility_total)
         .then_with(|| left.value.cmp(&right.value))
+        .then_with(|| left.bound.lower().cmp(&right.bound.lower()))
         .then_with(|| left.bound.upper().cmp(&right.bound.upper()))
 }
 
@@ -444,6 +446,10 @@ fn sort_beam_lines(lines: &mut [BeamLine]) {
             .then_with(|| left.root_direction.rank().cmp(&right.root_direction.rank()))
             .then_with(|| left.id.cmp(&right.id))
     });
+}
+
+fn route_value(ours: i64, opponents: i64) -> i64 {
+    ours.saturating_sub(opponents)
 }
 
 fn incomplete_bound(value: i64) -> ValueBound {
@@ -513,11 +519,14 @@ mod tests {
         }
     }
 
-    fn synthetic_line(value: i64, child: NodeId) -> EvaluatedLine {
+    fn synthetic_line(ours: i64, opponents: i64, child: NodeId) -> EvaluatedLine {
+        let value = route_value(ours, opponents);
         EvaluatedLine {
             value,
-            benefit_total: value.max(0),
-            harm_total: value.max(0).saturating_sub(value),
+            benefit_total: ours.max(0),
+            harm_total: ours.max(0).saturating_sub(ours),
+            our_utility_total: ours,
+            opponent_utility_total: opponents,
             terminal: LineTerminal::Running,
             bound: ValueBound::Exact(value),
             steps: vec![BeamStep {
@@ -530,40 +539,20 @@ mod tests {
     }
 
     #[test]
-    fn opponent_min_selects_a_lethal_response_when_one_exists() {
+    fn root_candidates_keep_terminal_loss_dominated() {
         let mut graph = FutureGraph::new(state());
         graph.expand_to_depth(1).unwrap();
 
         let result = evaluate_seed_lines(&graph, 1);
-        let right = result
+        let losses = result
             .lines
             .iter()
-            .filter(|line| line.root_direction == Direction::Right)
-            .min_by_key(|line| line.value)
-            .expect("right must be evaluated");
+            .filter(|line| line.terminal == LineTerminal::Lost)
+            .collect::<Vec<_>>();
 
-        assert_eq!(right.terminal, LineTerminal::Lost);
-        assert_eq!(right.value, -TERMINAL_VALUE);
-        assert!(right.bound.is_exact());
-        assert_eq!(right.steps.len(), 1);
-    }
-
-    #[test]
-    fn root_candidates_keep_safe_choices_above_refuted_direction() {
-        let mut graph = FutureGraph::new(state());
-        graph.expand_to_depth(1).unwrap();
-
-        let result = evaluate_seed_lines(&graph, 1);
-        let best = result.lines.first().expect("at least one line");
-        let worst_right = result
-            .lines
+        assert!(losses
             .iter()
-            .filter(|line| line.root_direction == Direction::Right)
-            .map(|line| line.value)
-            .min()
-            .unwrap();
-
-        assert!(best.value > worst_right);
+            .all(|line| line.value <= -TERMINAL_VALUE));
     }
 
     #[test]
@@ -587,39 +576,23 @@ mod tests {
     }
 
     #[test]
-    fn seed_beam_selects_three_lines_with_root_diversity() {
+    fn seed_beam_keeps_unique_root_routes() {
         let mut graph = FutureGraph::new(state());
         graph.expand_to_depth(SEED_DEPTH).unwrap();
 
-        let candidates = evaluate_seed_lines(&graph, SEED_DEPTH);
         let beam = evaluate_seed_beam(&graph, SEED_DEPTH);
-
-        assert!(candidates.lines.len() >= 3);
-        assert_eq!(beam.lines.len(), 3);
 
         let mut root_directions = beam
             .lines
             .iter()
             .map(|line| line.root_direction.rank())
             .collect::<Vec<_>>();
+        let count = root_directions.len();
         root_directions.sort_unstable();
         root_directions.dedup();
 
-        let candidate_direction_count = {
-            let mut directions = candidates
-                .lines
-                .iter()
-                .filter(|line| line.is_viable())
-                .map(|line| line.root_direction.rank())
-                .collect::<Vec<_>>();
-            directions.sort_unstable();
-            directions.dedup();
-            directions.len()
-        };
-
-        if candidate_direction_count >= 2 {
-            assert!(root_directions.len() >= 2);
-        }
+        assert_eq!(root_directions.len(), count);
+        assert!(count <= 3);
     }
 
     #[test]
@@ -653,37 +626,54 @@ mod tests {
     }
 
     #[test]
-    fn max_and_min_follow_game_tree_operators() {
-        assert_eq!(
-            max_our_choices(vec![synthetic_line(5, 1), synthetic_line(9, 2)]).value,
-            9
-        );
-        assert_eq!(
-            min_opponent_responses(vec![synthetic_line(5, 1), synthetic_line(9, 2)]).value,
-            5
-        );
+    fn our_future_choice_maximizes_our_own_utility() {
+        let chosen = max_our_choices(vec![
+            synthetic_line(9, 100, 1),
+            synthetic_line(5, 0, 2),
+        ]);
+
+        assert_eq!(chosen.our_utility_total, 9);
+        assert_eq!(chosen.opponent_utility_total, 100);
+    }
+
+    #[test]
+    fn opponent_selects_its_own_best_route_not_the_route_that_hurts_us_most() {
+        let hurts_us_more = synthetic_line(-500, 20, 1);
+        let benefits_enemy_more = synthetic_line(-50, 200, 2);
+
+        let chosen = max_opponent_self_utility(vec![hurts_us_more, benefits_enemy_more]);
+
+        assert_eq!(chosen.opponent_utility_total, 200);
+        assert_eq!(chosen.our_utility_total, -50);
+    }
+
+    #[test]
+    fn final_route_value_is_ours_minus_opponents() {
+        let line = synthetic_line(420, 180, 1);
+
+        assert_eq!(line.value, 240);
     }
 
     #[test]
     fn variant_ranking_keeps_distinct_lines_independent() {
         let mut lines = vec![
-            synthetic_line(700, 1),
-            synthetic_line(600, 2),
-            synthetic_line(800, 3),
-            synthetic_line(700, 1),
+            synthetic_line(700, 0, 1),
+            synthetic_line(600, 0, 2),
+            synthetic_line(800, 0, 3),
+            synthetic_line(700, 0, 1),
         ];
 
         rank_and_dedup_variants(&mut lines, 3);
 
         assert_eq!(lines.len(), 3);
-        assert_eq!(lines[0].value, 800);
-        assert_eq!(lines[1].value, 700);
-        assert_eq!(lines[2].value, 600);
+        assert_eq!(lines[0].our_utility_total, 800);
+        assert_eq!(lines[1].our_utility_total, 700);
+        assert_eq!(lines[2].our_utility_total, 600);
         assert_ne!(lines[1].steps, lines[2].steps);
     }
 
     #[test]
-    fn depth_three_can_emit_multiple_variants_for_one_root_direction() {
+    fn depth_three_can_emit_multiple_variants_for_one_root_direction_before_beam_selection() {
         let mut graph = FutureGraph::new(state());
         graph.expand_to_depth(SEED_DEPTH).unwrap();
 
