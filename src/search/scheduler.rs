@@ -283,10 +283,7 @@ fn priority_signals(
     }
 }
 
-fn intent_focus(
-    node: &crate::search::graph::SearchNode,
-    intent: Option<&DecisionIntent>,
-) -> u16 {
+fn intent_focus(node: &crate::search::graph::SearchNode, intent: Option<&DecisionIntent>) -> u16 {
     let Some(intent) = intent else {
         return 0;
     };
