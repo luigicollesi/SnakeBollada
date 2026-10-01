@@ -45,18 +45,10 @@ struct RankedEdge {
 pub(crate) fn edge_priority(
     parent: &SearchNode,
     edge: &SearchEdge,
-    child: &SearchNode,
+    _child: &SearchNode,
 ) -> ActorEdgePriority {
     let our_id = parent.state.our_snake_id.as_str();
-    let our_before = actor_net(parent, our_id).unwrap_or(0);
-    let our_after = actor_net(child, our_id).unwrap_or_else(|| {
-        if child.state.snake(our_id).is_some_and(|snake| !snake.alive) {
-            -1_000_000_000
-        } else {
-            0
-        }
-    });
-    let our_delta = our_after.saturating_sub(our_before);
+    let ours = edge.transition.for_actor(our_id).copied().unwrap_or_default();
 
     let mut strongest_enemy_opportunity = 0_i64;
     let mut strongest_enemy_harm = 0_i64;
@@ -67,28 +59,17 @@ pub(crate) fn edge_priority(
         .iter()
         .filter(|snake| snake.alive && snake.id != our_id)
     {
-        let Some(before) = actor_net(parent, &enemy.id) else {
+        let Some(score) = edge.transition.for_actor(&enemy.id) else {
             continue;
         };
-        let after = actor_net(child, &enemy.id).unwrap_or_else(|| {
-            if child
-                .state
-                .snake(&enemy.id)
-                .is_some_and(|snake| !snake.alive)
-            {
-                -1_000_000_000
-            } else {
-                before
-            }
-        });
-        let delta = after.saturating_sub(before);
-        strongest_enemy_opportunity = strongest_enemy_opportunity.max(delta.max(0));
-        strongest_enemy_harm = strongest_enemy_harm.max(delta.saturating_neg().max(0));
+        strongest_enemy_opportunity = strongest_enemy_opportunity.max(score.net.max(0));
+        strongest_enemy_harm =
+            strongest_enemy_harm.max(score.net.saturating_neg().max(0));
     }
 
     ActorEdgePriority {
-        our_opportunity: our_delta.max(0),
-        our_harm: our_delta.saturating_neg().max(0),
+        our_opportunity: ours.net.max(0),
+        our_harm: ours.net.saturating_neg().max(0),
         strongest_enemy_opportunity,
         strongest_enemy_harm,
         forcing: forcing_score(parent, edge),
@@ -143,13 +124,6 @@ pub(crate) fn ordered_child_ids_for_search(graph: &FutureGraph, node_id: NodeId)
     });
 
     ranked.into_iter().map(|edge| edge.child).collect()
-}
-
-fn actor_net(node: &SearchNode, actor_id: &str) -> Option<i64> {
-    node.active_analysis()?
-        .actor_evaluations
-        .get(actor_id)
-        .map(|evaluation| evaluation.net)
 }
 
 fn forcing_score(parent: &SearchNode, edge: &SearchEdge) -> i64 {
