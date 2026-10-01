@@ -630,6 +630,106 @@ mod tests {
     }
 
     #[test]
+    fn opening_keeps_committed_food_even_when_another_safe_move_has_more_space() {
+        use crate::decision::evaluation::DirectionSurvivalSummary;
+        use crate::direction::{Direction, MoveMask};
+
+        let normalized = SimulatedGameState::from(&state("standard"));
+        let make_eval = |direction, space| DirectionEvaluation {
+            direction,
+            terminal: TerminalAssessment::Running,
+            survival: DirectionSurvivalSummary {
+                total_routes: 1,
+                death_routes: 0,
+                dead_end_routes: 0,
+                forced_routes: 0,
+                constrained_routes: 0,
+                min_future_mobility: 3,
+                min_reachable_space: space,
+                min_second_order_mobility: 3,
+            },
+            worst_strategic_utility: 0.0,
+            average_strategic_utility: 0.0,
+            average_food_value: 0.0,
+            average_hunting_value: 0.0,
+            average_leaf_food_potential: 0.0,
+            average_leaf_hunting_potential: 0.0,
+            reserved_override: false,
+        };
+        let evaluations = vec![
+            make_eval(Direction::Up, 40),
+            make_eval(Direction::Right, 20),
+        ];
+        let committed = food::FoodCandidate {
+            target_food: Coord { x: 4, y: 2 },
+            first_move: Direction::Right,
+            distance: 2,
+            claim_margin: Some(2),
+            contested: false,
+            certainty: ForecastCertainty::Deterministic,
+        };
+
+        let chosen = choose_food_opening(
+            &evaluations,
+            &[],
+            &[committed],
+            &normalized,
+            MoveMask::all(),
+            ReservedCellPolicy::default(),
+        )
+        .unwrap();
+
+        assert_eq!(chosen.0.direction, Direction::Right);
+    }
+
+    #[test]
+    fn opening_drops_committed_food_when_route_has_death_response() {
+        use crate::decision::evaluation::DirectionSurvivalSummary;
+        use crate::direction::{Direction, MoveMask};
+
+        let normalized = SimulatedGameState::from(&state("standard"));
+        let dangerous = DirectionEvaluation {
+            direction: Direction::Right,
+            terminal: TerminalAssessment::Lost,
+            survival: DirectionSurvivalSummary {
+                total_routes: 2,
+                death_routes: 1,
+                dead_end_routes: 0,
+                forced_routes: 0,
+                constrained_routes: 0,
+                min_future_mobility: 3,
+                min_reachable_space: 20,
+                min_second_order_mobility: 3,
+            },
+            worst_strategic_utility: 10.0,
+            average_strategic_utility: 10.0,
+            average_food_value: 1.0,
+            average_hunting_value: 0.0,
+            average_leaf_food_potential: 0.0,
+            average_leaf_hunting_potential: 0.0,
+            reserved_override: false,
+        };
+        let committed = food::FoodCandidate {
+            target_food: Coord { x: 4, y: 2 },
+            first_move: Direction::Right,
+            distance: 2,
+            claim_margin: Some(2),
+            contested: false,
+            certainty: ForecastCertainty::Deterministic,
+        };
+
+        assert!(choose_food_opening(
+            &[dangerous],
+            &[],
+            &[committed],
+            &normalized,
+            MoveMask::all(),
+            ReservedCellPolicy::default(),
+        )
+        .is_none());
+    }
+
+    #[test]
     fn confirmed_tactical_result_releases_reserved_penalty() {
         use crate::direction::Direction;
 
