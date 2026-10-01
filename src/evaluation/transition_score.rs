@@ -39,7 +39,8 @@ impl TransitionScore {
                     if let Some(weights) = weights {
                         let food = weighted(1000, weights.food);
                         let growth = weighted(650, weights.growth);
-                        instant_benefit = instant_benefit.saturating_add(food.saturating_add(growth));
+                        instant_benefit =
+                            instant_benefit.saturating_add(food.saturating_add(growth));
                     }
                 }
                 InstantEvent::EnemyForced {
@@ -47,8 +48,8 @@ impl TransitionScore {
                     ..
                 } => {
                     if let Some(weights) = weights {
-                        instant_benefit = instant_benefit
-                            .saturating_add(weighted(350, weights.pressure));
+                        instant_benefit =
+                            instant_benefit.saturating_add(weighted(350, weights.pressure));
                     }
                 }
                 InstantEvent::EnemyTrapped {
