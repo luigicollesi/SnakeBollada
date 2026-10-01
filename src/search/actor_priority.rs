@@ -158,12 +158,12 @@ fn actor_net(node: &SearchNode, actor_id: &str) -> Option<i64> {
 }
 
 fn forcing_score(parent: &SearchNode, edge: &SearchEdge) -> i64 {
-    let our_id = parent.state.our_snake_id.as_str();
+    let _ = parent;
     let mut forcing = 0_i64;
 
     for event in &edge.events {
         let value = match event {
-            InstantEvent::Died { snake, .. } if snake == our_id => FORCING_SCALE,
+            InstantEvent::Died { .. } => FORCING_SCALE,
             InstantEvent::HeadToHeadLost { .. } => FORCING_SCALE,
             InstantEvent::SelfDeadEnd => FORCING_SCALE,
             InstantEvent::SelfConstrained { remaining_moves } => match remaining_moves {
