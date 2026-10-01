@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use super::weights::StrategicWeights;
 use crate::search::graph::{SearchEdge, SearchNode};
@@ -14,6 +14,26 @@ const MOBILITY_STEP: i64 = 320;
 const ENCLOSURE_STEP: i64 = 220;
 const KILL_BENEFIT: i64 = 1400;
 const TERMINAL_UTILITY: i64 = 1_000_000_000;
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+struct ActorTransitionFacts {
+    ate_food: bool,
+    food_distance_before: Option<u16>,
+    food_distance_after: Option<u16>,
+    territory_share_delta_milli: i16,
+    mobility_delta: i8,
+    border_risk_improvement_milli: i16,
+    enclosure_improvement: i8,
+    hunting_territory_benefit: i64,
+    kill_benefit: i64,
+    died: bool,
+    sole_survivor: bool,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+struct TransitionFacts {
+    actors: HashMap<String, ActorTransitionFacts>,
+}
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub(crate) struct ActorTransitionScore {
@@ -50,22 +70,21 @@ impl TransitionScore {
         events: &[InstantEvent],
         child: &SearchNode,
     ) -> Self {
+        let facts = TransitionFacts::from_parts(parent, events, child);
         let mut actors = HashMap::new();
-        let hunting_transfers = territory_transfer_benefits(parent, child);
 
         for actor in parent.state.snakes.iter().filter(|snake| snake.alive) {
-            let Some(parent_eval) = actor_evaluation(parent, &actor.id) else {
+            let (Some(parent_eval), Some(actor_facts)) = (
+                actor_evaluation(parent, &actor.id),
+                facts.actors.get(&actor.id),
+            ) else {
                 continue;
             };
-            let score = score_actor_transition(
-                parent,
-                events,
-                child,
-                &actor.id,
-                parent_eval.weights,
-                hunting_transfers.get(&actor.id).copied().unwrap_or(0),
+
+            actors.insert(
+                actor.id.clone(),
+                score_actor_transition(*actor_facts, parent_eval.weights),
             );
-            actors.insert(actor.id.clone(), score);
         }
 
         let our_id = parent.state.our_snake_id.as_str();
@@ -94,91 +113,130 @@ impl TransitionScore {
     }
 }
 
-fn score_actor_transition(
-    parent: &SearchNode,
-    events: &[InstantEvent],
-    child: &SearchNode,
-    actor_id: &str,
-    weights: StrategicWeights,
-    territory_hunting_benefit: i64,
-) -> ActorTransitionScore {
-    let Some(before) = actor_evaluation(parent, actor_id) else {
-        return ActorTransitionScore::default();
-    };
-    let after = actor_evaluation(child, actor_id);
+impl TransitionFacts {
+    fn from_parts(parent: &SearchNode, events: &[InstantEvent], child: &SearchNode) -> Self {
+        let hunting_transfers = territory_transfer_benefits(parent, child);
+        let mut ate_food = HashSet::<String>::new();
+        let mut kill_benefits = HashMap::<String, i64>::new();
 
-    let ate_food = events
-        .iter()
-        .any(|event| matches!(event, InstantEvent::AteFood { snake, .. } if snake == actor_id));
-
-    let (mut food_benefit, mut food_harm) = if ate_food {
-        (FOOD_CONSUMED, 0)
-    } else {
-        food_distance_delta(
-            before.metrics.best_food_distance,
-            after.and_then(|evaluation| evaluation.metrics.best_food_distance),
-        )
-    };
-
-    let mut hunting_benefit = territory_hunting_benefit;
-    let mut hunting_harm = 0_i64;
-
-    for event in events {
-        if let InstantEvent::EnemyKilled {
-            enemy, attribution, ..
-        } = event
-        {
-            if enemy != actor_id
-                && elimination_attributed_to(attribution, actor_id, &parent.state.our_snake_id)
-            {
-                hunting_benefit = hunting_benefit.saturating_add(KILL_BENEFIT);
+        for event in events {
+            match event {
+                InstantEvent::AteFood { snake, .. } => {
+                    ate_food.insert(snake.clone());
+                }
+                InstantEvent::EnemyKilled {
+                    enemy,
+                    attribution,
+                    ..
+                } => {
+                    if let Some(killer) =
+                        attributed_actor(attribution, &parent.state.our_snake_id)
+                    {
+                        if killer != enemy {
+                            kill_benefits
+                                .entry(killer.to_string())
+                                .and_modify(|benefit| {
+                                    *benefit = benefit.saturating_add(KILL_BENEFIT)
+                                })
+                                .or_insert(KILL_BENEFIT);
+                        }
+                    }
+                }
+                _ => {}
             }
         }
-    }
 
+        let living_after = child.state.snakes.iter().filter(|snake| snake.alive).count();
+        let mut actors = HashMap::new();
+
+        for actor in parent.state.snakes.iter().filter(|snake| snake.alive) {
+            let Some(before) = actor_evaluation(parent, &actor.id) else {
+                continue;
+            };
+            let after = actor_evaluation(child, &actor.id);
+
+            let facts = ActorTransitionFacts {
+                ate_food: ate_food.contains(&actor.id),
+                food_distance_before: before.metrics.best_food_distance,
+                food_distance_after: after.and_then(|snapshot| snapshot.metrics.best_food_distance),
+                territory_share_delta_milli: after.map_or(0, |snapshot| {
+                    signed_i16(
+                        i32::from(snapshot.metrics.territory_share_milli)
+                            .saturating_sub(i32::from(before.metrics.territory_share_milli)),
+                    )
+                }),
+                mobility_delta: after.map_or(0, |snapshot| {
+                    signed_i8(
+                        i16::from(snapshot.metrics.safe_non_reverse_moves)
+                            .saturating_sub(i16::from(before.metrics.safe_non_reverse_moves)),
+                    )
+                }),
+                border_risk_improvement_milli: after.map_or(0, |snapshot| {
+                    signed_i16(
+                        i32::from(before.metrics.border_structural_risk_milli)
+                            .saturating_sub(i32::from(
+                                snapshot.metrics.border_structural_risk_milli,
+                            )),
+                    )
+                }),
+                enclosure_improvement: after.map_or(0, |snapshot| {
+                    signed_i8(
+                        i16::from(before.metrics.enclosure_risk)
+                            .saturating_sub(i16::from(snapshot.metrics.enclosure_risk)),
+                    )
+                }),
+                hunting_territory_benefit: hunting_transfers
+                    .get(&actor.id)
+                    .copied()
+                    .unwrap_or(0),
+                kill_benefit: kill_benefits.get(&actor.id).copied().unwrap_or(0),
+                died: after.is_none(),
+                sole_survivor: after.is_some() && living_after == 1,
+            };
+            actors.insert(actor.id.clone(), facts);
+        }
+
+        Self { actors }
+    }
+}
+
+fn score_actor_transition(
+    facts: ActorTransitionFacts,
+    weights: StrategicWeights,
+) -> ActorTransitionScore {
+    let (mut food_benefit, mut food_harm) = if facts.ate_food {
+        (FOOD_CONSUMED, 0)
+    } else {
+        food_distance_delta(facts.food_distance_before, facts.food_distance_after)
+    };
+
+    let mut hunting_benefit = facts
+        .hunting_territory_benefit
+        .saturating_add(facts.kill_benefit);
+    let mut hunting_harm = 0_i64;
     let mut survival_benefit = 0_i64;
     let mut survival_harm = 0_i64;
-    let mut terminal_benefit = 0_i64;
-    let mut terminal_harm = 0_i64;
 
-    if let Some(after) = after {
-        add_signed_delta(
-            i64::from(after.metrics.territory_share_milli)
-                .saturating_sub(i64::from(before.metrics.territory_share_milli))
-                .saturating_mul(TERRITORY_DELTA_SCALE),
-            &mut survival_benefit,
-            &mut survival_harm,
-        );
-
-        add_signed_delta(
-            i64::from(after.metrics.safe_non_reverse_moves)
-                .saturating_sub(i64::from(before.metrics.safe_non_reverse_moves))
-                .saturating_mul(MOBILITY_STEP),
-            &mut survival_benefit,
-            &mut survival_harm,
-        );
-
-        add_signed_delta(
-            i64::from(before.metrics.border_structural_risk_milli)
-                .saturating_sub(i64::from(after.metrics.border_structural_risk_milli)),
-            &mut survival_benefit,
-            &mut survival_harm,
-        );
-
-        add_signed_delta(
-            i64::from(before.metrics.enclosure_risk)
-                .saturating_sub(i64::from(after.metrics.enclosure_risk))
-                .saturating_mul(ENCLOSURE_STEP),
-            &mut survival_benefit,
-            &mut survival_harm,
-        );
-        let living_after = child.state.snakes.iter().filter(|snake| snake.alive).count();
-        if living_after == 1 {
-            terminal_benefit = TERMINAL_UTILITY;
-        }
-    } else {
-        terminal_harm = TERMINAL_UTILITY;
-    }
+    add_signed_delta(
+        i64::from(facts.territory_share_delta_milli).saturating_mul(TERRITORY_DELTA_SCALE),
+        &mut survival_benefit,
+        &mut survival_harm,
+    );
+    add_signed_delta(
+        i64::from(facts.mobility_delta).saturating_mul(MOBILITY_STEP),
+        &mut survival_benefit,
+        &mut survival_harm,
+    );
+    add_signed_delta(
+        i64::from(facts.border_risk_improvement_milli),
+        &mut survival_benefit,
+        &mut survival_harm,
+    );
+    add_signed_delta(
+        i64::from(facts.enclosure_improvement).saturating_mul(ENCLOSURE_STEP),
+        &mut survival_benefit,
+        &mut survival_harm,
+    );
 
     food_benefit = weighted(food_benefit, weights.food);
     food_harm = weighted(food_harm, weights.food);
@@ -186,6 +244,13 @@ fn score_actor_transition(
     hunting_harm = weighted(hunting_harm, weights.hunting);
     survival_benefit = weighted(survival_benefit, weights.survival);
     survival_harm = weighted(survival_harm, weights.survival);
+
+    let terminal_benefit = if facts.sole_survivor {
+        TERMINAL_UTILITY
+    } else {
+        0
+    };
+    let terminal_harm = if facts.died { TERMINAL_UTILITY } else { 0 };
 
     let benefit_total = food_benefit
         .saturating_add(hunting_benefit)
@@ -279,16 +344,29 @@ fn territory_transfer_benefits(parent: &SearchNode, child: &SearchNode) -> HashM
     benefits
 }
 
-fn elimination_attributed_to(
-    attribution: &EliminationAttribution,
-    actor_id: &str,
-    our_id: &str,
-) -> bool {
+fn attributed_actor<'a>(
+    attribution: &'a EliminationAttribution,
+    our_id: &'a str,
+) -> Option<&'a str> {
     match attribution {
-        EliminationAttribution::OurSnake => actor_id == our_id,
-        EliminationAttribution::OtherSnake(killer) => killer == actor_id,
-        EliminationAttribution::SelfInflicted | EliminationAttribution::Environment => false,
+        EliminationAttribution::OurSnake => Some(our_id),
+        EliminationAttribution::OtherSnake(killer) => Some(killer.as_str()),
+        EliminationAttribution::SelfInflicted | EliminationAttribution::Environment => None,
     }
+}
+
+fn signed_i16(value: i32) -> i16 {
+    value
+        .clamp(i32::from(i16::MIN), i32::from(i16::MAX))
+        .try_into()
+        .unwrap_or(if value.is_negative() { i16::MIN } else { i16::MAX })
+}
+
+fn signed_i8(value: i16) -> i8 {
+    value
+        .clamp(i16::from(i8::MIN), i16::from(i8::MAX))
+        .try_into()
+        .unwrap_or(if value.is_negative() { i8::MIN } else { i8::MAX })
 }
 
 fn add_signed_delta(value: i64, benefit: &mut i64, harm: &mut i64) {
