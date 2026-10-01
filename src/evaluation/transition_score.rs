@@ -1,7 +1,5 @@
 #![allow(dead_code)]
 
-use std::collections::{HashMap, HashSet};
-
 use super::{ActorTable, StrategicWeights};
 use crate::search::graph::{SearchEdge, SearchNode};
 use crate::simulation::resolver::{EliminationAttribution, InstantEvent};
@@ -116,13 +114,13 @@ impl TransitionScore {
 impl TransitionFacts {
     fn from_parts(parent: &SearchNode, events: &[InstantEvent], child: &SearchNode) -> Self {
         let hunting_transfers = territory_transfer_benefits(parent, child);
-        let mut ate_food = HashSet::<String>::new();
-        let mut kill_benefits = HashMap::<String, i64>::new();
+        let mut ate_food = ActorTable::<bool>::new();
+        let mut kill_benefits = ActorTable::<i64>::new();
 
         for event in events {
             match event {
                 InstantEvent::AteFood { snake, .. } => {
-                    ate_food.insert(snake.clone());
+                    ate_food.insert(snake.clone(), true);
                 }
                 InstantEvent::EnemyKilled {
                     enemy, attribution, ..
@@ -130,12 +128,7 @@ impl TransitionFacts {
                     if let Some(killer) = attributed_actor(attribution, &parent.state.our_snake_id)
                     {
                         if killer != enemy {
-                            kill_benefits
-                                .entry(killer.to_string())
-                                .and_modify(|benefit| {
-                                    *benefit = benefit.saturating_add(KILL_BENEFIT)
-                                })
-                                .or_insert(KILL_BENEFIT);
+                            kill_benefits.add(killer, KILL_BENEFIT);
                         }
                     }
                 }
@@ -149,7 +142,7 @@ impl TransitionFacts {
             .iter()
             .filter(|snake| snake.alive)
             .count();
-        let mut actors = HashMap::new();
+        let mut actors = ActorTable::new();
 
         for actor in parent.state.snakes.iter().filter(|snake| snake.alive) {
             let Some(before) = actor_evaluation(parent, &actor.id) else {
@@ -158,7 +151,7 @@ impl TransitionFacts {
             let after = actor_evaluation(child, &actor.id);
 
             let facts = ActorTransitionFacts {
-                ate_food: ate_food.contains(&actor.id),
+                ate_food: ate_food.get(&actor.id).copied().unwrap_or(false),
                 food_distance_before: before.metrics.best_food_distance,
                 food_distance_after: after.and_then(|snapshot| snapshot.metrics.best_food_distance),
                 territory_share_delta_milli: after.map_or(0, |snapshot| {
@@ -297,13 +290,13 @@ fn food_distance_delta(before: Option<u16>, after: Option<u16>) -> (i64, i64) {
     }
 }
 
-fn territory_transfer_benefits(parent: &SearchNode, child: &SearchNode) -> HashMap<String, i64> {
+fn territory_transfer_benefits(parent: &SearchNode, child: &SearchNode) -> ActorTable<i64> {
     let Some(parent_territory) = parent.active_analysis().map(|analysis| &analysis.territory)
     else {
-        return HashMap::new();
+        return ActorTable::new();
     };
     let Some(child_territory) = child.active_analysis().map(|analysis| &analysis.territory) else {
-        return HashMap::new();
+        return ActorTable::new();
     };
 
     let board_cells = parent
@@ -314,7 +307,7 @@ fn territory_transfer_benefits(parent: &SearchNode, child: &SearchNode) -> HashM
     let cell_value = HUNTING_TERRITORY_BUDGET
         .saturating_div(i64::from(board_cells))
         .max(1);
-    let mut benefits = HashMap::<String, i64>::new();
+    let mut benefits = ActorTable::<i64>::new();
 
     for y in 0..parent.state.height {
         for x in 0..parent.state.width {
@@ -332,10 +325,7 @@ fn territory_transfer_benefits(parent: &SearchNode, child: &SearchNode) -> HashM
                 continue;
             }
 
-            benefits
-                .entry(after.to_string())
-                .and_modify(|benefit| *benefit = benefit.saturating_add(cell_value))
-                .or_insert(cell_value);
+            benefits.add(after, cell_value);
         }
     }
 
@@ -525,7 +515,7 @@ mod tests {
         let ours = score.for_actor("ours").unwrap();
 
         assert!(ours.food_benefit > 0);
-        assert!(ours.net > -DEATH_HARM);
+        assert!(ours.net > -TERMINAL_UTILITY);
     }
 
     #[test]
