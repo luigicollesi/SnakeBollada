@@ -146,14 +146,18 @@ pub(crate) struct StateAnalysis {
 
 impl StateAnalysis {
     pub(crate) fn from_state(state: &GameState) -> Self {
-        Self::from_analysis_state(&AnalysisState::from_game_state(state))
+        Self::from_analysis_state(&AnalysisState::from_game_state(state), true)
     }
 
     pub(crate) fn from_simulated(state: &SimulatedGameState) -> Self {
-        Self::from_analysis_state(&AnalysisState::from_simulated(state))
+        Self::from_analysis_state(&AnalysisState::from_simulated(state), true)
     }
 
-    fn from_analysis_state(state: &AnalysisState) -> Self {
+    pub(crate) fn from_simulated_routes_only(state: &SimulatedGameState) -> Self {
+        Self::from_analysis_state(&AnalysisState::from_simulated(state), false)
+    }
+
+    fn from_analysis_state(state: &AnalysisState, derive_claims: bool) -> Self {
         let routes = state
             .snakes
             .par_iter()
@@ -169,12 +173,16 @@ impl StateAnalysis {
             })
             .collect::<HashMap<_, _>>();
 
-        let claims = state
-            .food
-            .iter()
-            .copied()
-            .map(|food| (food, derive_food_claim(state, &routes, food)))
-            .collect();
+        let claims = if derive_claims {
+            state
+                .food
+                .iter()
+                .copied()
+                .map(|food| (food, derive_food_claim(state, &routes, food)))
+                .collect()
+        } else {
+            HashMap::new()
+        };
 
         Self { routes, claims }
     }
@@ -419,6 +427,25 @@ mod tests {
 
         assert_eq!(analysis.route_for("ours", f1).unwrap().distance, Some(2));
         assert_eq!(analysis.route_for("ours", f2).unwrap().distance, Some(2));
+    }
+
+    #[test]
+    fn routes_only_analysis_preserves_actor_claims_without_precomputing_global_claims() {
+        let ours = snake("ours", vec![Coord { x: 1, y: 1 }]);
+        let enemy = snake("enemy", vec![Coord { x: 4, y: 1 }]);
+        let food = Coord { x: 2, y: 1 };
+        let api_state = state(ours, vec![enemy], vec![food]);
+        let simulated = SimulatedGameState::from(&api_state);
+
+        let full = StateAnalysis::from_simulated(&simulated);
+        let lean = StateAnalysis::from_simulated_routes_only(&simulated);
+
+        assert_eq!(lean.route_for("ours", food), full.route_for("ours", food));
+        assert_eq!(
+            lean.claim_for_actor("ours", food),
+            full.claim_for_actor("ours", food)
+        );
+        assert!(lean.claim_for(food).is_none());
     }
 
     #[test]
