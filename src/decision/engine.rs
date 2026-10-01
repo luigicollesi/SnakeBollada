@@ -53,19 +53,6 @@ impl DecisionEngine {
         self.decide_with_graph_with_reserve_and_intent(state, &mut graph, 0, None, prioritize_food)
     }
 
-    pub(crate) fn decide_with_graph(&self, state: &GameState, graph: &mut FutureGraph) -> Decision {
-        self.decide_with_graph_with_reserve(state, graph, 0)
-    }
-
-    pub(crate) fn decide_with_graph_with_reserve(
-        &self,
-        state: &GameState,
-        graph: &mut FutureGraph,
-        extra_reserve_ms: u64,
-    ) -> Decision {
-        self.decide_with_graph_with_reserve_and_intent(state, graph, extra_reserve_ms, None, false)
-    }
-
     pub(crate) fn decide_with_graph_with_reserve_and_intent(
         &self,
         state: &GameState,
