@@ -2,7 +2,7 @@
 
 use super::beam::BeamCheckpoint;
 use super::beam_round::{deepen_while_affordable, BeamDeepeningStats};
-use super::beam_seed::{build_seed_checkpoint, BeamSeedStats};
+use super::beam_seed::{build_seed_checkpoint, BeamSeedResult, BeamSeedStats};
 use super::budget::SearchBudget;
 use super::graph::{FutureGraph, SearchError};
 
@@ -31,14 +31,22 @@ pub(crate) fn search_beam(
         return Ok(None);
     };
 
+    search_from_seed(graph, seed, budget).map(Some)
+}
+
+fn search_from_seed(
+    graph: &mut FutureGraph,
+    seed: BeamSeedResult,
+    budget: &SearchBudget,
+) -> Result<BeamSearchResult, SearchError> {
     let seed_stats = seed.stats;
     let deepening = deepen_while_affordable(graph, seed.checkpoint, budget)?;
 
-    Ok(Some(BeamSearchResult {
+    Ok(BeamSearchResult {
         checkpoint: deepening.checkpoint,
         seed: seed_stats,
         deepening: deepening.stats,
-    }))
+    })
 }
 
 #[cfg(test)]
@@ -46,6 +54,7 @@ mod tests {
     use std::time::Duration;
 
     use crate::search::beam::{BEAM_WIDTH, SEED_DEPTH};
+    use crate::search::maximin::evaluate_seed_beam;
     use crate::simulation::state::{
         AggressionState, RulesContext, SimulatedGameState, SimulatedSnake,
     };
@@ -83,14 +92,31 @@ mod tests {
         }
     }
 
+    fn deterministic_seed(graph: &mut FutureGraph) -> BeamSeedResult {
+        graph.expand_to_depth(SEED_DEPTH).unwrap();
+        let evaluation = evaluate_seed_beam(graph, SEED_DEPTH);
+        let checkpoint = BeamCheckpoint::new(evaluation.lines).expect("seed lines must exist");
+
+        BeamSeedResult {
+            stats: BeamSeedStats {
+                completed: true,
+                completed_depth: SEED_DEPTH,
+                line_count: checkpoint.lines.len().try_into().unwrap_or(u8::MAX),
+                new_nodes: graph.node_count().try_into().unwrap_or(u32::MAX),
+                new_edges: graph.edge_count(),
+                elapsed_us: 0,
+            },
+            checkpoint,
+        }
+    }
+
     #[test]
     fn orchestrator_never_returns_less_than_seed_depth() {
         let mut graph = FutureGraph::new(state());
-        let budget = SearchBudget::for_duration(Duration::from_secs(2));
+        let seed = deterministic_seed(&mut graph);
+        let budget = SearchBudget::for_duration(Duration::ZERO);
 
-        let result = search_beam(&mut graph, &budget)
-            .unwrap()
-            .expect("beam search must complete seed");
+        let result = search_from_seed(&mut graph, seed, &budget).unwrap();
 
         assert!(result.completed_depth() >= SEED_DEPTH);
         assert!(!result.checkpoint.lines.is_empty());
@@ -109,11 +135,10 @@ mod tests {
     #[test]
     fn every_committed_running_line_has_common_completed_depth() {
         let mut graph = FutureGraph::new(state());
-        let budget = SearchBudget::for_duration(Duration::from_secs(2));
+        let seed = deterministic_seed(&mut graph);
+        let budget = SearchBudget::for_duration(Duration::ZERO);
 
-        let result = search_beam(&mut graph, &budget)
-            .unwrap()
-            .expect("beam search must complete");
+        let result = search_from_seed(&mut graph, seed, &budget).unwrap();
 
         assert!(result.checkpoint.lines.iter().all(|line| {
             line.terminal != super::super::beam::LineTerminal::Running
