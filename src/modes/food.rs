@@ -28,10 +28,19 @@ pub(crate) fn candidates(
     analysis: &StateAnalysis,
     certainty: ForecastCertainty,
 ) -> FoodModeOutput {
+    candidates_for_actor(state, analysis, &state.our_snake_id, certainty)
+}
+
+pub(crate) fn candidates_for_actor(
+    state: &SimulatedGameState,
+    analysis: &StateAnalysis,
+    actor_id: &str,
+    certainty: ForecastCertainty,
+) -> FoodModeOutput {
     let mut expanded = Vec::new();
 
     for food in state.food.iter().copied() {
-        let Some(route) = analysis.route_for(&state.our_snake_id, food) else {
+        let Some(route) = analysis.route_for(actor_id, food) else {
             continue;
         };
         if !route.reachable {
@@ -78,7 +87,23 @@ pub(crate) fn candidates_for_target(
     target_food: Coord,
     certainty: ForecastCertainty,
 ) -> Vec<FoodCandidate> {
-    let Some(route) = analysis.route_for(&state.our_snake_id, target_food) else {
+    candidates_for_target_actor(
+        state,
+        analysis,
+        &state.our_snake_id,
+        target_food,
+        certainty,
+    )
+}
+
+pub(crate) fn candidates_for_target_actor(
+    _state: &SimulatedGameState,
+    analysis: &StateAnalysis,
+    actor_id: &str,
+    target_food: Coord,
+    certainty: ForecastCertainty,
+) -> Vec<FoodCandidate> {
+    let Some(route) = analysis.route_for(actor_id, target_food) else {
         return Vec::new();
     };
     if !route.reachable {
@@ -232,6 +257,32 @@ mod tests {
         assert!(candidates
             .iter()
             .any(|candidate| candidate.first_move == Direction::Right));
+    }
+
+    #[test]
+    fn actor_candidates_use_the_requested_snake_perspective() {
+        let ours = snake("ours", vec![Coord { x: 1, y: 1 }]);
+        let enemy = snake("enemy", vec![Coord { x: 5, y: 5 }]);
+        let food = Coord { x: 5, y: 3 };
+        let state = state(ours, vec![enemy], vec![food]);
+        let simulated = SimulatedGameState::from(&state);
+        let analysis = analyze(&state);
+
+        let output = candidates_for_actor(
+            &simulated,
+            &analysis,
+            "enemy",
+            ForecastCertainty::Deterministic,
+        );
+
+        assert!(output
+            .candidates
+            .iter()
+            .any(|candidate| candidate.first_move == Direction::Down));
+        assert!(output
+            .candidates
+            .iter()
+            .all(|candidate| candidate.target_food == food));
     }
 
     #[test]
