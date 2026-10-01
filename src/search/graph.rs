@@ -414,17 +414,9 @@ fn build_node(state: SimulatedGameState) -> SearchNode {
             &state, &tracing, &mobility,
         ));
         let territory = Arc::new(TerritoryAnalysis::from_state(&state));
-        let enclosure = Arc::new(EnclosureAnalysis::from_parts(
-            &state,
-            &territory,
-            &tactical,
-        ));
+        let enclosure = Arc::new(EnclosureAnalysis::from_parts(&state, &territory, &tactical));
         let hunting = Arc::new(hunting::analyze(
-            &state,
-            &tactical,
-            &tracing,
-            &territory,
-            &enclosure,
+            &state, &tactical, &tracing, &territory, &enclosure,
         ));
         Some(Arc::new(NodeAnalysis {
             state: state_analysis,
