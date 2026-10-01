@@ -53,9 +53,7 @@ impl JointActionGenerator {
         for enemy in enemies {
             let moves = tracing
                 .for_enemy(&enemy.id)
-                .map(|set| {
-                    set.ordered_search_moves_with_profile(profiles.get(&enemy.id))
-                })
+                .map(|set| set.ordered_search_moves_with_profile(profiles.get(&enemy.id)))
                 .unwrap_or_else(|| normalized_moves(MoveMask::all()).iter().collect());
 
             options.push((enemy.id.clone(), moves));
@@ -301,9 +299,7 @@ mod tests {
     #[test]
     fn learned_profile_reorders_equal_threat_enemy_moves() {
         use crate::enemy::profile::OpponentProfile;
-        use crate::enemy::tracing::{
-            OpponentMoveHypothesis, OpponentPolicySupport, ThreatClass,
-        };
+        use crate::enemy::tracing::{OpponentMoveHypothesis, OpponentPolicySupport, ThreatClass};
 
         let state = state(vec![snake("ours", &[(1, 1)]), snake("enemy", &[(5, 5)])]);
         let move_set = EnemyMoveSet {
