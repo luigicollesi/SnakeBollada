@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 
-use crate::analysis::TacticalStateAnalysis;
+use crate::analysis::{TacticalStateAnalysis, TerritoryAnalysis};
 use crate::direction::Direction;
 use crate::simulation::state::SimulatedGameState;
 use crate::Coord;
@@ -16,6 +16,8 @@ pub(crate) struct BorderFobicSnapshot {
     pub(crate) corner_contact: bool,
     pub(crate) preference_milli: u16,
     pub(crate) structural_risk_milli: u16,
+    pub(crate) inward_control_milli: u16,
+    pub(crate) enemy_pin_risk_milli: u16,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -25,6 +27,15 @@ pub(crate) struct BorderFobicAnalysis {
 
 impl BorderFobicAnalysis {
     pub(crate) fn from_parts(state: &SimulatedGameState, tactical: &TacticalStateAnalysis) -> Self {
+        let territory = TerritoryAnalysis::from_state(state);
+        Self::from_parts_with_territory(state, tactical, &territory)
+    }
+
+    pub(crate) fn from_parts_with_territory(
+        state: &SimulatedGameState,
+        tactical: &TacticalStateAnalysis,
+        territory: &TerritoryAnalysis,
+    ) -> Self {
         let Some(ours) = state.snake(&state.our_snake_id).filter(|snake| snake.alive) else {
             return Self::default();
         };
@@ -98,6 +109,25 @@ impl BorderFobicAnalysis {
             .saturating_add(corner_penalty)
             .min(1000);
         let structural_risk_milli = scale_by_fear(structural_base, fear_milli);
+        let inward_control_milli = inward_control_milli(
+            state,
+            tactical,
+            territory,
+            head,
+            head_edge_distance,
+        );
+        let enemy_pin_risk_milli = if head_edge_distance > 1 {
+            0
+        } else {
+            let proximity = if head_edge_distance == 0 { 1000_u32 } else { 500 };
+            1000_u32
+                .saturating_sub(u32::from(inward_control_milli))
+                .saturating_mul(proximity)
+                .saturating_div(1000)
+                .min(1000)
+                .try_into()
+                .unwrap_or(1000)
+        };
 
         Self {
             ours: Some(BorderFobicSnapshot {
@@ -110,6 +140,8 @@ impl BorderFobicAnalysis {
                 corner_contact,
                 preference_milli,
                 structural_risk_milli,
+                inward_control_milli,
+                enemy_pin_risk_milli,
             }),
         }
     }
@@ -148,6 +180,60 @@ impl BorderFobicAnalysis {
             preference = preference.saturating_add(snapshot.fear_milli.saturating_div(5));
         }
         preference.min(1000)
+    }
+}
+
+fn inward_control_milli(
+    state: &SimulatedGameState,
+    tactical: &TacticalStateAnalysis,
+    territory: &TerritoryAnalysis,
+    head: Coord,
+    head_edge_distance: u16,
+) -> u16 {
+    let inward = tactical
+        .ours
+        .safe_moves
+        .iter()
+        .filter(|direction| edge_distance(state, direction.apply(head)) > head_edge_distance)
+        .collect::<Vec<_>>();
+
+    if inward.is_empty() {
+        return 0;
+    }
+
+    inward
+        .into_iter()
+        .map(|direction| {
+            let first = direction.apply(head);
+            let first_score = control_score(state, territory, first);
+            let second = direction.apply(first);
+            let second_score = if edge_distance(state, second) > edge_distance(state, first) {
+                control_score(state, territory, second)
+            } else {
+                first_score
+            };
+
+            u32::from(first_score)
+                .saturating_mul(700)
+                .saturating_add(u32::from(second_score).saturating_mul(300))
+                .saturating_div(1000)
+                .try_into()
+                .unwrap_or(0)
+        })
+        .max()
+        .unwrap_or(0)
+}
+
+fn control_score(
+    state: &SimulatedGameState,
+    territory: &TerritoryAnalysis,
+    coord: Coord,
+) -> u16 {
+    match territory.competitive_owner_at(coord) {
+        Some(owner) if owner == state.our_snake_id => 1000,
+        Some(_) => 100,
+        None if territory.competitive_is_contested_at(coord) => 450,
+        None => 700,
     }
 }
 
@@ -296,6 +382,34 @@ mod tests {
         let interior_risk = analyze(&interior).ours().unwrap().structural_risk_milli;
 
         assert!(edge_risk > interior_risk);
+    }
+
+    #[test]
+    fn enemy_controlled_inward_cells_raise_pin_risk() {
+        let mut state = state(&[
+            (0, 3),
+            (0, 2),
+            (0, 1),
+            (0, 0),
+            (1, 0),
+            (2, 0),
+        ]);
+        state.snakes.push(SimulatedSnake {
+            id: "enemy".to_string(),
+            health: 100,
+            body: vec![
+                Coord { x: 2, y: 3 },
+                Coord { x: 2, y: 4 },
+                Coord { x: 3, y: 4 },
+                Coord { x: 4, y: 4 },
+            ],
+            alive: true,
+        });
+
+        let snapshot = *analyze(&state).ours().unwrap();
+
+        assert!(snapshot.enemy_pin_risk_milli > 0);
+        assert!(snapshot.inward_control_milli < 1000);
     }
 
     #[test]
