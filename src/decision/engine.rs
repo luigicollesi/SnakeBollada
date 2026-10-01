@@ -2,6 +2,9 @@ use std::cmp::Ordering;
 
 use crate::analysis::StrategicPosture;
 
+use crate::decision::escape::{
+    choose_escape_direction, root_escape_pressure_milli, ESCAPE_ACTIVATION_THRESHOLD_MILLI,
+};
 use crate::decision::evaluation::{
     choose_best_direction, evaluate_graph_budgeted, DagEvaluationStats, DirectionEvaluation,
     TerminalAssessment,
@@ -170,6 +173,15 @@ impl DecisionEngine {
             .expect("active root must have analysis");
         let robust_safe_moves = root_analysis.tactical.ours.safe_moves;
         let policy = ReservedCellPolicy::default();
+        let escape_pressure_milli =
+            root_escape_pressure_milli(&evaluations, robust_safe_moves);
+        let escape_choice = if intent.and_then(DecisionIntent::escape).is_some()
+            || escape_pressure_milli >= ESCAPE_ACTIVATION_THRESHOLD_MILLI
+        {
+            choose_escape_direction(&evaluations, &root.state, robust_safe_moves, policy)
+        } else {
+            None
+        };
 
         let food_candidates = food::candidates(
             &root.state,
@@ -190,8 +202,9 @@ impl DecisionEngine {
             .unwrap_or_default();
 
         let posture = *root_analysis.posture;
-        let guaranteed_kill_choice =
-            choose_guaranteed_kill(&evaluations, &root.state, robust_safe_moves, policy);
+        let guaranteed_kill_choice = escape_choice.is_none().then(|| {
+            choose_guaranteed_kill(&evaluations, &root.state, robust_safe_moves, policy)
+        }).flatten();
 
         let critical_food_choice = (posture.food_is_critical() && guaranteed_kill_choice.is_none())
             .then(|| {
@@ -273,7 +286,8 @@ impl DecisionEngine {
         })
         .flatten();
 
-        let Some(best) = guaranteed_kill_choice
+        let Some(best) = escape_choice
+            .or(guaranteed_kill_choice)
             .or_else(|| {
                 critical_food_choice
                     .as_ref()
@@ -302,7 +316,8 @@ impl DecisionEngine {
             .as_ref()
             .or(committed_food_choice.as_ref())
             .or(opening_food_choice.as_ref());
-        let food_target = if guaranteed_kill_choice.is_some()
+        let food_target = if escape_choice.is_some()
+            || guaranteed_kill_choice.is_some()
             || dominant_hunt_choice.is_some()
             || hunt_intent_choice.is_some()
         {
@@ -318,7 +333,9 @@ impl DecisionEngine {
                 })
         };
 
-        let selected_hunt = if dominant_hunt_choice.is_some() {
+        let selected_hunt = if escape_choice.is_some() {
+            None
+        } else if dominant_hunt_choice.is_some() {
             dominant_hunt_plan.map(|plan| (plan.target.clone(), plan.kind))
         } else if hunt_intent_choice.is_some() {
             intent
@@ -334,7 +351,9 @@ impl DecisionEngine {
             .mobility
             .reachable_space(&root.state, &root.state.our_snake_id, best.direction);
 
-        let reason = if guaranteed_kill_choice.is_some()
+        let reason = if escape_choice.is_some() {
+            DecisionReason::SurvivalCritical
+        } else if guaranteed_kill_choice.is_some()
             || dominant_hunt_choice.is_some()
             || hunt_intent_choice.is_some()
         {
@@ -407,6 +426,8 @@ impl DecisionEngine {
                     .border
                     .ours()
                     .map_or(0, |snapshot| snapshot.enemy_pin_risk_milli),
+                escape_pressure_milli,
+                escape_selected: escape_choice.is_some(),
                 enemy_moves_observed: 0,
                 enemy_moves_legal_covered: 0,
                 enemy_moves_plausible_covered: 0,
