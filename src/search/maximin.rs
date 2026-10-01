@@ -418,7 +418,7 @@ fn select_selfish_opponent_response(node: &SearchNode, lines: Vec<EvaluatedLine>
 
     let mut chosen = if pure_best_responses.is_empty() {
         lines
-            .into_iter()
+            .iter()
             .min_by(|left, right| {
                 let left_regret = unilateral_regret(node, left, &enemies, &lines);
                 let right_regret = unilateral_regret(node, right, &enemies, &lines);
@@ -432,6 +432,7 @@ fn select_selfish_opponent_response(node: &SearchNode, lines: Vec<EvaluatedLine>
                             .cmp(&left.opponent_utility_total)
                     })
             })
+            .cloned()
             .expect("opponent response selection requires at least one line")
     } else {
         pure_best_responses
