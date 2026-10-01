@@ -2,7 +2,9 @@
 
 use std::collections::HashMap;
 
-use crate::analysis::{EnclosureAnalysis, StateAnalysis, TacticalStateAnalysis, TerritoryAnalysis};
+use crate::analysis::{
+    EnclosureAnalysis, StateAnalysis, StrategicPosture, TacticalStateAnalysis, TerritoryAnalysis,
+};
 use crate::direction::{Direction, MoveMask};
 use crate::enemy::profile::OpponentProfile;
 use crate::forecast::ForecastCertainty;
@@ -412,12 +414,14 @@ fn hunting_policy_moves(
     let tactical = TacticalStateAnalysis::from_parts(&perspective, &structural_tracing, &mobility);
     let territory = TerritoryAnalysis::from_state(&perspective);
     let enclosure = EnclosureAnalysis::from_parts(&perspective, &territory, &tactical);
+    let posture = StrategicPosture::from_state(&perspective);
     let output = hunting::analyze(
         &perspective,
         &tactical,
         &structural_tracing,
         &territory,
         &enclosure,
+        &posture,
     );
 
     let mut candidates = MoveMask::from_iter(
