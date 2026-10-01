@@ -15,8 +15,15 @@ pub(crate) struct StrategicWeights {
 
 impl StrategicWeights {
     pub(crate) fn from_actor(context: &ActorContext, metrics: &ActorMetrics) -> Self {
+        Self::from_territory_share(context, metrics.territory_share_milli)
+    }
+
+    pub(crate) fn from_territory_share(
+        context: &ActorContext,
+        territory_share_milli: u16,
+    ) -> Self {
         let survival = STRATEGIC_BUDGET
-            .saturating_sub(metrics.territory_share_milli)
+            .saturating_sub(territory_share_milli)
             .clamp(MIN_CATEGORY_WEIGHT, MAX_CATEGORY_WEIGHT);
         let offensive_budget = STRATEGIC_BUDGET.saturating_sub(survival);
 
