@@ -42,6 +42,18 @@ enum AnalysisProfile {
     BeamLean,
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) struct GraphPerfStats {
+    pub(crate) action_batches: u32,
+    pub(crate) parallel_action_batches: u32,
+    pub(crate) resolved_actions: u32,
+    pub(crate) new_nodes_built: u32,
+    pub(crate) resolve_us: u64,
+    pub(crate) node_build_us: u64,
+    pub(crate) merge_us: u64,
+    pub(crate) edge_score_us: u64,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct ExpansionReport {
     pub(crate) completed_depth: u8,
@@ -158,6 +170,7 @@ pub(crate) struct FutureGraph {
     opponent_profiles: OpponentProfiles,
     analysis_profile: AnalysisProfile,
     action_batch_estimate: Duration,
+    perf_stats: GraphPerfStats,
 }
 
 impl FutureGraph {
@@ -181,6 +194,7 @@ impl FutureGraph {
             opponent_profiles,
             analysis_profile: AnalysisProfile::Full,
             action_batch_estimate: INITIAL_BATCH_ESTIMATE,
+            perf_stats: GraphPerfStats::default(),
         }
     }
 
@@ -190,6 +204,14 @@ impl FutureGraph {
 
     pub(crate) fn use_beam_lean_analysis(&mut self) {
         self.analysis_profile = AnalysisProfile::BeamLean;
+    }
+
+    pub(crate) fn reset_performance(&mut self) {
+        self.perf_stats = GraphPerfStats::default();
+    }
+
+    pub(crate) fn performance(&self) -> GraphPerfStats {
+        self.perf_stats
     }
 
     pub(crate) fn root(&self) -> NodeId {
@@ -696,6 +718,7 @@ impl FutureGraph {
             }
 
             let batch_started = std::time::Instant::now();
+            let resolve_started = std::time::Instant::now();
             let resolved = batch_actions
                 .into_par_iter()
                 .map(|joint_action| {
@@ -716,6 +739,7 @@ impl FutureGraph {
                     })
                 })
                 .collect::<Result<Vec<_>, ResolveError>>()?;
+            let resolve_elapsed = resolve_started.elapsed();
 
             let mut unique_new = Vec::new();
             let mut seen_new = HashSet::new();
@@ -732,6 +756,7 @@ impl FutureGraph {
             }
 
             let profile = self.analysis_profile;
+            let node_build_started = std::time::Instant::now();
             let built_nodes = unique_new
                 .into_par_iter()
                 .map(|(key, state)| {
@@ -739,7 +764,10 @@ impl FutureGraph {
                     (key, node)
                 })
                 .collect::<Vec<_>>();
+            let node_build_elapsed = node_build_started.elapsed();
+            let built_node_count = built_nodes.len().try_into().unwrap_or(u32::MAX);
 
+            let merge_started = std::time::Instant::now();
             for (key, node) in built_nodes {
                 if self.transpositions.contains_key(&key) {
                     batch_transposition_hits = batch_transposition_hits.saturating_add(1);
@@ -762,7 +790,9 @@ impl FutureGraph {
                         .expect("resolved child must exist after deterministic merge")
                 })
                 .collect::<Vec<_>>();
+            let merge_elapsed = merge_started.elapsed();
 
+            let edge_score_started = std::time::Instant::now();
             let parent = &self.nodes[node_id];
             let nodes = &self.nodes;
             let prepared_edges = resolved
@@ -794,10 +824,38 @@ impl FutureGraph {
                     }
                 })
                 .collect::<Vec<_>>();
+            let edge_score_elapsed = edge_score_started.elapsed();
 
             let edge_count = prepared_edges.len().try_into().unwrap_or(u32::MAX);
             self.nodes[node_id].children.extend(prepared_edges);
             self.edge_count = self.edge_count.saturating_add(edge_count);
+
+            self.perf_stats.action_batches = self.perf_stats.action_batches.saturating_add(1);
+            if edge_count > 1 {
+                self.perf_stats.parallel_action_batches =
+                    self.perf_stats.parallel_action_batches.saturating_add(1);
+            }
+            self.perf_stats.resolved_actions =
+                self.perf_stats.resolved_actions.saturating_add(edge_count);
+            self.perf_stats.new_nodes_built =
+                self.perf_stats.new_nodes_built.saturating_add(built_node_count);
+            self.perf_stats.resolve_us = self
+                .perf_stats
+                .resolve_us
+                .saturating_add(duration_us(resolve_elapsed));
+            self.perf_stats.node_build_us = self
+                .perf_stats
+                .node_build_us
+                .saturating_add(duration_us(node_build_elapsed));
+            self.perf_stats.merge_us = self
+                .perf_stats
+                .merge_us
+                .saturating_add(duration_us(merge_elapsed));
+            self.perf_stats.edge_score_us = self
+                .perf_stats
+                .edge_score_us
+                .saturating_add(duration_us(edge_score_elapsed));
+
             self.observe_action_batch(batch_started.elapsed());
         }
     }
@@ -834,6 +892,10 @@ impl FutureGraph {
     fn is_terminal(&self, node_id: NodeId) -> bool {
         self.nodes[node_id].is_terminal()
     }
+}
+
+fn duration_us(duration: Duration) -> u64 {
+    duration.as_micros().try_into().unwrap_or(u64::MAX)
 }
 
 fn append_border_exposure_event(child: &SearchNode, events: &mut Vec<InstantEvent>) {
