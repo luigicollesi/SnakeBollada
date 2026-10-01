@@ -202,6 +202,7 @@ impl DecisionEngine {
                     &root.state,
                     robust_safe_moves,
                     policy,
+                    true,
                 )
             })
             .flatten();
@@ -999,6 +1000,7 @@ mod tests {
             &normalized,
             robust,
             ReservedCellPolicy::default(),
+            false,
         )
         .unwrap();
 
@@ -1058,6 +1060,7 @@ mod tests {
             &normalized,
             MoveMask::all(),
             ReservedCellPolicy::default(),
+            false,
         )
         .unwrap();
 
@@ -1114,6 +1117,7 @@ mod tests {
             &normalized,
             MoveMask::all(),
             ReservedCellPolicy::default(),
+            false,
         )
         .expect("partial danger must not invalidate a committed beneficial line");
 
@@ -1169,6 +1173,7 @@ mod tests {
             &normalized,
             MoveMask::all(),
             ReservedCellPolicy::default(),
+            false,
         )
         .is_none());
     }
@@ -1218,6 +1223,7 @@ mod tests {
             &normalized,
             MoveMask::all(),
             ReservedCellPolicy::default(),
+            false,
         )
         .unwrap();
 
@@ -1263,6 +1269,7 @@ mod tests {
             &normalized,
             MoveMask::all(),
             ReservedCellPolicy::default(),
+            false,
         )
         .is_none());
     }
