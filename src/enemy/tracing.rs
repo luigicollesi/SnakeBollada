@@ -2,8 +2,12 @@
 
 use std::collections::HashMap;
 
-use crate::analysis::StateAnalysis;
+use crate::analysis::{
+    EnclosureAnalysis, StateAnalysis, TacticalStateAnalysis, TerritoryAnalysis,
+};
 use crate::direction::{Direction, MoveMask};
+use crate::forecast::ForecastCertainty;
+use crate::modes::{food, hunting};
 use crate::simulation::mobility::{DeterministicMoveBlock, MobilityAnalysis};
 use crate::simulation::state::{SimulatedGameState, SimulatedSnake};
 
@@ -24,7 +28,6 @@ pub(crate) enum MoveEliminationReason {
     FatalHazard,
     Starvation,
     InsufficientSpace,
-    FoodIntentMismatch,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -119,12 +122,22 @@ fn trace_enemy(
         }
     }
 
-    let mut plausible_moves = legal_moves;
+    let structural_moves =
+        apply_space_filter(state, mobility, enemy, legal_moves, &mut eliminations);
 
-    plausible_moves =
-        apply_space_filter(state, mobility, enemy, plausible_moves, &mut eliminations);
+    let survival_moves = survival_policy_moves(state, mobility, enemy, structural_moves);
+    let food_moves = food_policy_moves(state, analysis, enemy, structural_moves);
+    let hunting_moves = hunting_policy_moves(state, enemy, structural_moves);
+    let threat_moves = head_threat_moves(state, mobility, enemy, structural_moves);
 
-    plausible_moves = apply_food_filter(state, analysis, enemy, plausible_moves, &mut eliminations);
+    let mut plausible_moves = survival_moves;
+    plausible_moves.union_with(food_moves);
+    plausible_moves.union_with(hunting_moves);
+    plausible_moves.union_with(threat_moves);
+
+    if plausible_moves.is_empty() {
+        plausible_moves = structural_moves;
+    }
 
     debug_assert!(plausible_moves.is_subset(legal_moves));
 
@@ -169,61 +182,184 @@ fn apply_space_filter(
     )
 }
 
-fn apply_food_filter(
+fn survival_policy_moves(
+    state: &SimulatedGameState,
+    mobility: &MobilityAnalysis,
+    enemy: &SimulatedSnake,
+    current: MoveMask,
+) -> MoveMask {
+    if current.is_empty() {
+        return current;
+    }
+
+    let scored = current
+        .iter()
+        .map(|direction| {
+            (
+                direction,
+                mobility.reachable_space(state, &enemy.id, direction),
+            )
+        })
+        .collect::<Vec<_>>();
+    let best_space = scored
+        .iter()
+        .map(|(_, space)| *space)
+        .max()
+        .unwrap_or(0);
+    let floor = best_space.saturating_mul(3).saturating_div(4);
+
+    MoveMask::from_iter(
+        scored
+            .into_iter()
+            .filter(|(_, space)| *space >= floor)
+            .map(|(direction, _)| direction),
+    )
+}
+
+fn food_policy_moves(
     state: &SimulatedGameState,
     analysis: &StateAnalysis,
     enemy: &SimulatedSnake,
     current: MoveMask,
-    eliminations: &mut Vec<MoveElimination>,
 ) -> MoveMask {
     if current.is_empty() || state.food.is_empty() {
+        return MoveMask::empty();
+    }
+
+    let output = food::candidates_for_actor(
+        state,
+        analysis,
+        &enemy.id,
+        ForecastCertainty::Plausible,
+    );
+    let candidates = MoveMask::from_iter(
+        output
+            .candidates
+            .iter()
+            .map(|candidate| candidate.first_move),
+    );
+
+    current.intersection(candidates)
+}
+
+fn hunting_policy_moves(
+    state: &SimulatedGameState,
+    enemy: &SimulatedSnake,
+    current: MoveMask,
+) -> MoveMask {
+    if current.is_empty() {
         return current;
     }
 
-    let mut routes = state
-        .food
-        .iter()
-        .copied()
-        .filter_map(|food| {
-            let route = analysis.route_for(&enemy.id, food)?;
-            let distance = route.distance?;
+    let mut perspective = state.clone();
+    perspective.our_snake_id = enemy.id.clone();
 
-            let clearly_lost = analysis
-                .nearest_competitor_for(&enemy.id, food)
-                .is_some_and(|competitor| {
-                    competitor.eta.saturating_add(FOOD_ROUTE_MARGIN) < distance
-                });
+    let mobility = MobilityAnalysis::from_state(&perspective);
+    let structural_tracing = structural_trace(&perspective, &mobility);
+    let tactical =
+        TacticalStateAnalysis::from_parts(&perspective, &structural_tracing, &mobility);
+    let territory = TerritoryAnalysis::from_state(&perspective);
+    let enclosure = EnclosureAnalysis::from_parts(&perspective, &territory, &tactical);
+    let output = hunting::analyze(
+        &perspective,
+        &tactical,
+        &structural_tracing,
+        &territory,
+        &enclosure,
+    );
 
-            (!clearly_lost).then_some((distance, route.first_moves))
-        })
-        .collect::<Vec<_>>();
+    let candidates = MoveMask::from_iter(
+        output
+            .candidates
+            .iter()
+            .map(|candidate| candidate.first_move),
+    );
 
-    routes.sort_by_key(|(distance, _)| *distance);
+    current.intersection(candidates)
+}
 
-    let Some((nearest_distance, _)) = routes.first().copied() else {
-        return current;
+fn head_threat_moves(
+    state: &SimulatedGameState,
+    mobility: &MobilityAnalysis,
+    enemy: &SimulatedSnake,
+    current: MoveMask,
+) -> MoveMask {
+    let Some(ours) = state
+        .snake(&state.our_snake_id)
+        .filter(|snake| snake.alive)
+    else {
+        return MoveMask::empty();
+    };
+    if enemy.length() < ours.length() {
+        return MoveMask::empty();
+    }
+
+    let Some(our_head) = ours.head() else {
+        return MoveMask::empty();
+    };
+    let Some(enemy_head) = enemy.head() else {
+        return MoveMask::empty();
     };
 
-    if enemy.health > FOOD_PRESSURE_HEALTH && nearest_distance > FOOD_NEAR_DISTANCE {
-        return current;
+    let our_moves = mobility.deterministic_moves_for(state, &state.our_snake_id);
+    let our_destinations = our_moves
+        .iter()
+        .map(|direction| direction.apply(our_head))
+        .collect::<Vec<_>>();
+
+    MoveMask::from_iter(current.iter().filter(|direction| {
+        let target = direction.apply(enemy_head);
+        our_destinations.contains(&target)
+    }))
+}
+
+fn structural_trace(
+    state: &SimulatedGameState,
+    mobility: &MobilityAnalysis,
+) -> EnemyTracingOutput {
+    let mut enemies = HashMap::new();
+
+    for snake in state
+        .snakes
+        .iter()
+        .filter(|snake| snake.alive && snake.id != state.our_snake_id)
+    {
+        enemies.insert(
+            snake.id.clone(),
+            structural_move_set(state, mobility, snake),
+        );
     }
 
-    let max_distance = nearest_distance.saturating_add(FOOD_ROUTE_MARGIN);
-    let mut preferred = MoveMask::empty();
+    EnemyTracingOutput { enemies }
+}
 
-    for (distance, first_moves) in routes {
-        if distance > max_distance {
-            break;
+fn structural_move_set(
+    state: &SimulatedGameState,
+    mobility: &MobilityAnalysis,
+    snake: &SimulatedSnake,
+) -> EnemyMoveSet {
+    let mut legal_moves = MoveMask::empty();
+    let mut eliminations = Vec::new();
+
+    for direction in Direction::ALL {
+        match mobility.classify_move(state, snake, direction) {
+            None => legal_moves.insert(direction),
+            Some(block) => eliminations.push(MoveElimination {
+                direction,
+                stage: EliminationStage::Hard,
+                reason: hard_reason(block),
+            }),
         }
-        preferred.union_with(first_moves);
     }
 
-    conservative_filter(
-        current,
-        preferred,
-        MoveEliminationReason::FoodIntentMismatch,
+    let plausible_moves =
+        apply_space_filter(state, mobility, snake, legal_moves, &mut eliminations);
+
+    EnemyMoveSet {
+        legal_moves,
+        plausible_moves,
         eliminations,
-    )
+    }
 }
 
 fn conservative_filter(
@@ -360,7 +496,7 @@ mod tests {
     }
 
     #[test]
-    fn food_pressure_preserves_all_equal_shortest_first_moves() {
+    fn food_policy_preserves_all_equal_shortest_first_moves() {
         let food = Coord { x: 2, y: 2 };
         let state = state(
             vec![
@@ -374,7 +510,28 @@ mod tests {
 
         assert!(enemy.plausible_moves.contains(Direction::Up));
         assert!(enemy.plausible_moves.contains(Direction::Right));
-        assert!(!enemy.plausible_moves.contains(Direction::Left));
+        assert!(enemy.plausible_moves.is_subset(enemy.legal_moves));
+    }
+
+    #[test]
+    fn larger_enemy_keeps_head_to_head_hunt_even_when_food_is_available() {
+        let food = Coord { x: 4, y: 3 };
+        let state = state(
+            vec![
+                snake("ours", 100, &[(2, 1), (1, 1)]),
+                snake("enemy", 100, &[(2, 3), (3, 3), (3, 2)]),
+            ],
+            vec![food],
+        );
+        let output = trace(&state, &analyze(&state));
+        let enemy = output.for_enemy("enemy").unwrap();
+
+        assert!(enemy.legal_moves.contains(Direction::Down));
+        assert!(enemy.plausible_moves.contains(Direction::Right));
+        assert!(
+            enemy.plausible_moves.contains(Direction::Down),
+            "food intent must not hide a winning head-to-head move"
+        );
     }
 
     #[test]
