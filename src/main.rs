@@ -88,11 +88,18 @@ async fn handle_move(move_req: Json<GameState>, runtime: &State<GameRuntime>) ->
     let decision = runtime.decide(&move_req).await;
 
     info!(
-        "MOVE {}: {} ({:?}) depth={}",
+        "MOVE {}: {} ({:?}) depth={} phase={:?} hunt={} food={} dom={} control={} border={} pin={}",
         move_req.turn,
         decision.direction.as_str(),
         decision.reason,
-        decision.search.analyzed_depth
+        decision.search.analyzed_depth,
+        decision.search.strategic_phase,
+        decision.search.hunt_drive_milli,
+        decision.search.food_urgency_milli,
+        decision.search.size_dominance_milli,
+        decision.search.control_ratio_milli,
+        decision.search.border_risk_milli,
+        decision.search.enemy_pin_risk_milli,
     );
 
     Json(json!({
