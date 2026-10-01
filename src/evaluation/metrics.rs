@@ -6,6 +6,46 @@ use crate::analysis::{
 use crate::simulation::state::SimulatedGameState;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct ActorUtilityMetrics {
+    pub(crate) safe_non_reverse_moves: u8,
+    pub(crate) enclosure_risk: u8,
+    pub(crate) border_structural_risk_milli: u16,
+    pub(crate) territory_share_milli: u16,
+    pub(crate) best_food_distance: Option<u16>,
+}
+
+impl ActorUtilityMetrics {
+    pub(crate) fn from_parts(
+        state: &SimulatedGameState,
+        actor_id: &str,
+        state_analysis: &StateAnalysis,
+        tactical: &TacticalStateAnalysis,
+        territory: &TerritoryAnalysis,
+        enclosure: &EnclosureAnalysis,
+        border: &BorderFobicAnalysis,
+    ) -> Option<Self> {
+        state.snake(actor_id).filter(|snake| snake.alive)?;
+        let safe_moves = actor_mobility(state, tactical, actor_id).0;
+        let territory_snapshot = territory.for_snake(actor_id)?;
+        let enclosure_snapshot = enclosure.for_snake(actor_id)?;
+        let border_snapshot = border.for_snake(actor_id);
+
+        Some(Self {
+            safe_non_reverse_moves: safe_moves.min(3),
+            enclosure_risk: enclosure_snapshot.risk.rank(),
+            border_structural_risk_milli: border_snapshot
+                .map_or(0, |snapshot| snapshot.structural_risk_milli),
+            territory_share_milli: territory_share_milli(
+                state,
+                territory_snapshot.exclusive_space,
+                territory_snapshot.contested_space,
+            ),
+            best_food_distance: nearest_food_distance(state, state_analysis, actor_id),
+        })
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct ActorMetrics {
     pub(crate) health_milli: u16,
     pub(crate) safe_moves: u8,
@@ -152,6 +192,21 @@ fn actor_mobility(
         };
         (moves.len(), enemy.best_reachable_space)
     })
+}
+
+fn nearest_food_distance(
+    state: &SimulatedGameState,
+    analysis: &StateAnalysis,
+    actor_id: &str,
+) -> Option<u16> {
+    state
+        .food
+        .iter()
+        .filter_map(|food| {
+            let route = analysis.route_for(actor_id, *food)?;
+            route.reachable.then_some(route.distance).flatten()
+        })
+        .min()
 }
 
 fn best_food(
