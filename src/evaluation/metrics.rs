@@ -1,6 +1,4 @@
-use crate::analysis::{
-    BorderFobicAnalysis, EnclosureAnalysis, StateAnalysis, TerritoryAnalysis,
-};
+use crate::analysis::{BorderFobicAnalysis, EnclosureAnalysis, StateAnalysis, TerritoryAnalysis};
 use crate::simulation::mobility::MobilityAnalysis;
 use crate::simulation::state::SimulatedGameState;
 
