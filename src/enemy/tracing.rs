@@ -221,7 +221,6 @@ pub(crate) fn trace_with_mobility(
 
 pub(crate) fn trace_actor_relative_with_mobility(
     state: &SimulatedGameState,
-    analysis: &StateAnalysis,
     mobility: &MobilityAnalysis,
 ) -> EnemyTracingOutput {
     let enemies = state
@@ -231,7 +230,7 @@ pub(crate) fn trace_actor_relative_with_mobility(
         .map(|enemy| {
             (
                 enemy.id.clone(),
-                trace_enemy_actor_relative(state, analysis, mobility, enemy),
+                trace_enemy_actor_relative(state, mobility, enemy),
             )
         })
         .collect::<HashMap<_, _>>();
@@ -241,7 +240,6 @@ pub(crate) fn trace_actor_relative_with_mobility(
 
 fn trace_enemy_actor_relative(
     state: &SimulatedGameState,
-    analysis: &StateAnalysis,
     mobility: &MobilityAnalysis,
     enemy: &SimulatedSnake,
 ) -> EnemyMoveSet {
@@ -259,7 +257,7 @@ fn trace_enemy_actor_relative(
         }
     }
 
-    let food_moves = food_policy_moves(state, analysis, enemy, legal_moves);
+    let food_moves = cheap_food_ordering_moves(state, enemy, legal_moves);
     let hunting_moves = hunting_policy_moves(state, enemy, legal_moves);
     let threat_moves = head_threat_moves(state, mobility, enemy, legal_moves);
     let hypotheses = build_hypotheses(
@@ -477,6 +475,55 @@ fn food_policy_moves(
     current.intersection(candidates)
 }
 
+fn cheap_food_ordering_moves(
+    state: &SimulatedGameState,
+    enemy: &SimulatedSnake,
+    current: MoveMask,
+) -> MoveMask {
+    if current.is_empty() || state.food.is_empty() {
+        return MoveMask::empty();
+    }
+
+    let Some(head) = enemy.head() else {
+        return MoveMask::empty();
+    };
+
+    let best = current
+        .iter()
+        .map(|direction| {
+            let destination = direction.apply(head);
+            state
+                .food
+                .iter()
+                .map(|food| {
+                    destination
+                        .x
+                        .abs_diff(food.x)
+                        .saturating_add(destination.y.abs_diff(food.y))
+                })
+                .min()
+                .unwrap_or(u32::MAX)
+        })
+        .min()
+        .unwrap_or(u32::MAX);
+
+    MoveMask::from_iter(current.iter().filter(|direction| {
+        let destination = direction.apply(head);
+        state
+            .food
+            .iter()
+            .map(|food| {
+                destination
+                    .x
+                    .abs_diff(food.x)
+                    .saturating_add(destination.y.abs_diff(food.y))
+            })
+            .min()
+            .unwrap_or(u32::MAX)
+            == best
+    }))
+}
+
 fn hunting_policy_moves(
     state: &SimulatedGameState,
     enemy: &SimulatedSnake,
@@ -651,10 +698,9 @@ mod tests {
             ],
             vec![Coord { x: 3, y: 5 }],
         );
-        let analysis = StateAnalysis::from_simulated_routes_only(&state);
         let mobility = MobilityAnalysis::from_state(&state);
 
-        let traced = trace_actor_relative_with_mobility(&state, &analysis, &mobility);
+        let traced = trace_actor_relative_with_mobility(&state, &mobility);
         let enemy = traced.for_enemy("enemy").unwrap();
         let deterministic = mobility.deterministic_moves_for(&state, "enemy");
 
