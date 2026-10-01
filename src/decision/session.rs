@@ -263,13 +263,9 @@ impl DecisionState {
 
         let root = graph.node(graph.root());
         let Some(plan) = root.active_analysis().and_then(|analysis| {
-            analysis
-                .hunting
-                .plans
-                .iter()
-                .find(|plan| {
-                    plan.target == target && plan.kind == kind && committable_hunt_plan(plan)
-                })
+            analysis.hunting.plans.iter().find(|plan| {
+                plan.target == target && plan.kind == kind && committable_hunt_plan(plan)
+            })
         }) else {
             return;
         };
@@ -515,6 +511,170 @@ mod tests {
         decision.refresh_food_intent(&graph);
 
         assert!(decision.intent.is_none());
+    }
+
+    #[test]
+    fn dominant_hunt_releases_reachable_food_intent() {
+        use crate::decision::intent::{DecisionIntent, FoodIntent};
+
+        let ours = snake(vec![
+            Coord { x: 2, y: 2 },
+            Coord { x: 2, y: 1 },
+            Coord { x: 2, y: 0 },
+            Coord { x: 1, y: 0 },
+            Coord { x: 0, y: 0 },
+            Coord { x: 0, y: 1 },
+            Coord { x: 0, y: 2 },
+            Coord { x: 1, y: 2 },
+        ]);
+        let enemy = Battlesnake {
+            id: "enemy".to_string(),
+            name: "enemy".to_string(),
+            health: 100,
+            head: Coord { x: 6, y: 3 },
+            length: 3,
+            body: vec![
+                Coord { x: 6, y: 3 },
+                Coord { x: 6, y: 2 },
+                Coord { x: 6, y: 1 },
+            ],
+            latency: String::new(),
+            shout: None,
+        };
+        let target = Coord { x: 4, y: 4 };
+        let game = GameState {
+            game: Game {
+                id: "dominant-food-release".to_string(),
+                ruleset: HashMap::from([("name".to_string(), json!("standard"))]),
+                timeout: 500,
+            },
+            turn: 10,
+            board: Board {
+                width: 7,
+                height: 7,
+                food: vec![target],
+                snakes: vec![ours.clone(), enemy],
+                hazards: vec![],
+            },
+            you: ours,
+        };
+        let graph = FutureGraph::new(SimulatedGameState::from(&game));
+        let root = graph.node(graph.root());
+        let analysis = root.active_analysis().unwrap();
+
+        assert!(analysis
+            .state
+            .route_for(&root.state.our_snake_id, target)
+            .is_some_and(|route| route.reachable));
+        assert!(analysis.posture.favors_dominant_hunt());
+        assert!(analysis
+            .hunting
+            .plans
+            .iter()
+            .any(|plan| committable_hunt_plan(plan) && plan.score_milli >= 400));
+
+        let mut decision = DecisionState {
+            intent: Some(DecisionIntent::Food(FoodIntent::new(target, 8))),
+            ..DecisionState::default()
+        };
+        decision.refresh_food_intent(&graph);
+
+        assert!(decision.intent.is_none());
+    }
+
+    #[test]
+    fn generic_hunting_reason_does_not_persist_arbitrary_plan() {
+        let game = state(3, vec![Coord { x: 3, y: 3 }, Coord { x: 3, y: 2 }]);
+        let graph = FutureGraph::new(SimulatedGameState::from(&game));
+        let decision = Decision {
+            direction: Direction::Up,
+            reason: crate::strategy::DecisionReason::HuntingTactical,
+            target_food: None,
+            target_enemy: None,
+            hunt_kind: None,
+            path_distance: None,
+            reachable_cells: 10,
+            search: crate::strategy::SearchMetadata::default(),
+        };
+        let mut state = DecisionState::default();
+
+        state.update_intent_after_decision(&game, &graph, &decision);
+
+        assert!(state.intent.is_none());
+    }
+
+    #[test]
+    fn hunting_decision_persists_exact_selected_plan() {
+        let ours = snake(vec![
+            Coord { x: 2, y: 2 },
+            Coord { x: 2, y: 1 },
+            Coord { x: 2, y: 0 },
+            Coord { x: 1, y: 0 },
+            Coord { x: 0, y: 0 },
+            Coord { x: 0, y: 1 },
+            Coord { x: 0, y: 2 },
+            Coord { x: 1, y: 2 },
+        ]);
+        let enemy = Battlesnake {
+            id: "enemy".to_string(),
+            name: "enemy".to_string(),
+            health: 100,
+            head: Coord { x: 6, y: 3 },
+            length: 3,
+            body: vec![
+                Coord { x: 6, y: 3 },
+                Coord { x: 6, y: 2 },
+                Coord { x: 6, y: 1 },
+            ],
+            latency: String::new(),
+            shout: None,
+        };
+        let game = GameState {
+            game: Game {
+                id: "exact-hunt-plan".to_string(),
+                ruleset: HashMap::from([("name".to_string(), json!("standard"))]),
+                timeout: 500,
+            },
+            turn: 10,
+            board: Board {
+                width: 7,
+                height: 7,
+                food: vec![],
+                snakes: vec![ours.clone(), enemy],
+                hazards: vec![],
+            },
+            you: ours,
+        };
+        let graph = FutureGraph::new(SimulatedGameState::from(&game));
+        let plan = graph
+            .node(graph.root())
+            .active_analysis()
+            .unwrap()
+            .hunting
+            .plans
+            .iter()
+            .find(|plan| committable_hunt_plan(plan))
+            .expect("dominant state must expose a committable hunt plan")
+            .clone();
+        let decision = Decision {
+            direction: Direction::Right,
+            reason: crate::strategy::DecisionReason::HuntingTactical,
+            target_food: None,
+            target_enemy: Some(plan.target.clone()),
+            hunt_kind: Some(plan.kind),
+            path_distance: None,
+            reachable_cells: 10,
+            search: crate::strategy::SearchMetadata::default(),
+        };
+        let mut state = DecisionState::default();
+
+        state.update_intent_after_decision(&game, &graph, &decision);
+
+        let Some(DecisionIntent::Hunt(intent)) = state.intent else {
+            panic!("selected hunt plan must become the persistent intent");
+        };
+        assert_eq!(intent.target, plan.target);
+        assert_eq!(intent.kind, plan.kind);
     }
 
     #[test]
