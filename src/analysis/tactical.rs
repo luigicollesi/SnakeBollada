@@ -114,6 +114,22 @@ pub(crate) struct TacticalStateAnalysis {
 }
 
 impl TacticalStateAnalysis {
+    pub(crate) fn empty() -> Self {
+        Self {
+            ours: SnakeMobilitySnapshot {
+                deterministic_moves: MoveMask::empty(),
+                safe_moves: MoveMask::empty(),
+                best_reachable_space: 0,
+            },
+            enemies: HashMap::new(),
+            threat_map: ThreatMap {
+                lethal: BoardMask::new(0, 0),
+                possible_lethal: BoardMask::new(0, 0),
+                favorable: BoardMask::new(0, 0),
+            },
+        }
+    }
+
     pub(crate) fn from_state(state: &SimulatedGameState, tracing: &EnemyTracingOutput) -> Self {
         let mobility = MobilityAnalysis::from_state(state);
         Self::from_parts(state, tracing, &mobility)
