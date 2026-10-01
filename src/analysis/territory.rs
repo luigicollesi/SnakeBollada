@@ -89,8 +89,8 @@ impl TerritoryAnalysis {
             ownership.insert(snake.id.clone(), (0, 0, 0));
         }
 
-        for index in 0..cells {
-            if !open[index] {
+        for (index, is_open) in open.iter().copied().enumerate().take(cells) {
+            if !is_open {
                 continue;
             }
 
@@ -356,8 +356,8 @@ fn articulation_points(width: u16, height: u16, open: &[bool]) -> HashSet<Coord>
         points: HashSet::new(),
     };
 
-    for index in 0..open.len() {
-        if !open[index] || tarjan.disc[index] != 0 {
+    for (index, is_open) in open.iter().copied().enumerate() {
+        if !is_open || tarjan.disc[index] != 0 {
             continue;
         }
         let coord = coord_of(width, index);
