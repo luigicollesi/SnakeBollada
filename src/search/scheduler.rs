@@ -279,9 +279,9 @@ fn priority_signals(
 
     let intent_focus = intent_focus(node, intent);
     let trend_tactical = trend.tactical_priority_milli();
-    let raw_hunting_tactical = ((analysis.hunting.best_plan_score() * 1000.0)
+    let raw_hunting_tactical = (analysis.hunting.best_plan_score() * 1000.0)
         .round()
-        .clamp(0.0, 1000.0) as u16);
+        .clamp(0.0, 1000.0) as u16;
     let posture_hunting_tactical = u32::from(raw_hunting_tactical)
         .saturating_mul(u32::from(analysis.posture.hunt_drive_milli))
         .saturating_div(1000)
