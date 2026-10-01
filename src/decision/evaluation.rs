@@ -1087,7 +1087,7 @@ mod tests {
     fn evaluation(direction: Direction, survival: DirectionSurvivalSummary) -> DirectionEvaluation {
         DirectionEvaluation {
             direction,
-            terminal: if survival.death_routes > 0 {
+            terminal: if survival.is_forced_death() {
                 TerminalAssessment::Lost
             } else {
                 TerminalAssessment::Running
@@ -1122,6 +1122,62 @@ mod tests {
 
         assert_eq!(with_escape.guaranteed_enemy_kills, 0);
         assert_eq!(forced.guaranteed_enemy_kills, 1);
+    }
+
+    #[test]
+    fn partial_death_branch_does_not_mark_entire_direction_lost() {
+        let graph = FutureGraph::new(state(vec![]));
+        let parent = graph.node(graph.root());
+        let running = EdgeOutcome {
+            terminal: TerminalAssessment::Running,
+            survival: summary(1, 0, 3),
+            strategic: StrategicEnvelope {
+                average_utility: 1.0,
+                ..StrategicEnvelope::default()
+            },
+            guaranteed_enemy_kills: 0,
+            reserved_override_all: false,
+        };
+        let lost = EdgeOutcome {
+            terminal: TerminalAssessment::Lost,
+            survival: summary(1, 1, 0),
+            strategic: StrategicEnvelope::default(),
+            guaranteed_enemy_kills: 0,
+            reserved_override_all: false,
+        };
+
+        let evaluation = aggregate_direction(Direction::Left, parent, &[lost, running]);
+
+        assert_eq!(evaluation.terminal, TerminalAssessment::Running);
+        assert_eq!(evaluation.survival.death_rate_milli(), 500);
+        assert!(!evaluation.survival.is_forced_death());
+    }
+
+    #[test]
+    fn purposeful_edge_food_removes_reservation_penalty_when_not_structurally_trapped() {
+        let policy = ReservedCellPolicy::default();
+        let state = state(vec![Coord { x: 0, y: 1 }]);
+        let mut evaluation = evaluation(Direction::Left, summary(4, 1, 2));
+        evaluation.average_leaf_food_potential = 0.25;
+
+        assert!(policy.penalty(&state, Direction::Left) > 0.0);
+        assert_eq!(
+            effective_reserved_penalty(policy, &state, &evaluation),
+            0.0
+        );
+    }
+
+    #[test]
+    fn purposeless_edge_move_keeps_reservation_penalty() {
+        let policy = ReservedCellPolicy::default();
+        let state = state(vec![]);
+        let evaluation = evaluation(Direction::Left, summary(4, 0, 3));
+
+        assert_eq!(
+            effective_reserved_penalty(policy, &state, &evaluation),
+            policy.penalty(&state, Direction::Left)
+        );
+        assert!(effective_reserved_penalty(policy, &state, &evaluation) > 0.0);
     }
 
     #[test]
