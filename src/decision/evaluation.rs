@@ -1161,10 +1161,7 @@ mod tests {
         evaluation.average_leaf_food_potential = 0.25;
 
         assert!(policy.penalty(&state, Direction::Left) > 0.0);
-        assert_eq!(
-            effective_reserved_penalty(policy, &state, &evaluation),
-            0.0
-        );
+        assert_eq!(effective_reserved_penalty(policy, &state, &evaluation), 0.0);
     }
 
     #[test]
