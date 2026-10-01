@@ -171,9 +171,22 @@ mod tests {
     }
 
     #[test]
-    fn single_robust_exit_activates_escape_pressure() {
+    fn single_healthy_robust_exit_does_not_activate_persistent_escape() {
         let evaluations = [
             evaluation(Direction::Up, 0, 0, 0),
+            evaluation(Direction::Right, 8, 8, 8),
+        ];
+
+        assert!(
+            root_escape_pressure_milli(&evaluations, MoveMask::single(Direction::Up))
+                < ESCAPE_ACTIVATION_THRESHOLD_MILLI
+        );
+    }
+
+    #[test]
+    fn single_robust_exit_with_forced_dead_end_still_activates_escape() {
+        let evaluations = [
+            evaluation(Direction::Up, 0, 10, 0),
             evaluation(Direction::Right, 8, 8, 8),
         ];
 
