@@ -288,9 +288,7 @@ mod tests {
 
     #[test]
     fn enemy_hypotheses_order_dangerous_supported_moves_first() {
-        use crate::enemy::tracing::{
-            OpponentMoveHypothesis, OpponentPolicySupport, ThreatClass,
-        };
+        use crate::enemy::tracing::{OpponentMoveHypothesis, OpponentPolicySupport, ThreatClass};
 
         let state = state(vec![snake("ours", &[(1, 1)]), snake("enemy", &[(5, 5)])]);
         let tracing = EnemyTracingOutput {
@@ -325,13 +323,9 @@ mod tests {
             )]),
         };
 
-        let first = JointActionGenerator::new(
-            &state,
-            MoveMask::single(Direction::Up),
-            &tracing,
-        )
-        .next()
-        .unwrap();
+        let first = JointActionGenerator::new(&state, MoveMask::single(Direction::Up), &tracing)
+            .next()
+            .unwrap();
 
         assert_eq!(first.direction_for("enemy"), Some(Direction::Down));
     }
