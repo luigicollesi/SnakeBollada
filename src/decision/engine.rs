@@ -9,7 +9,7 @@ use crate::decision::evaluation::{
     choose_best_direction, evaluate_graph_budgeted, DagEvaluationStats, DirectionEvaluation,
     TerminalAssessment,
 };
-use crate::decision::intent::{committable_hunt_plan, DecisionIntent, HuntIntent};
+use crate::decision::intent::{committable_hunt_plan, DecisionIntent, EscapeIntent, HuntIntent};
 use crate::decision::policy::ReservedCellPolicy;
 use crate::forecast::ForecastCertainty;
 use crate::modes::{food, hunting::HuntingPlanKind};
@@ -146,11 +146,31 @@ impl DecisionEngine {
             return baseline_fallback(state);
         }
 
+        let provisional_escape_intent = if intent.is_none() {
+            let root = graph.node(graph.root());
+            let robust_safe_moves = root
+                .active_analysis()
+                .map_or(crate::direction::MoveMask::empty(), |analysis| {
+                    analysis.tactical.ours.safe_moves
+                });
+            let pressure = root_escape_pressure_milli(&evaluations, robust_safe_moves);
+            (pressure >= ESCAPE_ACTIVATION_THRESHOLD_MILLI).then(|| {
+                DecisionIntent::Escape(EscapeIntent::new(root.state.turn, pressure))
+            })
+        } else {
+            None
+        };
+        let search_intent = intent.or(provisional_escape_intent.as_ref());
+
         let mut analyzed_depth = completed_depth;
         if completed_depth >= TARGET_DEPTH && !budget.soft_expired() {
-            if let Ok(stats) =
-                SelectiveSearchScheduler.run(graph, &evaluations, &budget, TARGET_DEPTH, intent)
-            {
+            if let Ok(stats) = SelectiveSearchScheduler.run(
+                graph,
+                &evaluations,
+                &budget,
+                TARGET_DEPTH,
+                search_intent,
+            ) {
                 analyzed_depth = analyzed_depth.max(stats.max_selective_depth);
             }
         }
