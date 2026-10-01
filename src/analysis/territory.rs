@@ -159,8 +159,7 @@ impl TerritoryAnalysis {
             }
         }
 
-        let competitive =
-            competitive_snapshots(state, width, height, &open, &living, &distances);
+        let competitive = competitive_snapshots(state, width, height, &open, &living, &distances);
 
         let mut snapshots = HashMap::new();
         for (snake, head) in living {
@@ -229,7 +228,6 @@ impl TerritoryAnalysis {
         self.competitive.get(snake_id)
     }
 }
-
 
 #[derive(Debug, Clone)]
 enum CompetitiveClaim {
@@ -373,12 +371,10 @@ fn competitive_snapshots(
         }
 
         if winning {
-            builders[*owner].winning_frontier =
-                builders[*owner].winning_frontier.saturating_add(1);
+            builders[*owner].winning_frontier = builders[*owner].winning_frontier.saturating_add(1);
         }
         if losing {
-            builders[*owner].losing_frontier =
-                builders[*owner].losing_frontier.saturating_add(1);
+            builders[*owner].losing_frontier = builders[*owner].losing_frontier.saturating_add(1);
         }
     }
 
