@@ -491,6 +491,7 @@ fn run_beam_shadow(
 
     let started = Instant::now();
     let mut shadow_graph = graph.clone();
+    shadow_graph.use_beam_lean_analysis();
     let available = budget
         .remaining_hard()
         .saturating_sub(Duration::from_millis(BEAM_SHADOW_RESPONSE_RESERVE_MS));
