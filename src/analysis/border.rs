@@ -266,6 +266,39 @@ mod tests {
     }
 
     #[test]
+    fn hugging_edge_is_riskier_than_same_length_interior_body() {
+        let edge = state(&[
+            (0, 5),
+            (0, 4),
+            (0, 3),
+            (0, 2),
+            (0, 1),
+            (0, 0),
+            (1, 0),
+            (2, 0),
+            (3, 0),
+            (4, 0),
+        ]);
+        let interior = state(&[
+            (3, 5),
+            (3, 4),
+            (3, 3),
+            (3, 2),
+            (3, 1),
+            (4, 1),
+            (5, 1),
+            (6, 1),
+            (7, 1),
+            (7, 2),
+        ]);
+
+        let edge_risk = analyze(&edge).ours().unwrap().structural_risk_milli;
+        let interior_risk = analyze(&interior).ours().unwrap().structural_risk_milli;
+
+        assert!(edge_risk > interior_risk);
+    }
+
+    #[test]
     fn long_edge_chain_creates_structural_risk() {
         let state = state(&[
             (0, 5),
