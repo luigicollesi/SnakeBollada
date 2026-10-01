@@ -6,7 +6,8 @@ use std::time::Duration;
 
 use crate::analysis::transition::analyze_transition;
 use crate::analysis::{
-    BorderFobicAnalysis, EnclosureAnalysis, StateAnalysis, TacticalStateAnalysis, TerritoryAnalysis,
+    BorderFobicAnalysis, EnclosureAnalysis, StateAnalysis, StrategicPosture, TacticalStateAnalysis,
+    TerritoryAnalysis,
 };
 use crate::decision::joint_actions::JointActionGenerator;
 use crate::decision::state_key::StateKey;
@@ -61,6 +62,7 @@ pub(crate) struct NodeAnalysis {
     pub(crate) tactical: Arc<TacticalStateAnalysis>,
     pub(crate) territory: Arc<TerritoryAnalysis>,
     pub(crate) border: Arc<BorderFobicAnalysis>,
+    pub(crate) posture: Arc<StrategicPosture>,
     pub(crate) enclosure: Arc<EnclosureAnalysis>,
     pub(crate) survival: Arc<SurvivalModeOutput>,
     pub(crate) hunting: Arc<HuntingModeOutput>,
@@ -505,6 +507,7 @@ fn build_node(state: SimulatedGameState) -> SearchNode {
         ));
         let territory = Arc::new(TerritoryAnalysis::from_state(&state));
         let border = Arc::new(BorderFobicAnalysis::from_parts(&state, &tactical));
+        let posture = Arc::new(StrategicPosture::from_state(&state));
         let enclosure = Arc::new(EnclosureAnalysis::from_parts(&state, &territory, &tactical));
         let survival = Arc::new(survival::analyze_with_border(&state, &tactical, &border));
         let hunting = Arc::new(hunting::analyze(
@@ -517,6 +520,7 @@ fn build_node(state: SimulatedGameState) -> SearchNode {
             tactical,
             territory,
             border,
+            posture,
             enclosure,
             survival,
             hunting,
