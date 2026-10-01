@@ -34,6 +34,7 @@ pub(crate) struct ContinuationEvaluation {
     pub(crate) harm_total: i64,
     pub(crate) our_utility_total: i64,
     pub(crate) opponent_utility_total: i64,
+    pub(crate) actor_utility_totals: HashMap<String, i64>,
     pub(crate) value: i64,
     pub(crate) terminal: LineTerminal,
     pub(crate) bound: ValueBound,
@@ -47,6 +48,7 @@ struct EvaluatedLine {
     harm_total: i64,
     our_utility_total: i64,
     opponent_utility_total: i64,
+    actor_utility_totals: HashMap<String, i64>,
     terminal: LineTerminal,
     bound: ValueBound,
     steps: Vec<BeamStep>,
@@ -59,6 +61,13 @@ impl EvaluatedLine {
         edge: &SearchEdge,
         transition: TransitionScore,
     ) -> Self {
+        for (actor_id, score) in &transition.actors {
+            self.actor_utility_totals
+                .entry(actor_id.clone())
+                .and_modify(|total| *total = total.saturating_add(score.net))
+                .or_insert(score.net);
+        }
+
         if self.terminal == LineTerminal::Running {
             self.our_utility_total = self.our_utility_total.saturating_add(transition.net);
             self.opponent_utility_total = self
@@ -128,6 +137,7 @@ pub(crate) fn evaluate_seed_lines(graph: &FutureGraph, target_depth: u8) -> Seed
                 harm_total: line.harm_total,
                 our_utility_total: line.our_utility_total,
                 opponent_utility_total: line.opponent_utility_total,
+                actor_utility_totals: line.actor_utility_totals,
                 value: line.value,
                 terminal: line.terminal,
                 bound: line.bound,
@@ -171,6 +181,7 @@ pub(crate) fn evaluate_continuations(
             harm_total: line.harm_total,
             our_utility_total: line.our_utility_total,
             opponent_utility_total: line.opponent_utility_total,
+            actor_utility_totals: line.actor_utility_totals,
             value: line.value,
             terminal: line.terminal,
             bound: line.bound,
@@ -275,7 +286,7 @@ impl MaximinEvaluator<'_> {
         }
 
         let mut policies = Vec::new();
-        policies.push(max_opponent_self_utility(
+        policies.push(select_selfish_opponent_response(node, 
             edge_variants
                 .iter()
                 .filter_map(|variants| variants.first().cloned())
@@ -298,7 +309,7 @@ impl MaximinEvaluator<'_> {
                     .collect::<Vec<_>>();
 
                 if selected.len() == edge_variants.len() {
-                    policies.push(max_opponent_self_utility(selected));
+                    policies.push(select_selfish_opponent_response(node, selected));
                 }
             }
         }
@@ -321,6 +332,7 @@ fn frontier_line(exact: bool) -> EvaluatedLine {
         harm_total: 0,
         our_utility_total: 0,
         opponent_utility_total: 0,
+        actor_utility_totals: HashMap::new(),
         terminal: LineTerminal::Running,
         bound: if exact {
             ValueBound::Exact(0)
@@ -343,6 +355,7 @@ fn terminal_line(node: &SearchNode) -> Option<EvaluatedLine> {
             harm_total: TERMINAL_VALUE,
             our_utility_total: -TERMINAL_VALUE,
             opponent_utility_total: 0,
+            actor_utility_totals: HashMap::new(),
             terminal: LineTerminal::Lost,
             bound: ValueBound::Exact(-TERMINAL_VALUE),
             steps: Vec::new(),
@@ -364,6 +377,7 @@ fn terminal_line(node: &SearchNode) -> Option<EvaluatedLine> {
         harm_total: 0,
         our_utility_total: TERMINAL_VALUE,
         opponent_utility_total: 0,
+        actor_utility_totals: HashMap::new(),
         terminal: LineTerminal::Won,
         bound: ValueBound::Exact(TERMINAL_VALUE),
         steps: Vec::new(),
@@ -377,7 +391,10 @@ fn max_our_choices(lines: Vec<EvaluatedLine>) -> EvaluatedLine {
         .expect("MAX requires at least one line")
 }
 
-fn max_opponent_self_utility(lines: Vec<EvaluatedLine>) -> EvaluatedLine {
+fn select_selfish_opponent_response(
+    node: &SearchNode,
+    lines: Vec<EvaluatedLine>,
+) -> EvaluatedLine {
     let lower = lines
         .iter()
         .map(|line| line.bound.lower())
@@ -390,13 +407,40 @@ fn max_opponent_self_utility(lines: Vec<EvaluatedLine>) -> EvaluatedLine {
         .unwrap_or(i64::MAX);
     let all_exact = lines.iter().all(|line| line.bound.is_exact());
 
+    let enemies = node
+        .state
+        .snakes
+        .iter()
+        .filter(|snake| snake.alive && snake.id != node.state.our_snake_id)
+        .map(|snake| snake.id.as_str())
+        .collect::<Vec<_>>();
+
+    let maxima = enemies
+        .iter()
+        .map(|enemy_id| {
+            let best = lines
+                .iter()
+                .map(|line| actor_utility(line, enemy_id))
+                .max()
+                .unwrap_or(0);
+            (*enemy_id, best)
+        })
+        .collect::<HashMap<_, _>>();
+
     let mut chosen = lines
         .into_iter()
-        .max_by(|left, right| {
-            left.opponent_utility_total
-                .cmp(&right.opponent_utility_total)
-                .then_with(|| right.value.cmp(&left.value))
-                .then_with(|| left.our_utility_total.cmp(&right.our_utility_total))
+        .min_by(|left, right| {
+            let left_regret = opponent_regret(left, &enemies, &maxima);
+            let right_regret = opponent_regret(right, &enemies, &maxima);
+
+            left_regret
+                .cmp(&right_regret)
+                .then_with(|| left.value.cmp(&right.value))
+                .then_with(|| {
+                    right
+                        .opponent_utility_total
+                        .cmp(&left.opponent_utility_total)
+                })
         })
         .expect("opponent response selection requires at least one line");
 
@@ -406,6 +450,25 @@ fn max_opponent_self_utility(lines: Vec<EvaluatedLine>) -> EvaluatedLine {
         ValueBound::Interval { lower, upper }
     };
     chosen
+}
+
+fn actor_utility(line: &EvaluatedLine, actor_id: &str) -> i64 {
+    line.actor_utility_totals
+        .get(actor_id)
+        .copied()
+        .unwrap_or(0)
+}
+
+fn opponent_regret(
+    line: &EvaluatedLine,
+    enemies: &[&str],
+    maxima: &HashMap<&str, i64>,
+) -> (i64, i64) {
+    enemies.iter().fold((0_i64, 0_i64), |(worst, total), enemy_id| {
+        let best = maxima.get(enemy_id).copied().unwrap_or(0);
+        let regret = best.saturating_sub(actor_utility(line, enemy_id)).max(0);
+        (worst.max(regret), total.saturating_add(regret))
+    })
 }
 
 fn rank_and_dedup_variants(lines: &mut Vec<EvaluatedLine>, limit: usize) {
@@ -526,6 +589,10 @@ mod tests {
             harm_total: ours.max(0).saturating_sub(ours),
             our_utility_total: ours,
             opponent_utility_total: opponents,
+            actor_utility_totals: HashMap::from([
+                ("ours".to_string(), ours),
+                ("enemy".to_string(), opponents),
+            ]),
             terminal: LineTerminal::Running,
             bound: ValueBound::Exact(value),
             steps: vec![BeamStep {
@@ -648,7 +715,10 @@ mod tests {
         let hurts_us_more = synthetic_line(-500, 20, 1);
         let benefits_enemy_more = synthetic_line(-50, 200, 2);
 
-        let chosen = max_opponent_self_utility(vec![hurts_us_more, benefits_enemy_more]);
+        let graph = FutureGraph::new(state());
+        let node = graph.node(graph.root());
+        let chosen =
+            select_selfish_opponent_response(node, vec![hurts_us_more, benefits_enemy_more]);
 
         assert_eq!(chosen.opponent_utility_total, 200);
         assert_eq!(chosen.our_utility_total, -50);
