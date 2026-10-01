@@ -34,6 +34,9 @@ pub(crate) struct DirectionSurvivalSummary {
     pub(crate) dead_end_routes: u64,
     pub(crate) forced_routes: u64,
     pub(crate) constrained_routes: u64,
+    pub(crate) border_exposure_ticks: u64,
+    pub(crate) corner_exposure_ticks: u64,
+    pub(crate) cumulative_border_cost_milli: u64,
     pub(crate) max_self_enclosure_risk: u8,
     pub(crate) max_border_structural_risk_milli: u16,
     pub(crate) max_border_preference_milli: u16,
@@ -76,6 +79,9 @@ impl DirectionSurvivalSummary {
             dead_end_routes: u64::from(terminal != TerminalAssessment::Lost && safe_moves == 0),
             forced_routes: u64::from(terminal != TerminalAssessment::Lost && safe_moves == 1),
             constrained_routes: u64::from(terminal != TerminalAssessment::Lost && safe_moves == 2),
+            border_exposure_ticks: 0,
+            corner_exposure_ticks: 0,
+            cumulative_border_cost_milli: 0,
             max_self_enclosure_risk: enclosure_risk,
             max_border_structural_risk_milli: border_structural,
             max_border_preference_milli: border_preference,
@@ -157,6 +163,31 @@ impl DirectionSurvivalSummary {
 
     pub(crate) fn constrained_rate_milli(&self) -> u16 {
         route_rate_milli(self.constrained_routes, self.total_routes)
+    }
+
+    pub(crate) fn average_border_ticks_milli(&self) -> u32 {
+        if self.total_routes == 0 {
+            return 0;
+        }
+
+        self.border_exposure_ticks
+            .saturating_mul(1000)
+            .saturating_div(self.total_routes)
+            .min(u64::from(u32::MAX))
+            .try_into()
+            .unwrap_or(u32::MAX)
+    }
+
+    pub(crate) fn average_border_cost_milli(&self) -> u32 {
+        if self.total_routes == 0 {
+            return 0;
+        }
+
+        self.cumulative_border_cost_milli
+            .saturating_div(self.total_routes)
+            .min(u64::from(u32::MAX))
+            .try_into()
+            .unwrap_or(u32::MAX)
     }
 }
 
@@ -506,6 +537,7 @@ fn apply_edge(
         .count() as f32;
     let realized_hunting = edge_hunting_delta(parent, edge);
     let territorial_delta = territorial_setup_delta(parent, child_node);
+    let (border_tick, corner_tick, border_cost_milli) = border_exposure_cost(&edge.events);
     let guaranteed_enemy_kills = child
         .guaranteed_enemy_kills
         .saturating_add(edge_enemy_kills(edge));
@@ -513,7 +545,8 @@ fn apply_edge(
     let (food_discount, hunting_discount) = certainty_discounts(certainty);
     let (food_drive, hunt_drive) = strategic_drives(child_node);
     let local_utility = realized_food * food_discount * food_drive
-        + (realized_hunting + territorial_delta) * hunting_discount * hunt_drive;
+        + (realized_hunting + territorial_delta) * hunting_discount * hunt_drive
+        - border_cost_milli as f32 / 1000.0;
 
     let death_now = edge
         .events
@@ -576,6 +609,19 @@ fn apply_edge(
     if constrained_now {
         survival.constrained_routes = route_count;
     }
+    if border_tick {
+        survival.border_exposure_ticks = survival
+            .border_exposure_ticks
+            .saturating_add(route_count);
+        survival.cumulative_border_cost_milli = survival
+            .cumulative_border_cost_milli
+            .saturating_add(u64::from(border_cost_milli).saturating_mul(route_count));
+    }
+    if corner_tick {
+        survival.corner_exposure_ticks = survival
+            .corner_exposure_ticks
+            .saturating_add(route_count);
+    }
     survival.min_future_mobility = survival.min_future_mobility.min(child_safe_moves);
     survival.min_reachable_space = survival.min_reachable_space.min(
         child_node
@@ -636,6 +682,15 @@ fn aggregate_direction(
         dead_end_routes: saturating_sum(outcomes, |outcome| outcome.survival.dead_end_routes),
         forced_routes: saturating_sum(outcomes, |outcome| outcome.survival.forced_routes),
         constrained_routes: saturating_sum(outcomes, |outcome| outcome.survival.constrained_routes),
+        border_exposure_ticks: saturating_sum(outcomes, |outcome| {
+            outcome.survival.border_exposure_ticks
+        }),
+        corner_exposure_ticks: saturating_sum(outcomes, |outcome| {
+            outcome.survival.corner_exposure_ticks
+        }),
+        cumulative_border_cost_milli: saturating_sum(outcomes, |outcome| {
+            outcome.survival.cumulative_border_cost_milli
+        }),
         max_self_enclosure_risk: outcomes
             .iter()
             .map(|outcome| outcome.survival.max_self_enclosure_risk)
@@ -807,6 +862,32 @@ fn certainty_discounts(certainty: ForecastCertainty) -> (f32, f32) {
         ForecastCertainty::Deterministic => (1.0, 1.0),
         ForecastCertainty::FoodProvisional => (0.50, 0.80),
     }
+}
+
+fn border_exposure_cost(events: &[InstantEvent]) -> (bool, bool, u16) {
+    let Some((fear_milli, corner)) = events.iter().find_map(|event| match event {
+        InstantEvent::SelfBorderExposure {
+            fear_milli,
+            corner,
+        } => Some((*fear_milli, *corner)),
+        _ => None,
+    }) else {
+        return (false, false, 0);
+    };
+
+    let base = u32::from(fear_milli)
+        .saturating_mul(120)
+        .saturating_div(1000);
+    let cost = if corner {
+        base.saturating_mul(135).saturating_div(100)
+    } else {
+        base
+    }
+    .min(1000)
+    .try_into()
+    .unwrap_or(1000);
+
+    (true, corner, cost)
 }
 
 fn edge_hunting_delta(parent: &SearchNode, edge: &SearchEdge) -> f32 {
@@ -1214,10 +1295,7 @@ fn reserved_move_has_supported_purpose(evaluation: &DirectionEvaluation) -> bool
         return false;
     }
 
-    evaluation.average_food_value > 0.0
-        || evaluation.average_leaf_food_potential >= 0.08
-        || evaluation.average_hunting_value > 0.0
-        || evaluation.average_leaf_hunting_potential >= 0.20
+    evaluation.average_food_value > 0.0 || evaluation.average_hunting_value > 0.0
 }
 
 #[cfg(test)]
