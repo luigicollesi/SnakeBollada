@@ -237,11 +237,8 @@ pub(crate) fn append_continuation(
     steps.extend(continuation.steps.clone());
 
     let mut actor_utility_totals = line.actor_utility_totals.clone();
-    for (actor_id, utility) in continuation.actor_utility_totals {
-        actor_utility_totals
-            .entry(actor_id)
-            .and_modify(|total| *total = total.saturating_add(utility))
-            .or_insert(utility);
+    for (actor_id, utility) in continuation.actor_utility_totals.iter() {
+        actor_utility_totals.add(actor_id, *utility);
     }
 
     let (our_utility_total, opponent_utility_total, value, bound) =
@@ -460,7 +457,7 @@ mod tests {
             harm_total: 300,
             our_utility_total: 900,
             opponent_utility_total: 300,
-            actor_utility_totals: std::collections::HashMap::from([
+            actor_utility_totals: crate::evaluation::ActorTable::from_iter([
                 ("ours".to_string(), 900),
                 ("enemy".to_string(), 300),
             ]),
