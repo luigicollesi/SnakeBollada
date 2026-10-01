@@ -327,7 +327,7 @@ impl FutureGraph {
         };
 
         let actions = JointActionGenerator::new(&state, our_moves, &tracing);
-        let mut edges = Vec::with_capacity(actions.estimated_count());
+        let mut edges = Vec::with_capacity(actions.estimated_count().min(64));
 
         for joint_action in actions {
             if budget.is_some_and(SearchBudget::expired) {
