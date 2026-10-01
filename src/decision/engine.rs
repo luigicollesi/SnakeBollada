@@ -153,9 +153,13 @@ impl DecisionEngine {
             return baseline_fallback(state);
         }
 
+        let mut analyzed_depth = completed_depth;
         if completed_depth >= TARGET_DEPTH && !budget.soft_expired() {
-            let _ =
-                SelectiveSearchScheduler.run(graph, &evaluations, &budget, TARGET_DEPTH, intent);
+            if let Ok(stats) =
+                SelectiveSearchScheduler.run(graph, &evaluations, &budget, TARGET_DEPTH, intent)
+            {
+                analyzed_depth = analyzed_depth.max(stats.max_selective_depth);
+            }
         }
 
         let root = graph.node(graph.root());
@@ -280,6 +284,7 @@ impl DecisionEngine {
             reachable_cells,
             search: SearchMetadata {
                 completed_depth,
+                analyzed_depth,
                 nodes: graph.node_count().try_into().unwrap_or(u32::MAX),
                 edges: graph.edge_count(),
                 transposition_hits: graph.transposition_hits(),
