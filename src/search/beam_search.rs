@@ -86,7 +86,7 @@ mod tests {
     #[test]
     fn orchestrator_never_returns_less_than_seed_depth() {
         let mut graph = FutureGraph::new(state());
-        let budget = SearchBudget::for_duration(Duration::from_secs(10));
+        let budget = SearchBudget::for_duration(Duration::from_millis(250));
 
         let result = search_beam(&mut graph, &budget)
             .unwrap()
@@ -109,7 +109,7 @@ mod tests {
     #[test]
     fn every_committed_running_line_has_common_completed_depth() {
         let mut graph = FutureGraph::new(state());
-        let budget = SearchBudget::for_duration(Duration::from_secs(10));
+        let budget = SearchBudget::for_duration(Duration::from_millis(250));
 
         let result = search_beam(&mut graph, &budget)
             .unwrap()
