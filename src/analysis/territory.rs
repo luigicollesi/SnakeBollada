@@ -346,8 +346,7 @@ fn competitive_snapshots(
                     builder.controlled_food = builder.controlled_food.saturating_add(1);
                 }
                 if dominance_owner[index] == Some(*owner) {
-                    builder.dominance_claim_cells =
-                        builder.dominance_claim_cells.saturating_add(1);
+                    builder.dominance_claim_cells = builder.dominance_claim_cells.saturating_add(1);
                 }
                 if favorable_head_owner[index] == Some(*owner) {
                     builder.favorable_head_frontier =
