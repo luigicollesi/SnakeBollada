@@ -2,6 +2,8 @@
 
 use std::collections::HashMap;
 
+use rayon::prelude::*;
+
 use crate::board_mask::BoardMask;
 use crate::direction::MoveMask;
 use crate::enemy::tracing::{EnemyTracingOutput, ThreatClass};
@@ -124,61 +126,66 @@ impl TacticalStateAnalysis {
     ) -> Self {
         let threat_map = ThreatMap::from_state(state, tracing);
 
-        let deterministic_moves = mobility.deterministic_moves_for(state, &state.our_snake_id);
+        let (ours, enemies) = rayon::join(
+            || {
+                let deterministic_moves =
+                    mobility.deterministic_moves_for(state, &state.our_snake_id);
+                let safe_moves = state
+                    .snake(&state.our_snake_id)
+                    .and_then(|snake| snake.head())
+                    .map(|head| {
+                        MoveMask::from_iter(
+                            deterministic_moves
+                                .iter()
+                                .filter(|direction| !threat_map.is_lethal(direction.apply(head))),
+                        )
+                    })
+                    .unwrap_or_else(MoveMask::empty);
+                let best_reachable_space = deterministic_moves
+                    .iter()
+                    .map(|direction| {
+                        mobility.reachable_space(state, &state.our_snake_id, direction)
+                    })
+                    .max()
+                    .unwrap_or(0);
 
-        let safe_moves = state
-            .snake(&state.our_snake_id)
-            .and_then(|snake| snake.head())
-            .map(|head| {
-                MoveMask::from_iter(
-                    deterministic_moves
-                        .iter()
-                        .filter(|direction| !threat_map.is_lethal(direction.apply(head))),
-                )
-            })
-            .unwrap_or_else(MoveMask::empty);
-
-        let best_reachable_space = deterministic_moves
-            .iter()
-            .map(|direction| mobility.reachable_space(state, &state.our_snake_id, direction))
-            .max()
-            .unwrap_or(0);
-
-        let mut enemies = HashMap::new();
-        for enemy in state
-            .snakes
-            .iter()
-            .filter(|snake| snake.alive && snake.id != state.our_snake_id)
-        {
-            let Some(move_set) = tracing.for_enemy(&enemy.id) else {
-                continue;
-            };
-
-            let best_reachable_space = move_set
-                .search_moves()
-                .iter()
-                .map(|direction| mobility.reachable_space(state, &enemy.id, direction))
-                .max()
-                .unwrap_or(0);
-
-            enemies.insert(
-                enemy.id.clone(),
-                EnemyTacticalSnapshot {
-                    snake_id: enemy.id.clone(),
-                    legal_moves: move_set.legal_moves,
-                    plausible_moves: move_set.plausible_moves,
+                SnakeMobilitySnapshot {
+                    deterministic_moves,
+                    safe_moves,
                     best_reachable_space,
-                    length: enemy.length(),
-                },
-            );
-        }
+                }
+            },
+            || {
+                state
+                    .snakes
+                    .par_iter()
+                    .filter(|snake| snake.alive && snake.id != state.our_snake_id)
+                    .filter_map(|enemy| {
+                        let move_set = tracing.for_enemy(&enemy.id)?;
+                        let best_reachable_space = move_set
+                            .search_moves()
+                            .iter()
+                            .map(|direction| mobility.reachable_space(state, &enemy.id, direction))
+                            .max()
+                            .unwrap_or(0);
+
+                        Some((
+                            enemy.id.clone(),
+                            EnemyTacticalSnapshot {
+                                snake_id: enemy.id.clone(),
+                                legal_moves: move_set.legal_moves,
+                                plausible_moves: move_set.plausible_moves,
+                                best_reachable_space,
+                                length: enemy.length(),
+                            },
+                        ))
+                    })
+                    .collect::<HashMap<_, _>>()
+            },
+        );
 
         Self {
-            ours: SnakeMobilitySnapshot {
-                deterministic_moves,
-                safe_moves,
-                best_reachable_space,
-            },
+            ours,
             enemies,
             threat_map,
         }
