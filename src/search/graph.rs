@@ -5,13 +5,17 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use crate::analysis::transition::analyze_transition;
-use crate::analysis::{EnclosureAnalysis, StateAnalysis, TacticalStateAnalysis, TerritoryAnalysis};
+use crate::analysis::{
+    BorderFobicAnalysis, EnclosureAnalysis, StateAnalysis, TacticalStateAnalysis,
+    TerritoryAnalysis,
+};
 use crate::decision::joint_actions::JointActionGenerator;
 use crate::decision::state_key::StateKey;
 use crate::direction::MoveMask;
 use crate::enemy::profile::OpponentProfiles;
 use crate::enemy::tracing::{trace_with_mobility, EnemyTracingOutput};
 use crate::modes::hunting::{self, HuntingModeOutput};
+use crate::modes::survival::{self, SurvivalModeOutput};
 use crate::simulation::joint_action::JointAction;
 use crate::simulation::mobility::MobilityAnalysis;
 use crate::simulation::resolver::{resolve_turn, ForecastDelta, InstantEvent, ResolveError};
@@ -57,7 +61,9 @@ pub(crate) struct NodeAnalysis {
     pub(crate) tracing: Arc<EnemyTracingOutput>,
     pub(crate) tactical: Arc<TacticalStateAnalysis>,
     pub(crate) territory: Arc<TerritoryAnalysis>,
+    pub(crate) border: Arc<BorderFobicAnalysis>,
     pub(crate) enclosure: Arc<EnclosureAnalysis>,
+    pub(crate) survival: Arc<SurvivalModeOutput>,
     pub(crate) hunting: Arc<HuntingModeOutput>,
 }
 
@@ -499,7 +505,9 @@ fn build_node(state: SimulatedGameState) -> SearchNode {
             &state, &tracing, &mobility,
         ));
         let territory = Arc::new(TerritoryAnalysis::from_state(&state));
+        let border = Arc::new(BorderFobicAnalysis::from_parts(&state, &tactical));
         let enclosure = Arc::new(EnclosureAnalysis::from_parts(&state, &territory, &tactical));
+        let survival = Arc::new(survival::analyze_with_border(&state, &tactical, &border));
         let hunting = Arc::new(hunting::analyze(
             &state, &tactical, &tracing, &territory, &enclosure,
         ));
@@ -509,7 +517,9 @@ fn build_node(state: SimulatedGameState) -> SearchNode {
             tracing,
             tactical,
             territory,
+            border,
             enclosure,
+            survival,
             hunting,
         }))
     };
