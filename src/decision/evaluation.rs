@@ -41,8 +41,8 @@ pub(crate) struct DirectionSurvivalSummary {
 
 impl DirectionSurvivalSummary {
     fn leaf(node: &SearchNode, terminal: TerminalAssessment) -> Self {
-        let safe_moves = node.analysis.tactical.ours.safe_moves.len();
-        let reachable_space = node.analysis.tactical.ours.best_reachable_space;
+        let safe_moves = node.active_analysis().map_or(0, |analysis| analysis.tactical.ours.safe_moves.len());
+        let reachable_space = node.active_analysis().map_or(0, |analysis| analysis.tactical.ours.best_reachable_space);
 
         Self {
             total_routes: 1,
@@ -235,7 +235,12 @@ impl DagEvaluator<'_> {
             let best = choose_best_direction(
                 &directions,
                 &node.state,
-                node.analysis.tactical.ours.safe_moves,
+                node
+                    .active_analysis()
+                    .expect("running search node must have analysis")
+                    .tactical
+                    .ours
+                    .safe_moves,
                 self.policy,
             )?;
 
@@ -407,7 +412,7 @@ fn apply_edge(
         .iter()
         .any(|event| matches!(event, InstantEvent::SelfConstrained { remaining_moves: 2 }));
 
-    let child_safe_moves = child_node.analysis.tactical.ours.safe_moves.len();
+    let child_safe_moves = child_node.active_analysis().map_or(0, |analysis| analysis.tactical.ours.safe_moves.len());
     let mut survival = child.survival;
     if death_now {
         survival.death_routes = route_count;
@@ -424,7 +429,7 @@ fn apply_edge(
     survival.min_future_mobility = survival.min_future_mobility.min(child_safe_moves);
     survival.min_reachable_space = survival
         .min_reachable_space
-        .min(child_node.analysis.tactical.ours.best_reachable_space);
+        .min(child_node.active_analysis().map_or(0, |analysis| analysis.tactical.ours.best_reachable_space));
     survival.min_second_order_mobility = survival
         .min_second_order_mobility
         .min(u32::from(child_safe_moves));
@@ -474,13 +479,28 @@ fn aggregate_direction(
             .map(|outcome| outcome.survival.min_future_mobility)
             .min()
             .unwrap_or(0)
-            .min(parent.analysis.tactical.ours.safe_moves.len()),
+            .min(
+                parent
+                    .active_analysis()
+                    .expect("expanded parent must have analysis")
+                    .tactical
+                    .ours
+                    .safe_moves
+                    .len(),
+            ),
         min_reachable_space: outcomes
             .iter()
             .map(|outcome| outcome.survival.min_reachable_space)
             .min()
             .unwrap_or(0)
-            .min(parent.analysis.tactical.ours.best_reachable_space),
+            .min(
+                parent
+                    .active_analysis()
+                    .expect("expanded parent must have analysis")
+                    .tactical
+                    .ours
+                    .best_reachable_space,
+            ),
         min_second_order_mobility: outcomes
             .iter()
             .map(|outcome| outcome.survival.min_second_order_mobility)
@@ -606,7 +626,10 @@ fn edge_hunting_delta(parent: &SearchNode, edge: &SearchEdge) -> f32 {
 }
 
 fn enemy_pressure_level(node: &SearchNode, enemy_id: &str) -> f32 {
-    let Some(enemy) = node.analysis.tactical.enemies.get(enemy_id) else {
+    let Some(enemy) = node
+        .active_analysis()
+        .and_then(|analysis| analysis.tactical.enemies.get(enemy_id))
+    else {
         return 0.0;
     };
 
@@ -673,12 +696,14 @@ fn food_leaf_potential(node: &SearchNode) -> f32 {
         .iter()
         .filter_map(|food| {
             let route = node
-                .analysis
+                .active_analysis()
+                .expect("running leaf must have analysis")
                 .state
                 .route_for(&node.state.our_snake_id, *food)?;
             let distance = route.distance?;
             let claim_factor = node
-                .analysis
+                .active_analysis()
+                .expect("running leaf must have analysis")
                 .state
                 .nearest_competitor_for(&node.state.our_snake_id, *food)
                 .map(|competitor| {
@@ -704,7 +729,8 @@ fn hunting_leaf_potential(node: &SearchNode) -> f32 {
         return 0.0;
     };
 
-    node.analysis
+    node.active_analysis()
+        .expect("running leaf must have analysis")
         .tactical
         .enemies
         .values()
