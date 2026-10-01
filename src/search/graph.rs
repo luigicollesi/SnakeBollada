@@ -17,7 +17,7 @@ use crate::direction::MoveMask;
 use crate::enemy::profile::OpponentProfiles;
 use crate::enemy::tracing::{trace_with_mobility, EnemyTracingOutput};
 use crate::evaluation::{
-    ActorContext, ActorSnapshot, ActorTable, ActorUtilityMetrics, TransitionScore,
+    ActorSnapshot, ActorTable, ActorUtilityMetrics, StrategicWeights, TransitionScore,
 };
 use crate::modes::hunting::{self, HuntingModeOutput};
 use crate::modes::survival::{self, SurvivalModeOutput};
@@ -1062,7 +1062,6 @@ fn build_node_with_key(
             .par_iter()
             .filter(|snake| snake.alive)
             .filter_map(|snake| {
-                let context = ActorContext::from_state(&state, &snake.id)?;
                 let metrics = ActorUtilityMetrics::from_parts(
                     &state,
                     &snake.id,
@@ -1072,7 +1071,9 @@ fn build_node_with_key(
                     &enclosure,
                     &border,
                 )?;
-                Some((snake.id.clone(), ActorSnapshot::new(context, metrics)))
+                let weights =
+                    StrategicWeights::for_actor(&state, &snake.id, metrics.territory_share_milli)?;
+                Some((snake.id.clone(), ActorSnapshot::new(metrics, weights)))
             })
             .collect::<ActorTable<_>>();
         Some(Arc::new(NodeAnalysis {
