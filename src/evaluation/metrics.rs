@@ -1,4 +1,4 @@
-use crate::analysis::{BorderFobicAnalysis, EnclosureAnalysis, StateAnalysis, TerritoryAnalysis};
+use crate::analysis::{BorderFobicAnalysis, EnclosureAnalysis, TerritoryAnalysis};
 use crate::simulation::mobility::MobilityAnalysis;
 use crate::simulation::state::SimulatedGameState;
 
@@ -15,7 +15,6 @@ impl ActorUtilityMetrics {
     pub(crate) fn from_parts(
         state: &SimulatedGameState,
         actor_id: &str,
-        state_analysis: &StateAnalysis,
         mobility: &MobilityAnalysis,
         territory: &TerritoryAnalysis,
         enclosure: &EnclosureAnalysis,
@@ -37,23 +36,20 @@ impl ActorUtilityMetrics {
                 territory_snapshot.exclusive_space,
                 territory_snapshot.contested_space,
             ),
-            best_food_distance: nearest_food_distance(state, state_analysis, actor_id),
+            best_food_distance: nearest_food_distance(state, territory, actor_id),
         })
     }
 }
 
 fn nearest_food_distance(
     state: &SimulatedGameState,
-    analysis: &StateAnalysis,
+    territory: &TerritoryAnalysis,
     actor_id: &str,
 ) -> Option<u16> {
     state
         .food
         .iter()
-        .filter_map(|food| {
-            let route = analysis.route_for(actor_id, *food)?;
-            route.reachable.then_some(route.distance).flatten()
-        })
+        .filter_map(|food| territory.distance_for(actor_id, *food))
         .min()
 }
 
