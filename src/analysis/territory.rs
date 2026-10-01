@@ -243,10 +243,7 @@ impl TerritoryAnalysis {
     pub(crate) fn competitive_owner_at(&self, coord: Coord) -> Option<&str> {
         let index = index_of(self.width, self.height, coord)?;
         match self.competitive_claims.get(index)? {
-            CompetitiveClaim::Owned(owner) => self
-                .competitive_ids
-                .get(*owner)
-                .map(String::as_str),
+            CompetitiveClaim::Owned(owner) => self.competitive_ids.get(*owner).map(String::as_str),
             CompetitiveClaim::Unclaimed | CompetitiveClaim::Contested(_) => None,
         }
     }
