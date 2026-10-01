@@ -542,16 +542,18 @@ fn apply_edge(
             .map_or(0, |snapshot| snapshot.risk.rank())
     });
     let (child_border_structural, child_border_preference, child_enemy_pin, child_inward_control) =
-        child_node.active_analysis().map_or((0, 0, 0, 1000), |analysis| {
-            analysis.border.ours().map_or((0, 0, 0, 1000), |snapshot| {
-                (
-                    snapshot.structural_risk_milli,
-                    snapshot.preference_milli,
-                    snapshot.enemy_pin_risk_milli,
-                    snapshot.inward_control_milli,
-                )
-            })
-        });
+        child_node
+            .active_analysis()
+            .map_or((0, 0, 0, 1000), |analysis| {
+                analysis.border.ours().map_or((0, 0, 0, 1000), |snapshot| {
+                    (
+                        snapshot.structural_risk_milli,
+                        snapshot.preference_milli,
+                        snapshot.enemy_pin_risk_milli,
+                        snapshot.inward_control_milli,
+                    )
+                })
+            });
     let mut survival = child.survival;
     survival.max_self_enclosure_risk = survival.max_self_enclosure_risk.max(child_enclosure_risk);
     survival.max_border_structural_risk_milli = survival
@@ -560,10 +562,8 @@ fn apply_edge(
     survival.max_border_preference_milli = survival
         .max_border_preference_milli
         .max(child_border_preference);
-    survival.max_enemy_pin_risk_milli =
-        survival.max_enemy_pin_risk_milli.max(child_enemy_pin);
-    survival.min_inward_control_milli =
-        survival.min_inward_control_milli.min(child_inward_control);
+    survival.max_enemy_pin_risk_milli = survival.max_enemy_pin_risk_milli.max(child_enemy_pin);
+    survival.min_inward_control_milli = survival.min_inward_control_milli.min(child_inward_control);
     if death_now {
         survival.death_routes = route_count;
     }
