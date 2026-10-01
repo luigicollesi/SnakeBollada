@@ -457,7 +457,6 @@ impl DecisionEngine {
     }
 }
 
-
 fn escape_should_override(intent: Option<&DecisionIntent>, pressure_milli: u16) -> bool {
     pressure_milli >= ESCAPE_ACTIVATION_THRESHOLD_MILLI
         || (intent.and_then(DecisionIntent::escape).is_some()
