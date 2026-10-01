@@ -341,6 +341,7 @@ fn choose_hunt_intent<'a>(
                 && !evaluation.survival.is_forced_dead_end()
                 && evaluation.survival.death_rate_milli() <= death_limit
                 && evaluation.survival.max_self_enclosure_risk < 3
+                && evaluation.survival.max_border_structural_risk_milli < 800
         })
         .filter_map(|evaluation| {
             hunting_intent_progress(graph, evaluation.direction, intent)
@@ -375,6 +376,26 @@ fn hunting_intent_progress(
     let root = graph.node(graph.root());
     let root_analysis = root.active_analysis()?;
     let before = root_analysis.enclosure.for_snake(&intent.target)?;
+    let before_target_control = root_analysis
+        .territory
+        .competitive_for_snake(&intent.target)
+        .map(|snapshot| snapshot.control_ratio_milli);
+    let before_our_control = root_analysis
+        .territory
+        .competitive_for_snake(&root.state.our_snake_id)
+        .map(|snapshot| snapshot.control_ratio_milli);
+    let before_frontier = root_analysis
+        .territory
+        .competitive_for_snake(&root.state.our_snake_id)
+        .map(|snapshot| {
+            i32::from(snapshot.winning_frontier) - i32::from(snapshot.losing_frontier)
+        })
+        .unwrap_or(0);
+    let before_border = root_analysis
+        .border
+        .ours()
+        .map(|snapshot| snapshot.structural_risk_milli)
+        .unwrap_or(0);
     let before_plan = root_analysis
         .hunting
         .plans
@@ -414,6 +435,42 @@ fn hunting_intent_progress(
             .clamp(-2400, 2400) as i32;
         let boundary_delta = i32::from(after.boundary_support) - i32::from(before.boundary_support);
         let edge_delta = i32::from(before.edge_distance) - i32::from(after.edge_distance);
+        let target_control_delta = match (
+            before_target_control,
+            analysis
+                .territory
+                .competitive_for_snake(&intent.target)
+                .map(|snapshot| snapshot.control_ratio_milli),
+        ) {
+            (Some(before), Some(after)) => i32::from(before).saturating_sub(i32::from(after)),
+            _ => 0,
+        };
+        let our_control_delta = match (
+            before_our_control,
+            analysis
+                .territory
+                .competitive_for_snake(&child.state.our_snake_id)
+                .map(|snapshot| snapshot.control_ratio_milli),
+        ) {
+            (Some(before), Some(after)) => i32::from(after).saturating_sub(i32::from(before)),
+            _ => 0,
+        };
+        let frontier_delta = analysis
+            .territory
+            .competitive_for_snake(&child.state.our_snake_id)
+            .map(|snapshot| {
+                i32::from(snapshot.winning_frontier)
+                    - i32::from(snapshot.losing_frontier)
+                    - before_frontier
+            })
+            .unwrap_or(0);
+        let after_border = analysis
+            .border
+            .ours()
+            .map(|snapshot| snapshot.structural_risk_milli)
+            .unwrap_or(0);
+        let border_growth = i32::from(after_border).saturating_sub(i32::from(before_border));
+
         let after_plan = analysis
             .hunting
             .plans
@@ -441,7 +498,12 @@ fn hunting_intent_progress(
                 .saturating_add(boundary_delta.saturating_mul(90))
                 .saturating_add(edge_delta.saturating_mul(edge_weight))
                 .saturating_add(plan_delta.saturating_div(2))
-                .saturating_sub(our_risk.saturating_mul(120)),
+                .saturating_add(target_control_delta.saturating_mul(2))
+                .saturating_add(our_control_delta)
+                .saturating_add(frontier_delta.saturating_mul(35))
+                .saturating_sub(our_risk.saturating_mul(120))
+                .saturating_sub(border_growth.max(0).saturating_mul(2))
+                .saturating_sub(i32::from(after_border).saturating_div(5)),
         );
     }
 
@@ -475,6 +537,7 @@ fn choose_guaranteed_kill<'a>(
                 && !evaluation.survival.has_dead_end_response()
                 && !evaluation.survival.has_forced_response()
                 && evaluation.survival.max_self_enclosure_risk < 2
+                && evaluation.survival.max_border_structural_risk_milli < 900
         })
         .min_by(|left, right| {
             crate::decision::evaluation::compare_direction(left, right, state, policy)
@@ -500,6 +563,7 @@ fn choose_food_opening<'a>(
                     && !evaluation.survival.is_forced_dead_end()
                     && evaluation.survival.death_rate_milli() <= death_limit
                     && evaluation.survival.max_self_enclosure_risk < 2
+                    && evaluation.survival.max_border_structural_risk_milli < 800
             })
     };
 
