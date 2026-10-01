@@ -995,9 +995,9 @@ fn build_node_with_key(
             &state, &tracing, &mobility,
         ));
         let border = Arc::new(match profile {
-            AnalysisProfile::Full => BorderFobicAnalysis::from_parts_with_territory(
-                &state, &tactical, &territory,
-            ),
+            AnalysisProfile::Full => {
+                BorderFobicAnalysis::from_parts_with_territory(&state, &tactical, &territory)
+            }
             AnalysisProfile::BeamLean => {
                 BorderFobicAnalysis::from_parts_with_territory_actor_relative(
                     &state, &tactical, &territory,
@@ -1009,9 +1009,7 @@ fn build_node_with_key(
             AnalysisProfile::BeamLean => StrategicPosture::default(),
         });
         let enclosure = Arc::new(match profile {
-            AnalysisProfile::Full => {
-                EnclosureAnalysis::from_parts(&state, &territory, &tactical)
-            }
+            AnalysisProfile::Full => EnclosureAnalysis::from_parts(&state, &territory, &tactical),
             AnalysisProfile::BeamLean => {
                 EnclosureAnalysis::from_parts_actor_relative(&state, &territory, &tactical)
             }
@@ -1143,7 +1141,9 @@ mod tests {
 
         let beam = legacy.independent_beam_graph();
         let root = beam.node(beam.root());
-        let analysis = root.active_analysis().expect("beam root must be analyzable");
+        let analysis = root
+            .active_analysis()
+            .expect("beam root must be analyzable");
 
         assert_eq!(beam.node_count(), 1);
         assert_eq!(beam.edge_count(), 0);
