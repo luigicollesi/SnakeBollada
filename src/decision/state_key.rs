@@ -52,7 +52,7 @@ impl StateKey {
         hazards.sort_unstable();
 
         Self {
-            turn: state.turn,
+            turn: if include_aggression { state.turn } else { 0 },
             width: state.width,
             height: state.height,
             snakes,
@@ -155,6 +155,19 @@ mod tests {
         let mut right = sample_state();
         right.snakes[0].health -= 1;
 
+        assert_ne!(StateKey::from_state(&left), StateKey::from_state(&right));
+    }
+
+    #[test]
+    fn beam_key_ignores_turn_for_simulation_equivalent_states() {
+        let left = sample_state();
+        let mut right = sample_state();
+        right.turn = right.turn.saturating_add(9);
+
+        assert_eq!(
+            StateKey::from_beam_state(&left),
+            StateKey::from_beam_state(&right)
+        );
         assert_ne!(StateKey::from_state(&left), StateKey::from_state(&right));
     }
 
