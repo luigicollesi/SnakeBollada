@@ -91,7 +91,9 @@ async fn handle_move(move_req: Json<GameState>, runtime: &State<GameRuntime>) ->
 
     let chosen_outcome = decision.search.direction_outcomes[usize::from(decision.direction.rank())];
     let beam_shadow = decision.search.beam_shadow;
-    let beam_direction = beam_shadow.direction.map_or("-", |direction| direction.as_str());
+    let beam_direction = beam_shadow
+        .direction
+        .map_or("-", |direction| direction.as_str());
     info!(
         "MOVE {}: {} ({:?}) completed_depth={} analyzed_depth={} nodes={} edges={} phase={:?} hunt={} food={} dom={} control={} border={} pin={} escape={} escape_selected={} edge_ticks={} edge_cost={} beam_shadow={} beam_move={} beam_depth={} beam_attempted={} beam_agree={} beam_value={} beam_us={}",
         move_req.turn,
