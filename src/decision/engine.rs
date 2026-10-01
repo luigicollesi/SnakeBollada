@@ -490,8 +490,7 @@ fn run_beam_shadow(
     }
 
     let started = Instant::now();
-    let mut shadow_graph = graph.clone();
-    shadow_graph.use_beam_lean_analysis();
+    let mut shadow_graph = graph.independent_beam_graph();
     shadow_graph.reset_performance();
     let available = budget
         .remaining_hard()
