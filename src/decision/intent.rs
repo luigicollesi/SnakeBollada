@@ -139,6 +139,29 @@ mod tests {
     use super::*;
 
     #[test]
+    fn escape_intent_requires_two_safe_turns_to_release() {
+        let mut intent = EscapeIntent::new(10, 800);
+
+        intent.record_pressure(250);
+        assert!(!intent.should_release());
+
+        intent.record_pressure(200);
+        assert!(intent.should_release());
+    }
+
+    #[test]
+    fn escape_intent_resets_stability_when_pressure_returns() {
+        let mut intent = EscapeIntent::new(10, 800);
+
+        intent.record_pressure(250);
+        intent.record_pressure(600);
+        intent.record_pressure(200);
+
+        assert!(!intent.should_release());
+        assert_eq!(intent.stable_turns, 1);
+    }
+
+    #[test]
     fn hunt_intent_has_minimum_lock_window() {
         let plan = HuntingPlanCandidate {
             target: "enemy".to_string(),
