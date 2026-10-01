@@ -96,7 +96,7 @@ async fn handle_move(move_req: Json<GameState>, runtime: &State<GameRuntime>) ->
         .direction
         .map_or("-", |direction| direction.as_str());
     info!(
-        "MOVE {}: {} ({:?}) completed_depth={} analyzed_depth={} nodes={} edges={} phase={:?} hunt={} food={} dom={} control={} border={} pin={} escape={} escape_selected={} edge_ticks={} edge_cost={} beam_shadow={} beam_move={} beam_depth={} beam_attempted={} beam_agree={} beam_value={} beam_us={} beam_batches={} beam_parallel_batches={} beam_actions={} beam_new_nodes={} beam_resolve_us={} beam_build_us={} beam_merge_us={} beam_score_us={}",
+        "MOVE {}: {} ({:?}) completed_depth={} analyzed_depth={} nodes={} edges={} phase={:?} hunt={} food={} dom={} control={} border={} pin={} escape={} escape_selected={} edge_ticks={} edge_cost={} beam_shadow={} beam_move={} beam_depth={} beam_attempted={} beam_agree={} beam_value={} beam_us={} beam_batches={} beam_parallel_batches={} beam_actions={} beam_new_nodes={} beam_resolve_us={} beam_build_us={} beam_merge_us={} beam_score_us={} beam_ours_food={} beam_ours_hunt={} beam_ours_survival={} beam_ours_terminal={} beam_enemy_food={} beam_enemy_hunt={} beam_enemy_survival={} beam_enemy_terminal={}",
         move_req.turn,
         decision.direction.as_str(),
         decision.reason,
@@ -130,6 +130,14 @@ async fn handle_move(move_req: Json<GameState>, runtime: &State<GameRuntime>) ->
         beam_shadow.node_build_us,
         beam_shadow.merge_us,
         beam_shadow.edge_score_us,
+        beam_shadow.our_food_utility,
+        beam_shadow.our_hunting_utility,
+        beam_shadow.our_survival_utility,
+        beam_shadow.our_terminal_utility,
+        beam_shadow.opponent_food_utility,
+        beam_shadow.opponent_hunting_utility,
+        beam_shadow.opponent_survival_utility,
+        beam_shadow.opponent_terminal_utility,
     );
 
     Json(json!({
