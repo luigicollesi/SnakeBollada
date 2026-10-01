@@ -1043,7 +1043,7 @@ fn build_node_with_key(
                     &state,
                     &snake.id,
                     &state_analysis,
-                    &tactical,
+                    &mobility,
                     &territory,
                     &enclosure,
                     &border,
