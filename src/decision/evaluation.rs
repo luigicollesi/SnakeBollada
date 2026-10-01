@@ -1,50 +1,126 @@
 #![allow(dead_code)]
 
+use std::cmp::Ordering;
 use std::collections::HashMap;
 
-use crate::direction::Direction;
+use crate::decision::policy::ReservedCellPolicy;
+use crate::direction::{Direction, MoveMask};
 use crate::forecast::ForecastCertainty;
-use crate::modes::survival::{SurvivalRouteAssessment, SurvivalStateSnapshot};
 use crate::search::budget::SearchBudget;
-use crate::search::graph::{FutureGraph, NodeId, SearchNode};
-use crate::simulation::resolver::{EliminationAttribution, ForecastDelta, InstantEvent};
+use crate::search::graph::{FutureGraph, NodeId, SearchEdge, SearchNode};
+use crate::simulation::resolver::{
+    EliminationAttribution, ForecastDelta, InstantEvent,
+};
 
-#[derive(Debug, Clone)]
-pub(crate) struct RouteEvaluation {
-    pub(crate) initial_move: Direction,
-    pub(crate) events: Vec<InstantEvent>,
-    pub(crate) survival: SurvivalRouteAssessment,
-    pub(crate) died: bool,
-    pub(crate) food_value: f32,
-    pub(crate) hunting_value: f32,
-    pub(crate) leaf_food_potential: f32,
-    pub(crate) leaf_hunting_potential: f32,
-    pub(crate) strategic_utility: f32,
-    pub(crate) certainty: ForecastCertainty,
-    pub(crate) final_aggression: f32,
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum TerminalAssessment {
+    Lost,
+    Running,
+    Won,
 }
 
-#[derive(Debug, Clone, Copy, Default)]
-struct LeafPotential {
-    food: f32,
-    hunting: f32,
+impl TerminalAssessment {
+    const fn rank(self) -> u8 {
+        match self {
+            Self::Lost => 0,
+            Self::Running => 1,
+            Self::Won => 2,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct DirectionSurvivalSummary {
-    pub(crate) total_routes: u32,
-    pub(crate) death_routes: u32,
-    pub(crate) dead_end_routes: u32,
-    pub(crate) forced_routes: u32,
-    pub(crate) constrained_routes: u32,
+    pub(crate) total_routes: u64,
+    pub(crate) death_routes: u64,
+    pub(crate) dead_end_routes: u64,
+    pub(crate) forced_routes: u64,
+    pub(crate) constrained_routes: u64,
     pub(crate) min_future_mobility: u8,
     pub(crate) min_reachable_space: u32,
+    pub(crate) min_second_order_mobility: u32,
+}
+
+impl DirectionSurvivalSummary {
+    fn leaf(node: &SearchNode, terminal: TerminalAssessment) -> Self {
+        let safe_moves = node.analysis.tactical.ours.safe_moves.len();
+        let reachable_space = node.analysis.tactical.ours.best_reachable_space;
+
+        Self {
+            total_routes: 1,
+            death_routes: u64::from(terminal == TerminalAssessment::Lost),
+            dead_end_routes: u64::from(
+                terminal != TerminalAssessment::Lost && safe_moves == 0,
+            ),
+            forced_routes: u64::from(
+                terminal != TerminalAssessment::Lost && safe_moves == 1,
+            ),
+            constrained_routes: u64::from(
+                terminal != TerminalAssessment::Lost && safe_moves == 2,
+            ),
+            min_future_mobility: safe_moves,
+            min_reachable_space: reachable_space,
+            min_second_order_mobility: u32::from(safe_moves),
+        }
+    }
+
+    fn with_parent_snapshot(mut self, parent: &SearchNode) -> Self {
+        let safe_moves = parent.analysis.tactical.ours.safe_moves.len();
+        self.min_future_mobility = self.min_future_mobility.min(safe_moves);
+        self.min_reachable_space = self
+            .min_reachable_space
+            .min(parent.analysis.tactical.ours.best_reachable_space);
+        self
+    }
+
+    pub(crate) fn has_death_response(&self) -> bool {
+        self.death_routes > 0
+    }
+
+    pub(crate) fn has_dead_end_response(&self) -> bool {
+        self.dead_end_routes > 0
+    }
+
+    pub(crate) fn has_forced_response(&self) -> bool {
+        self.forced_routes > 0
+    }
+
+    pub(crate) fn has_constrained_response(&self) -> bool {
+        self.constrained_routes > 0
+    }
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+struct StrategicEnvelope {
+    worst_utility: f32,
+    average_utility: f32,
+    average_realized_food: f32,
+    average_realized_hunting: f32,
+    average_leaf_food_potential: f32,
+    average_leaf_hunting_potential: f32,
+}
+
+#[derive(Debug, Clone)]
+struct NodeEvaluation {
+    terminal: TerminalAssessment,
+    survival: DirectionSurvivalSummary,
+    strategic: StrategicEnvelope,
+    reserved_override_all: bool,
+    chosen_move: Option<Direction>,
+}
+
+#[derive(Debug, Clone)]
+struct EdgeOutcome {
+    terminal: TerminalAssessment,
+    survival: DirectionSurvivalSummary,
+    strategic: StrategicEnvelope,
+    reserved_override_all: bool,
 }
 
 #[derive(Debug, Clone)]
 pub(crate) struct DirectionEvaluation {
     pub(crate) direction: Direction,
-    pub(crate) routes: Vec<RouteEvaluation>,
+    pub(crate) terminal: TerminalAssessment,
     pub(crate) survival: DirectionSurvivalSummary,
     pub(crate) worst_strategic_utility: f32,
     pub(crate) average_strategic_utility: f32,
@@ -55,15 +131,46 @@ pub(crate) struct DirectionEvaluation {
     pub(crate) reserved_override: bool,
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) struct DagEvaluationStats {
+    pub(crate) nodes_evaluated: u32,
+    pub(crate) memo_hits: u32,
+    pub(crate) deterministic_evaluations: u32,
+    pub(crate) provisional_evaluations: u32,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct DagEvaluationResult {
+    pub(crate) directions: Vec<DirectionEvaluation>,
+    pub(crate) stats: DagEvaluationStats,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+struct MemoKey {
+    node: NodeId,
+    remaining_depth: u8,
+    provisional: bool,
+}
+
+struct DagEvaluator<'a> {
+    graph: &'a FutureGraph,
+    budget: Option<&'a SearchBudget>,
+    memo: HashMap<MemoKey, NodeEvaluation>,
+    stats: DagEvaluationStats,
+    policy: ReservedCellPolicy,
+}
+
 pub(crate) fn evaluate_graph(graph: &FutureGraph, target_depth: u8) -> Vec<DirectionEvaluation> {
-    evaluate_graph_inner(graph, target_depth, None).unwrap_or_default()
+    evaluate_graph_inner(graph, target_depth, None)
+        .map(|result| result.directions)
+        .unwrap_or_default()
 }
 
 pub(crate) fn evaluate_graph_budgeted(
     graph: &FutureGraph,
     target_depth: u8,
     budget: &SearchBudget,
-) -> Option<Vec<DirectionEvaluation>> {
+) -> Option<DagEvaluationResult> {
     evaluate_graph_inner(graph, target_depth, Some(budget))
 }
 
@@ -71,188 +178,488 @@ fn evaluate_graph_inner(
     graph: &FutureGraph,
     target_depth: u8,
     budget: Option<&SearchBudget>,
-) -> Option<Vec<DirectionEvaluation>> {
-    let root = graph.node(graph.root());
-    let root_snapshot = SurvivalStateSnapshot::from_tactical(&root.state, &root.analysis.tactical);
-
-    let context = RouteContext {
-        initial_move: None,
-        events: Vec::new(),
-        snapshots: vec![root_snapshot],
-        second_order_mobility: node_second_order_mobility(graph, graph.root()),
-        certainty: ForecastCertainty::Deterministic,
-    };
-
-    let mut routes = Vec::new();
-    if !walk_routes(
+) -> Option<DagEvaluationResult> {
+    let mut evaluator = DagEvaluator {
         graph,
-        graph.root(),
-        0,
-        target_depth,
-        &context,
-        &mut routes,
         budget,
-    ) {
-        return None;
+        memo: HashMap::new(),
+        stats: DagEvaluationStats::default(),
+        policy: ReservedCellPolicy::default(),
+    };
+    let directions = evaluator.evaluate_directions(
+        graph.root(),
+        target_depth,
+        ForecastCertainty::Deterministic,
+    )?;
+
+    Some(DagEvaluationResult {
+        directions,
+        stats: evaluator.stats,
+    })
+}
+
+impl DagEvaluator<'_> {
+    fn evaluate_node(
+        &mut self,
+        node_id: NodeId,
+        remaining_depth: u8,
+        certainty: ForecastCertainty,
+    ) -> Option<NodeEvaluation> {
+        if self.budget.is_some_and(SearchBudget::expired) {
+            return None;
+        }
+
+        let key = MemoKey {
+            node: node_id,
+            remaining_depth,
+            provisional: certainty == ForecastCertainty::FoodProvisional,
+        };
+        if let Some(cached) = self.memo.get(&key) {
+            self.stats.memo_hits = self.stats.memo_hits.saturating_add(1);
+            return Some(cached.clone());
+        }
+
+        self.stats.nodes_evaluated = self.stats.nodes_evaluated.saturating_add(1);
+        match certainty {
+            ForecastCertainty::Deterministic => {
+                self.stats.deterministic_evaluations =
+                    self.stats.deterministic_evaluations.saturating_add(1);
+            }
+            ForecastCertainty::FoodProvisional => {
+                self.stats.provisional_evaluations =
+                    self.stats.provisional_evaluations.saturating_add(1);
+            }
+        }
+
+        let node = self.graph.node(node_id);
+        let terminal = terminal_assessment(node);
+        let evaluation = if remaining_depth == 0
+            || terminal != TerminalAssessment::Running
+            || node.children.is_empty()
+        {
+            evaluate_frontier(node, certainty, terminal)
+        } else {
+            let directions = self.evaluate_directions(node_id, remaining_depth, certainty)?;
+            let best = choose_best_direction(
+                &directions,
+                &node.state,
+                node.analysis.tactical.ours.safe_moves,
+                self.policy,
+            )?;
+
+            NodeEvaluation {
+                terminal: best.terminal,
+                survival: best.survival.with_parent_snapshot(node),
+                strategic: StrategicEnvelope {
+                    worst_utility: best.worst_strategic_utility,
+                    average_utility: best.average_strategic_utility,
+                    average_realized_food: best.average_food_value,
+                    average_realized_hunting: best.average_hunting_value,
+                    average_leaf_food_potential: best.average_leaf_food_potential,
+                    average_leaf_hunting_potential: best.average_leaf_hunting_potential,
+                },
+                reserved_override_all: best.reserved_override,
+                chosen_move: Some(best.direction),
+            }
+        };
+
+        self.memo.insert(key, evaluation.clone());
+        Some(evaluation)
     }
 
-    Some(
-        Direction::ALL
-            .into_iter()
-            .filter_map(|direction| {
-                let direction_routes = routes
-                    .iter()
-                    .filter(|route| route.initial_move == direction)
-                    .cloned()
-                    .collect::<Vec<_>>();
+    fn evaluate_directions(
+        &mut self,
+        node_id: NodeId,
+        remaining_depth: u8,
+        certainty: ForecastCertainty,
+    ) -> Option<Vec<DirectionEvaluation>> {
+        if self.budget.is_some_and(SearchBudget::expired) {
+            return None;
+        }
 
-                (!direction_routes.is_empty())
-                    .then(|| DirectionEvaluation::from_routes(direction, direction_routes))
-            })
-            .collect(),
-    )
+        let node = self.graph.node(node_id);
+        if remaining_depth == 0 || node.children.is_empty() {
+            return Some(Vec::new());
+        }
+
+        let mut grouped: [Vec<&SearchEdge>; 4] = std::array::from_fn(|_| Vec::new());
+        for edge in &node.children {
+            let Some(direction) = edge.joint_action.direction_for(&node.state.our_snake_id) else {
+                continue;
+            };
+            grouped[usize::from(direction.rank())].push(edge);
+        }
+
+        let mut directions = Vec::new();
+        for direction in Direction::ALL {
+            let edges = &grouped[usize::from(direction.rank())];
+            if edges.is_empty() {
+                continue;
+            }
+
+            let mut outcomes = Vec::with_capacity(edges.len());
+            for edge in edges {
+                if self.budget.is_some_and(SearchBudget::expired) {
+                    return None;
+                }
+
+                let child_certainty = next_certainty(certainty, edge.forecast_delta);
+                let child = self.evaluate_node(
+                    edge.child,
+                    remaining_depth.saturating_sub(1),
+                    child_certainty,
+                )?;
+                outcomes.push(apply_edge(node, edge, child, certainty, self.graph));
+            }
+
+            directions.push(aggregate_direction(direction, node, &outcomes));
+        }
+
+        Some(directions)
+    }
 }
 
-#[derive(Debug, Clone)]
-struct RouteContext {
-    initial_move: Option<Direction>,
-    events: Vec<InstantEvent>,
-    snapshots: Vec<SurvivalStateSnapshot>,
-    second_order_mobility: u32,
+fn terminal_assessment(node: &SearchNode) -> TerminalAssessment {
+    let ours_alive = node
+        .state
+        .snake(&node.state.our_snake_id)
+        .is_some_and(|snake| snake.alive);
+    if !ours_alive {
+        return TerminalAssessment::Lost;
+    }
+
+    let enemy_alive = node
+        .state
+        .snakes
+        .iter()
+        .any(|snake| snake.alive && snake.id != node.state.our_snake_id);
+
+    if enemy_alive {
+        TerminalAssessment::Running
+    } else {
+        TerminalAssessment::Won
+    }
+}
+
+fn evaluate_frontier(
+    node: &SearchNode,
     certainty: ForecastCertainty,
+    terminal: TerminalAssessment,
+) -> NodeEvaluation {
+    let potential = if terminal == TerminalAssessment::Running {
+        leaf_potential(node)
+    } else {
+        LeafPotential::default()
+    };
+    let aggression = node.state.aggression.value.clamp(0.0, 1.0);
+    let (food_discount, hunting_discount) = certainty_discounts(certainty);
+    let utility = potential.food * food_discount * (1.0 - aggression)
+        + potential.hunting * hunting_discount * aggression;
+
+    NodeEvaluation {
+        terminal,
+        survival: DirectionSurvivalSummary::leaf(node, terminal),
+        strategic: StrategicEnvelope {
+            worst_utility: utility,
+            average_utility: utility,
+            average_realized_food: 0.0,
+            average_realized_hunting: 0.0,
+            average_leaf_food_potential: potential.food,
+            average_leaf_hunting_potential: potential.hunting,
+        },
+        reserved_override_all: false,
+        chosen_move: None,
+    }
 }
 
-fn walk_routes(
+fn apply_edge(
+    parent: &SearchNode,
+    edge: &SearchEdge,
+    child: NodeEvaluation,
+    certainty: ForecastCertainty,
     graph: &FutureGraph,
-    node_id: NodeId,
-    depth: u8,
-    target_depth: u8,
-    context: &RouteContext,
-    routes: &mut Vec<RouteEvaluation>,
-    budget: Option<&SearchBudget>,
-) -> bool {
-    if budget.is_some_and(SearchBudget::expired) {
-        return false;
-    }
-
-    let node = graph.node(node_id);
-
-    if depth >= target_depth || node.children.is_empty() {
-        if let Some(initial_move) = context.initial_move {
-            if let Some(survival) = SurvivalRouteAssessment::from_snapshots(
-                &context.snapshots,
-                context.second_order_mobility,
-            ) {
-                routes.push(finalize_route(
-                    initial_move,
-                    &context.events,
-                    survival,
-                    context.certainty,
-                    node,
-                ));
-            }
-        }
-        return true;
-    }
-
-    for edge in &node.children {
-        if budget.is_some_and(SearchBudget::expired) {
-            return false;
-        }
-        let child = graph.node(edge.child);
-        let initial_move = context
-            .initial_move
-            .or_else(|| edge.joint_action.direction_for(&node.state.our_snake_id));
-
-        let Some(initial_move) = initial_move else {
-            continue;
-        };
-
-        let mut events = context.events.clone();
-        events.extend(edge.events.iter().cloned());
-
-        let mut snapshots = context.snapshots.clone();
-        snapshots.push(SurvivalStateSnapshot::from_tactical(
-            &child.state,
-            &child.analysis.tactical,
-        ));
-
-        let second_order_mobility = context
-            .second_order_mobility
-            .min(node_second_order_mobility(graph, edge.child));
-
-        let certainty = match (context.certainty, edge.forecast_delta) {
-            (_, ForecastDelta::FoodUncertainty) | (ForecastCertainty::FoodProvisional, _) => {
-                ForecastCertainty::FoodProvisional
-            }
-            _ => ForecastCertainty::Deterministic,
-        };
-
-        if !walk_routes(
-            graph,
-            edge.child,
-            depth.saturating_add(1),
-            target_depth,
-            &RouteContext {
-                initial_move: Some(initial_move),
-                events,
-                snapshots,
-                second_order_mobility,
-                certainty,
-            },
-            routes,
-            budget,
-        ) {
-            return false;
-        }
-    }
-
-    true
-}
-
-fn finalize_route(
-    initial_move: Direction,
-    events: &[InstantEvent],
-    survival: SurvivalRouteAssessment,
-    certainty: ForecastCertainty,
-    leaf: &SearchNode,
-) -> RouteEvaluation {
-    let realized_food = events
+) -> EdgeOutcome {
+    let child_node = graph.node(edge.child);
+    let route_count = child.survival.total_routes.max(1);
+    let realized_food = edge
+        .events
         .iter()
         .filter(|event| {
             matches!(
                 event,
-                InstantEvent::AteFood { snake, .. } if snake == &leaf.state.our_snake_id
+                InstantEvent::AteFood { snake, .. } if snake == &parent.state.our_snake_id
             )
         })
         .count() as f32;
-    let realized_hunting = hunting_value(events);
-    let potential = leaf_potential(leaf);
+    let realized_hunting = edge_hunting_delta(parent, edge);
 
-    let food_value = realized_food + potential.food;
-    let hunting_value = realized_hunting + potential.hunting;
-    let (food_discount, hunting_discount) = match certainty {
-        ForecastCertainty::Deterministic => (1.0, 1.0),
-        ForecastCertainty::FoodProvisional => (0.50, 0.80),
+    let (food_discount, hunting_discount) = certainty_discounts(certainty);
+    let aggression = child_node.state.aggression.value.clamp(0.0, 1.0);
+    let local_utility = realized_food * food_discount * (1.0 - aggression)
+        + realized_hunting * hunting_discount * aggression;
+
+    let death_now = edge
+        .events
+        .iter()
+        .any(|event| matches!(event, InstantEvent::Died { .. }));
+    let dead_end_now = edge
+        .events
+        .iter()
+        .any(|event| matches!(event, InstantEvent::SelfDeadEnd));
+    let forced_now = edge.events.iter().any(|event| {
+        matches!(
+            event,
+            InstantEvent::SelfConstrained {
+                remaining_moves: 1
+            }
+        )
+    });
+    let constrained_now = edge.events.iter().any(|event| {
+        matches!(
+            event,
+            InstantEvent::SelfConstrained {
+                remaining_moves: 2
+            }
+        )
+    });
+
+    let child_safe_moves = child_node.analysis.tactical.ours.safe_moves.len();
+    let mut survival = child.survival;
+    if death_now {
+        survival.death_routes = route_count;
+    }
+    if dead_end_now {
+        survival.dead_end_routes = route_count;
+    }
+    if forced_now {
+        survival.forced_routes = route_count;
+    }
+    if constrained_now {
+        survival.constrained_routes = route_count;
+    }
+    survival.min_future_mobility = survival.min_future_mobility.min(child_safe_moves);
+    survival.min_reachable_space = survival
+        .min_reachable_space
+        .min(child_node.analysis.tactical.ours.best_reachable_space);
+    survival.min_second_order_mobility = survival
+        .min_second_order_mobility
+        .min(u32::from(child_safe_moves));
+
+    EdgeOutcome {
+        terminal: if death_now {
+            TerminalAssessment::Lost
+        } else {
+            child.terminal
+        },
+        survival,
+        strategic: StrategicEnvelope {
+            worst_utility: child.strategic.worst_utility + local_utility,
+            average_utility: child.strategic.average_utility + local_utility,
+            average_realized_food: child.strategic.average_realized_food + realized_food,
+            average_realized_hunting: child.strategic.average_realized_hunting + realized_hunting,
+            average_leaf_food_potential: child.strategic.average_leaf_food_potential,
+            average_leaf_hunting_potential: child.strategic.average_leaf_hunting_potential,
+        },
+        reserved_override_all: causal_reserved_event(&edge.events) || child.reserved_override_all,
+    }
+}
+
+fn aggregate_direction(
+    direction: Direction,
+    parent: &SearchNode,
+    outcomes: &[EdgeOutcome],
+) -> DirectionEvaluation {
+    let total_routes = outcomes
+        .iter()
+        .fold(0_u64, |sum, outcome| sum.saturating_add(outcome.survival.total_routes));
+
+    let terminal = outcomes
+        .iter()
+        .map(|outcome| outcome.terminal)
+        .min_by_key(|terminal| terminal.rank())
+        .unwrap_or(TerminalAssessment::Lost);
+
+    let survival = DirectionSurvivalSummary {
+        total_routes,
+        death_routes: saturating_sum(outcomes, |outcome| outcome.survival.death_routes),
+        dead_end_routes: saturating_sum(outcomes, |outcome| outcome.survival.dead_end_routes),
+        forced_routes: saturating_sum(outcomes, |outcome| outcome.survival.forced_routes),
+        constrained_routes: saturating_sum(outcomes, |outcome| outcome.survival.constrained_routes),
+        min_future_mobility: outcomes
+            .iter()
+            .map(|outcome| outcome.survival.min_future_mobility)
+            .min()
+            .unwrap_or(0)
+            .min(parent.analysis.tactical.ours.safe_moves.len()),
+        min_reachable_space: outcomes
+            .iter()
+            .map(|outcome| outcome.survival.min_reachable_space)
+            .min()
+            .unwrap_or(0)
+            .min(parent.analysis.tactical.ours.best_reachable_space),
+        min_second_order_mobility: outcomes
+            .iter()
+            .map(|outcome| outcome.survival.min_second_order_mobility)
+            .min()
+            .unwrap_or(0),
     };
 
-    let aggression = leaf.state.aggression.value.clamp(0.0, 1.0);
-    let strategic_utility = food_value * food_discount * (1.0 - aggression)
-        + hunting_value * hunting_discount * aggression;
+    let worst_strategic_utility = outcomes
+        .iter()
+        .map(|outcome| outcome.strategic.worst_utility)
+        .reduce(f32::min)
+        .unwrap_or(0.0);
 
-    RouteEvaluation {
-        initial_move,
-        events: events.to_vec(),
+    let denominator = total_routes.max(1) as f64;
+    let average_strategic_utility = weighted_average(outcomes, denominator, |outcome| {
+        outcome.strategic.average_utility
+    });
+    let average_food_value = weighted_average(outcomes, denominator, |outcome| {
+        outcome.strategic.average_realized_food
+    });
+    let average_hunting_value = weighted_average(outcomes, denominator, |outcome| {
+        outcome.strategic.average_realized_hunting
+    });
+    let average_leaf_food_potential = weighted_average(outcomes, denominator, |outcome| {
+        outcome.strategic.average_leaf_food_potential
+    });
+    let average_leaf_hunting_potential = weighted_average(outcomes, denominator, |outcome| {
+        outcome.strategic.average_leaf_hunting_potential
+    });
+
+    let mut surviving = outcomes
+        .iter()
+        .filter(|outcome| outcome.terminal != TerminalAssessment::Lost)
+        .peekable();
+    let reserved_override = surviving.peek().is_some()
+        && surviving.all(|outcome| outcome.reserved_override_all);
+
+    DirectionEvaluation {
+        direction,
+        terminal,
         survival,
-        died: survival.died,
-        food_value,
-        hunting_value,
-        leaf_food_potential: potential.food,
-        leaf_hunting_potential: potential.hunting,
-        strategic_utility,
-        certainty,
-        final_aggression: aggression,
+        worst_strategic_utility,
+        average_strategic_utility,
+        average_food_value,
+        average_hunting_value,
+        average_leaf_food_potential,
+        average_leaf_hunting_potential,
+        reserved_override,
     }
+}
+
+fn saturating_sum(
+    outcomes: &[EdgeOutcome],
+    value: impl Fn(&EdgeOutcome) -> u64,
+) -> u64 {
+    outcomes
+        .iter()
+        .fold(0_u64, |sum, outcome| sum.saturating_add(value(outcome)))
+}
+
+fn weighted_average(
+    outcomes: &[EdgeOutcome],
+    denominator: f64,
+    value: impl Fn(&EdgeOutcome) -> f32,
+) -> f32 {
+    let weighted = outcomes.iter().fold(0.0_f64, |sum, outcome| {
+        sum + f64::from(value(outcome)) * outcome.survival.total_routes.max(1) as f64
+    });
+    (weighted / denominator) as f32
+}
+
+fn next_certainty(
+    current: ForecastCertainty,
+    delta: ForecastDelta,
+) -> ForecastCertainty {
+    match (current, delta) {
+        (ForecastCertainty::FoodProvisional, _) | (_, ForecastDelta::FoodUncertainty) => {
+            ForecastCertainty::FoodProvisional
+        }
+        _ => ForecastCertainty::Deterministic,
+    }
+}
+
+fn certainty_discounts(certainty: ForecastCertainty) -> (f32, f32) {
+    match certainty {
+        ForecastCertainty::Deterministic => (1.0, 1.0),
+        ForecastCertainty::FoodProvisional => (0.50, 0.80),
+    }
+}
+
+fn edge_hunting_delta(parent: &SearchNode, edge: &SearchEdge) -> f32 {
+    let mut target_levels: HashMap<&str, f32> = HashMap::new();
+
+    for event in &edge.events {
+        let target = match event {
+            InstantEvent::EnemyForced {
+                enemy,
+                caused_by_ours: true,
+                ..
+            } => Some((enemy.as_str(), 0.25)),
+            InstantEvent::EnemyTrapped {
+                enemy,
+                caused_by_ours: true,
+            } => Some((enemy.as_str(), 0.60)),
+            InstantEvent::EnemyKilled {
+                enemy,
+                attribution: EliminationAttribution::OurSnake,
+                ..
+            }
+            | InstantEvent::HeadToHeadWon { enemy } => Some((enemy.as_str(), 1.0)),
+            _ => None,
+        };
+
+        if let Some((enemy, level)) = target {
+            target_levels
+                .entry(enemy)
+                .and_modify(|current| *current = current.max(level))
+                .or_insert(level);
+        }
+    }
+
+    target_levels
+        .into_iter()
+        .map(|(enemy, target)| {
+            let before = enemy_pressure_level(parent, enemy);
+            (target - before).max(0.0)
+        })
+        .sum()
+}
+
+fn enemy_pressure_level(node: &SearchNode, enemy_id: &str) -> f32 {
+    let Some(enemy) = node.analysis.tactical.enemies.get(enemy_id) else {
+        return 0.0;
+    };
+
+    if enemy.legal_moves.is_empty() {
+        0.60
+    } else if enemy.plausible_moves.len() == 1 {
+        0.25
+    } else {
+        0.0
+    }
+}
+
+fn causal_reserved_event(events: &[InstantEvent]) -> bool {
+    events.iter().any(|event| {
+        matches!(
+            event,
+            InstantEvent::EnemyTrapped {
+                caused_by_ours: true,
+                ..
+            } | InstantEvent::EnemyKilled {
+                attribution: EliminationAttribution::OurSnake,
+                ..
+            } | InstantEvent::HeadToHeadWon { .. }
+        )
+    })
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+struct LeafPotential {
+    food: f32,
+    hunting: f32,
 }
 
 fn leaf_potential(node: &SearchNode) -> LeafPotential {
@@ -347,167 +754,95 @@ fn hunting_leaf_potential(node: &SearchNode) -> f32 {
         .min(0.5)
 }
 
-fn hunting_value(events: &[InstantEvent]) -> f32 {
-    let mut per_enemy: HashMap<&str, f32> = HashMap::new();
-
-    for event in events {
-        let (enemy, value) = match event {
-            InstantEvent::EnemyForced {
-                enemy,
-                caused_by_ours: true,
-                ..
-            } => (enemy.as_str(), 0.25),
-            InstantEvent::EnemyTrapped {
-                enemy,
-                caused_by_ours: true,
-            } => (enemy.as_str(), 0.60),
-            InstantEvent::EnemyForced { .. } | InstantEvent::EnemyTrapped { .. } => continue,
-            InstantEvent::EnemyKilled {
-                enemy,
-                attribution: EliminationAttribution::OurSnake,
-                ..
-            } => (enemy.as_str(), 1.0),
-            InstantEvent::EnemyKilled { .. } => continue,
-            InstantEvent::HeadToHeadWon { enemy } => (enemy.as_str(), 1.0),
-            _ => continue,
-        };
-
-        per_enemy
-            .entry(enemy)
-            .and_modify(|current| *current = current.max(value))
-            .or_insert(value);
-    }
-
-    per_enemy.values().sum()
-}
-
-fn node_second_order_mobility(graph: &FutureGraph, node_id: NodeId) -> u32 {
-    let node = graph.node(node_id);
-    if node.children.is_empty() {
-        return u32::from(node.analysis.tactical.ours.safe_moves.len());
-    }
-
-    node.children
+pub(crate) fn choose_best_direction<'a>(
+    evaluations: &'a [DirectionEvaluation],
+    state: &crate::simulation::state::SimulatedGameState,
+    robust_safe_moves: MoveMask,
+    policy: ReservedCellPolicy,
+) -> Option<&'a DirectionEvaluation> {
+    evaluations
         .iter()
-        .map(|edge| {
-            u32::from(
-                graph
-                    .node(edge.child)
-                    .analysis
-                    .tactical
-                    .ours
-                    .safe_moves
-                    .len(),
-            )
+        .filter(|evaluation| {
+            robust_safe_moves.is_empty() || robust_safe_moves.contains(evaluation.direction)
         })
-        .min()
-        .unwrap_or(0)
+        .min_by(|left, right| compare_direction(left, right, state, policy))
 }
 
-fn confirms_reserved_override(routes: &[RouteEvaluation]) -> bool {
-    let mut surviving_routes = routes.iter().filter(|route| !route.died).peekable();
-    if surviving_routes.peek().is_none() {
-        return false;
-    }
-
-    surviving_routes.all(|route| {
-        route.events.iter().any(|event| {
-            matches!(
-                event,
-                InstantEvent::EnemyTrapped {
-                    caused_by_ours: true,
-                    ..
-                } | InstantEvent::EnemyKilled {
-                    attribution: EliminationAttribution::OurSnake,
-                    ..
-                } | InstantEvent::HeadToHeadWon { .. }
-            )
+pub(crate) fn compare_direction(
+    left: &DirectionEvaluation,
+    right: &DirectionEvaluation,
+    state: &crate::simulation::state::SimulatedGameState,
+    policy: ReservedCellPolicy,
+) -> Ordering {
+    terminal_compare(left.terminal, right.terminal)
+        .then_with(|| {
+            left.survival
+                .has_death_response()
+                .cmp(&right.survival.has_death_response())
         })
-    })
+        .then_with(|| {
+            left.survival
+                .has_dead_end_response()
+                .cmp(&right.survival.has_dead_end_response())
+        })
+        .then_with(|| {
+            left.survival
+                .has_forced_response()
+                .cmp(&right.survival.has_forced_response())
+        })
+        .then_with(|| {
+            left.survival
+                .has_constrained_response()
+                .cmp(&right.survival.has_constrained_response())
+        })
+        .then_with(|| {
+            right
+                .survival
+                .min_future_mobility
+                .cmp(&left.survival.min_future_mobility)
+        })
+        .then_with(|| {
+            right
+                .survival
+                .min_reachable_space
+                .cmp(&left.survival.min_reachable_space)
+        })
+        .then_with(|| {
+            right
+                .survival
+                .min_second_order_mobility
+                .cmp(&left.survival.min_second_order_mobility)
+        })
+        .then_with(|| {
+            effective_reserved_penalty(policy, state, left)
+                .total_cmp(&effective_reserved_penalty(policy, state, right))
+        })
+        .then_with(|| {
+            right
+                .worst_strategic_utility
+                .total_cmp(&left.worst_strategic_utility)
+        })
+        .then_with(|| {
+            right
+                .average_strategic_utility
+                .total_cmp(&left.average_strategic_utility)
+        })
+        .then_with(|| left.direction.rank().cmp(&right.direction.rank()))
 }
 
-impl DirectionEvaluation {
-    fn from_routes(direction: Direction, routes: Vec<RouteEvaluation>) -> Self {
-        let total_routes = routes.len() as u32;
-        let death_routes = routes.iter().filter(|route| route.died).count() as u32;
-        let dead_end_routes = routes
-            .iter()
-            .filter(|route| route.survival.dead_end)
-            .count() as u32;
-        let forced_routes = routes
-            .iter()
-            .filter(|route| {
-                route.events.iter().any(|event| {
-                    matches!(event, InstantEvent::SelfConstrained { remaining_moves: 1 })
-                })
-            })
-            .count() as u32;
-        let constrained_routes = routes
-            .iter()
-            .filter(|route| {
-                route.events.iter().any(|event| {
-                    matches!(event, InstantEvent::SelfConstrained { remaining_moves: 2 })
-                })
-            })
-            .count() as u32;
+fn terminal_compare(left: TerminalAssessment, right: TerminalAssessment) -> Ordering {
+    right.rank().cmp(&left.rank())
+}
 
-        let min_future_mobility = routes
-            .iter()
-            .map(|route| route.survival.min_safe_moves)
-            .min()
-            .unwrap_or(0);
-        let min_reachable_space = routes
-            .iter()
-            .map(|route| route.survival.min_reachable_space)
-            .min()
-            .unwrap_or(0);
-        let worst_strategic_utility = routes
-            .iter()
-            .map(|route| route.strategic_utility)
-            .reduce(f32::min)
-            .unwrap_or(0.0);
-        let reserved_override = confirms_reserved_override(&routes);
-        let route_count = routes.len().max(1) as f32;
-        let average_strategic_utility = routes
-            .iter()
-            .map(|route| route.strategic_utility)
-            .sum::<f32>()
-            / route_count;
-        let average_food_value =
-            routes.iter().map(|route| route.food_value).sum::<f32>() / route_count;
-        let average_hunting_value =
-            routes.iter().map(|route| route.hunting_value).sum::<f32>() / route_count;
-        let average_leaf_food_potential = routes
-            .iter()
-            .map(|route| route.leaf_food_potential)
-            .sum::<f32>()
-            / route_count;
-        let average_leaf_hunting_potential = routes
-            .iter()
-            .map(|route| route.leaf_hunting_potential)
-            .sum::<f32>()
-            / route_count;
-
-        Self {
-            direction,
-            routes,
-            survival: DirectionSurvivalSummary {
-                total_routes,
-                death_routes,
-                dead_end_routes,
-                forced_routes,
-                constrained_routes,
-                min_future_mobility,
-                min_reachable_space,
-            },
-            worst_strategic_utility,
-            average_strategic_utility,
-            average_food_value,
-            average_hunting_value,
-            average_leaf_food_potential,
-            average_leaf_hunting_potential,
-            reserved_override,
-        }
+fn effective_reserved_penalty(
+    policy: ReservedCellPolicy,
+    state: &crate::simulation::state::SimulatedGameState,
+    evaluation: &DirectionEvaluation,
+) -> f32 {
+    if evaluation.reserved_override {
+        0.0
+    } else {
+        policy.penalty(state, evaluation.direction)
     }
 }
 
@@ -551,21 +886,54 @@ mod tests {
         }
     }
 
-    #[test]
-    fn graph_routes_are_grouped_by_first_direction() {
-        let mut graph = FutureGraph::new(state(vec![]));
-        graph.expand_to_depth(1).unwrap();
+    fn summary(total: u64, deaths: u64, mobility: u8) -> DirectionSurvivalSummary {
+        DirectionSurvivalSummary {
+            total_routes: total,
+            death_routes: deaths,
+            dead_end_routes: 0,
+            forced_routes: 0,
+            constrained_routes: 0,
+            min_future_mobility: mobility,
+            min_reachable_space: 20,
+            min_second_order_mobility: u32::from(mobility),
+        }
+    }
 
-        let directions = evaluate_graph(&graph, 1);
-
-        assert!(!directions.is_empty());
-        assert!(directions
-            .iter()
-            .all(|evaluation| evaluation.survival.total_routes > 0));
+    fn evaluation(
+        direction: Direction,
+        survival: DirectionSurvivalSummary,
+    ) -> DirectionEvaluation {
+        DirectionEvaluation {
+            direction,
+            terminal: if survival.death_routes > 0 {
+                TerminalAssessment::Lost
+            } else {
+                TerminalAssessment::Running
+            },
+            survival,
+            worst_strategic_utility: 0.0,
+            average_strategic_utility: 0.0,
+            average_food_value: 0.0,
+            average_hunting_value: 0.0,
+            average_leaf_food_potential: 0.0,
+            average_leaf_hunting_potential: 0.0,
+            reserved_override: false,
+        }
     }
 
     #[test]
-    fn food_reward_is_branch_local() {
+    fn graph_is_evaluated_without_materializing_routes() {
+        let mut graph = FutureGraph::new(state(vec![]));
+        graph.expand_to_depth(2).unwrap();
+
+        let result = evaluate_graph_inner(&graph, 2, None).unwrap();
+
+        assert!(!result.directions.is_empty());
+        assert!(result.stats.nodes_evaluated <= graph.node_count() as u32 * 2);
+    }
+
+    #[test]
+    fn realized_food_stays_separate_from_leaf_potential() {
         let mut graph = FutureGraph::new(state(vec![Coord { x: 2, y: 1 }]));
         graph.expand_to_depth(1).unwrap();
 
@@ -579,110 +947,60 @@ mod tests {
             .find(|evaluation| evaluation.direction == Direction::Up)
             .unwrap();
 
-        assert!(right.routes.iter().any(|route| route.food_value > 0.0));
-        assert!(up.routes.iter().all(|route| route.food_value == 0.0));
+        assert!(right.average_food_value > 0.0);
+        assert_eq!(up.average_food_value, 0.0);
+        assert!(up.average_leaf_food_potential >= 0.0);
     }
 
     #[test]
-    fn food_beyond_horizon_receives_leaf_potential_without_fake_event() {
-        let graph = FutureGraph::new(state(vec![Coord { x: 4, y: 1 }]));
-        let node = graph.node(graph.root());
+    fn adversarial_death_response_beats_safe_route_ratio() {
+        let safe = evaluation(Direction::Up, summary(10, 0, 2));
+        let dangerous = evaluation(Direction::Right, summary(100, 1, 4));
+        let state = state(vec![]);
 
-        let potential = food_leaf_potential(node);
-
-        assert!(potential > 0.0);
+        assert_eq!(
+            compare_direction(
+                &safe,
+                &dangerous,
+                &state,
+                ReservedCellPolicy::default(),
+            ),
+            Ordering::Less
+        );
     }
 
     #[test]
-    fn hunting_pressure_can_exist_without_realized_hunting_event() {
-        let graph = FutureGraph::new(state(vec![]));
-        let node = graph.node(graph.root());
-
-        let potential = hunting_leaf_potential(node);
-
-        assert!(potential >= 0.0);
+    fn terminal_order_is_won_running_lost() {
+        assert_eq!(
+            terminal_compare(TerminalAssessment::Won, TerminalAssessment::Running),
+            Ordering::Less
+        );
+        assert_eq!(
+            terminal_compare(TerminalAssessment::Running, TerminalAssessment::Lost),
+            Ordering::Less
+        );
     }
 
     #[test]
-    fn reserved_override_requires_confirmed_tactical_result_on_every_surviving_route() {
-        let survival = SurvivalRouteAssessment {
-            died: false,
-            dead_end: false,
-            final_safe_moves: 2,
-            min_safe_moves: 2,
-            final_reachable_space: 10,
-            min_reachable_space: 10,
-            second_order_mobility: 4,
-        };
-        let tactical = RouteEvaluation {
-            initial_move: Direction::Left,
-            events: vec![InstantEvent::EnemyTrapped {
-                enemy: "enemy".to_string(),
-                caused_by_ours: true,
-            }],
-            survival,
-            died: false,
-            food_value: 0.0,
-            hunting_value: 0.6,
-            leaf_food_potential: 0.0,
-            leaf_hunting_potential: 0.0,
-            strategic_utility: 0.1,
-            certainty: ForecastCertainty::Deterministic,
-            final_aggression: 0.2,
-        };
-        let food_only = RouteEvaluation {
-            events: vec![InstantEvent::AteFood {
-                snake: "ours".to_string(),
-                food: Coord { x: 0, y: 0 },
-            }],
-            ..tactical.clone()
-        };
+    fn food_uncertainty_uses_separate_memo_state() {
+        let mut graph = FutureGraph::new(state(vec![Coord { x: 2, y: 1 }]));
+        graph.expand_to_depth(2).unwrap();
 
-        assert!(confirms_reserved_override(std::slice::from_ref(&tactical)));
-        assert!(!confirms_reserved_override(&[tactical, food_only]));
+        let result = evaluate_graph_inner(&graph, 2, None).unwrap();
+
+        assert!(result.stats.provisional_evaluations > 0);
     }
 
     #[test]
-    fn noncausal_forcing_does_not_receive_hunting_credit() {
-        let events = vec![InstantEvent::EnemyForced {
-            enemy: "enemy".to_string(),
-            remaining_moves: 1,
-            caused_by_ours: false,
-        }];
+    fn hunting_delta_is_incremental() {
+        let mut graph = FutureGraph::new(state(vec![]));
+        graph.expand_to_depth(1).unwrap();
+        let root = graph.node(graph.root());
 
-        assert_eq!(hunting_value(&events), 0.0);
-    }
-
-    #[test]
-    fn environment_kill_does_not_receive_hunting_credit() {
-        let events = vec![InstantEvent::EnemyKilled {
-            enemy: "enemy".to_string(),
-            cause: crate::simulation::resolver::EliminationCause::Hazard,
-            attribution: EliminationAttribution::Environment,
-        }];
-
-        assert_eq!(hunting_value(&events), 0.0);
-    }
-
-    #[test]
-    fn kill_supersedes_forced_and_trapped_reward_for_same_enemy() {
-        let events = vec![
-            InstantEvent::EnemyForced {
-                enemy: "enemy".to_string(),
-                remaining_moves: 1,
-                caused_by_ours: true,
-            },
-            InstantEvent::EnemyTrapped {
-                enemy: "enemy".to_string(),
-                caused_by_ours: true,
-            },
-            InstantEvent::EnemyKilled {
-                enemy: "enemy".to_string(),
-                cause: crate::simulation::resolver::EliminationCause::HeadToHead,
-                attribution: EliminationAttribution::OurSnake,
-            },
-        ];
-
-        assert!((hunting_value(&events) - 1.0).abs() < f32::EPSILON);
+        for edge in &root.children {
+            let delta = edge_hunting_delta(root, edge);
+            assert!(delta >= 0.0);
+            assert!(delta <= 1.0);
+        }
     }
 }
