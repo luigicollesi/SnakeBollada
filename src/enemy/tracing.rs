@@ -722,11 +722,7 @@ mod tests {
         );
         let current = MoveMask::from_iter([Direction::Left, Direction::Up]);
 
-        let moves = hunting_policy_moves(
-            &state,
-            state.snake("enemy").unwrap(),
-            current,
-        );
+        let moves = hunting_policy_moves(&state, state.snake("enemy").unwrap(), current);
 
         assert_eq!(moves, current);
     }
