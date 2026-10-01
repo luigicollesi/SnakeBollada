@@ -73,16 +73,17 @@ impl DecisionState {
         }
 
         let actual_key = StateKey::from_state(&normalized);
+        let observed_food = normalized_food(&normalized.food);
         let food_spawned = self
             .previous_observed_food
             .as_ref()
-            .is_some_and(|previous| contains_new_food(previous, &normalized.food));
+            .is_some_and(|previous| contains_new_food(previous, &observed_food));
 
         let mut graph = match self.graph.take() {
             Some(mut graph) => {
                 if graph.node(graph.root()).state.turn >= normalized.turn
                     || food_spawned
-                    || !graph.root_children_match_food(&normalized.food)
+                    || !graph.root_children_match_food(&actual_key)
                 {
                     FutureGraph::new(normalized)
                 } else if let Some(node_id) = graph.find_node_by_key(&actual_key) {
@@ -113,7 +114,7 @@ impl DecisionState {
 
         self.graph = Some(graph);
         self.previous_our_length = Some(state.you.body.len());
-        self.previous_observed_food = Some(normalized_food(&state.board.food));
+        self.previous_observed_food = Some(observed_food);
         self.runtime_history.record(
             decision.search.elapsed_us,
             state.you.latency.parse::<u64>().unwrap_or(0),
@@ -334,10 +335,9 @@ fn normalized_food(food: &[crate::Coord]) -> Vec<crate::Coord> {
 }
 
 fn contains_new_food(previous: &[crate::Coord], actual: &[crate::Coord]) -> bool {
-    let previous = normalized_food(previous);
-    normalized_food(actual)
-        .into_iter()
-        .any(|food| previous.binary_search(&food).is_err())
+    actual
+        .iter()
+        .any(|food| previous.binary_search(food).is_err())
 }
 
 #[cfg(test)]
