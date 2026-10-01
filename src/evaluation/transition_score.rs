@@ -346,6 +346,60 @@ mod tests {
             .expect("expected matching edge")
     }
 
+    fn territory_state(
+        our_head: Coord,
+        enemy_head: Coord,
+    ) -> SimulatedGameState {
+        SimulatedGameState {
+            turn: 1,
+            width: 7,
+            height: 7,
+            food: vec![],
+            hazards: vec![],
+            snakes: vec![
+                snake(
+                    "ours",
+                    100,
+                    &[(our_head.x, our_head.y), (our_head.x, our_head.y - 1)],
+                ),
+                snake(
+                    "enemy",
+                    100,
+                    &[
+                        (enemy_head.x, enemy_head.y),
+                        (enemy_head.x, enemy_head.y - 1),
+                    ],
+                ),
+            ],
+            our_snake_id: "ours".to_string(),
+            rules: RulesContext {
+                name: "standard".to_string(),
+                max_health: 100,
+                hazard_damage_per_turn: 0,
+            },
+            aggression: AggressionState::default(),
+        }
+    }
+
+    #[test]
+    fn hunting_credits_only_actor_receiving_enemy_owned_cells() {
+        let parent_graph = FutureGraph::new(territory_state(
+            Coord { x: 1, y: 3 },
+            Coord { x: 5, y: 3 },
+        ));
+        let child_graph = FutureGraph::new(territory_state(
+            Coord { x: 2, y: 3 },
+            Coord { x: 5, y: 5 },
+        ));
+
+        let benefits = territory_transfer_benefits(
+            parent_graph.node(parent_graph.root()),
+            child_graph.node(child_graph.root()),
+        );
+
+        assert!(benefits.get("ours").copied().unwrap_or(0) > 0);
+    }
+
     #[test]
     fn transition_scores_every_living_actor() {
         let mut graph = FutureGraph::new(state(80, vec![Coord { x: 4, y: 1 }], 2));
