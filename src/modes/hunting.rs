@@ -174,11 +174,7 @@ pub(crate) fn analyze(
                 plans.push(HuntingPlanCandidate {
                     target: enemy.id.clone(),
                     kind: HuntingPlanKind::TerritorySqueeze,
-                    score_milli: (240
-                        + ratio_bonus
-                        + risk_bonus
-                        + control_bonus
-                        + frontier_bonus)
+                    score_milli: (240 + ratio_bonus + risk_bonus + control_bonus + frontier_bonus)
                         .min(860),
                     length_advantage,
                 });
