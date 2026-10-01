@@ -295,10 +295,7 @@ impl TerritoryAnalysis {
         Self::from_spatial(state, &spatial)
     }
 
-    pub(crate) fn from_spatial(
-        state: &SimulatedGameState,
-        spatial: &SpatialOccupancy,
-    ) -> Self {
+    pub(crate) fn from_spatial(state: &SimulatedGameState, spatial: &SpatialOccupancy) -> Self {
         let core = TerritoryCore::from_spatial(state, spatial);
         let structural = TerritoryStructural::from_core(state, &core);
         Self::from_parts(core, structural)
