@@ -3,8 +3,6 @@ extern crate rocket;
 
 use std::collections::HashMap;
 use std::env;
-use std::sync::Arc;
-use std::time::Instant;
 
 use log::info;
 use rocket::fairing::AdHoc;
@@ -27,10 +25,8 @@ mod runtime;
 mod search;
 mod simulation;
 mod strategy;
-mod telemetry;
 
-use runtime::GameRegistry;
-use telemetry::FileGameRecordStorage;
+use runtime::GameRuntime;
 
 #[derive(Deserialize, Serialize, Debug, Clone)]
 pub(crate) struct Game {
@@ -82,40 +78,28 @@ fn handle_index() -> Json<Value> {
 }
 
 #[post("/start", format = "json", data = "<start_req>")]
-fn handle_start(start_req: Json<GameState>, registry: &State<GameRegistry>) -> Status {
-    registry.start(&start_req);
+async fn handle_start(start_req: Json<GameState>, runtime: &State<GameRuntime>) -> Status {
+    runtime.start(&start_req).await;
     Status::Ok
 }
 
 #[post("/move", format = "json", data = "<move_req>")]
-async fn handle_move(move_req: Json<GameState>, registry: &State<GameRegistry>) -> Json<Value> {
-    registry.observe_turn(&move_req).await;
-
-    let started = Instant::now();
-    let decision = registry.decide(&move_req).await;
-    let decision_time_us = started.elapsed().as_micros().try_into().unwrap_or(u64::MAX);
-
-    registry.record_decision(
-        &move_req.game.id,
-        move_req.turn,
-        decision_time_us,
-        &decision,
-    );
+async fn handle_move(move_req: Json<GameState>, runtime: &State<GameRuntime>) -> Json<Value> {
+    let decision = runtime.decide(&move_req).await;
 
     info!(
-        "MOVE {}: {} ({:?}, {} us)",
+        "MOVE {}: {} ({:?})",
         move_req.turn,
         decision.direction.as_str(),
-        decision.reason,
-        decision_time_us
+        decision.reason
     );
 
     Json(json!({ "move": decision.direction.as_str() }))
 }
 
 #[post("/end", format = "json", data = "<end_req>")]
-async fn handle_end(end_req: Json<GameState>, registry: &State<GameRegistry>) -> Status {
-    registry.end(&end_req).await;
+async fn handle_end(end_req: Json<GameState>, runtime: &State<GameRuntime>) -> Status {
+    runtime.end(&end_req).await;
     Status::Ok
 }
 
@@ -132,11 +116,10 @@ fn rocket() -> _ {
     env_logger::init();
     info!("Starting SnakeBollada Battlesnake server...");
 
-    let storage = Arc::new(FileGameRecordStorage::new("data/games"));
-    let registry = GameRegistry::new(storage);
+    let runtime = GameRuntime::new();
 
     rocket::build()
-        .manage(registry)
+        .manage(runtime)
         .attach(AdHoc::on_response("Server ID Middleware", |_, res| {
             Box::pin(async move {
                 res.set_raw_header("Server", "battlesnake/snake-bollada");
