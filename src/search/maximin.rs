@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use crate::direction::Direction;
 use crate::evaluation::TransitionScore;
 
-use super::beam::{BeamLine, BeamStep, LineTerminal};
+use super::beam::{BeamLine, BeamStep, LineId, LineTerminal};
 use super::bounds::ValueBound;
 use super::graph::{FutureGraph, NodeId, SearchEdge, SearchNode};
 
@@ -102,17 +102,17 @@ pub(crate) fn evaluate_seed_lines(graph: &FutureGraph, target_depth: u8) -> Seed
         };
 
         let depth = line.steps.len().try_into().unwrap_or(u8::MAX);
-        lines.push(BeamLine::from_search(
-            u32::from(direction.rank()).saturating_add(1),
-            direction,
+        lines.push(BeamLine {
+            id: LineId(u32::from(direction.rank()).saturating_add(1)),
+            root_direction: direction,
             depth,
-            line.benefit_total,
-            line.harm_total,
-            line.value,
-            line.terminal,
-            line.bound,
-            line.steps,
-        ));
+            benefit_total: line.benefit_total,
+            harm_total: line.harm_total,
+            value: line.value,
+            terminal: line.terminal,
+            bound: line.bound,
+            steps: line.steps,
+        });
     }
 
     lines.sort_by(|left, right| {
