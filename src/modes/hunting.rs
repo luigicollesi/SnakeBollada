@@ -65,6 +65,7 @@ pub(crate) fn analyze(
     tracing: &EnemyTracingOutput,
     territory: &TerritoryAnalysis,
     enclosure: &EnclosureAnalysis,
+    posture: &StrategicPosture,
 ) -> HuntingModeOutput {
     let Some(ours) = state.snake(&state.our_snake_id).filter(|snake| snake.alive) else {
         return HuntingModeOutput::default();
@@ -73,7 +74,6 @@ pub(crate) fn analyze(
         return HuntingModeOutput::default();
     };
 
-    let posture = StrategicPosture::from_state(state);
     let mut candidates = Vec::new();
     let mut plans = Vec::new();
     let board_cells = state.width.saturating_mul(state.height).max(1);
@@ -350,7 +350,15 @@ mod tests {
         let tactical = TacticalStateAnalysis::from_state(state, &tracing);
         let territory = TerritoryAnalysis::from_state(state);
         let enclosure = EnclosureAnalysis::from_parts(state, &territory, &tactical);
-        analyze(state, &tactical, &tracing, &territory, &enclosure)
+        let posture = StrategicPosture::from_state(state);
+        analyze(
+            state,
+            &tactical,
+            &tracing,
+            &territory,
+            &enclosure,
+            &posture,
+        )
     }
 
     #[test]
