@@ -87,13 +87,7 @@ pub(crate) fn candidates_for_target(
     target_food: Coord,
     certainty: ForecastCertainty,
 ) -> Vec<FoodCandidate> {
-    candidates_for_target_actor(
-        state,
-        analysis,
-        &state.our_snake_id,
-        target_food,
-        certainty,
-    )
+    candidates_for_target_actor(state, analysis, &state.our_snake_id, target_food, certainty)
 }
 
 pub(crate) fn candidates_for_target_actor(
