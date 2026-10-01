@@ -574,23 +574,36 @@ mod tests {
     }
 
     #[test]
-    fn seed_beam_keeps_unique_root_routes() {
+    fn seed_beam_targets_two_root_directions_when_available() {
         let mut graph = FutureGraph::new(state());
         graph.expand_to_depth(SEED_DEPTH).unwrap();
 
+        let candidates = evaluate_seed_lines(&graph, SEED_DEPTH);
         let beam = evaluate_seed_beam(&graph, SEED_DEPTH);
 
-        let mut root_directions = beam
+        let mut candidate_directions = candidates
+            .lines
+            .iter()
+            .filter(|line| line.is_viable())
+            .map(|line| line.root_direction.rank())
+            .collect::<Vec<_>>();
+        candidate_directions.sort_unstable();
+        candidate_directions.dedup();
+
+        let mut beam_directions = beam
             .lines
             .iter()
             .map(|line| line.root_direction.rank())
             .collect::<Vec<_>>();
-        let count = root_directions.len();
-        root_directions.sort_unstable();
-        root_directions.dedup();
+        beam_directions.sort_unstable();
+        beam_directions.dedup();
 
-        assert_eq!(root_directions.len(), count);
-        assert!(count <= 3);
+        if candidate_directions.len() >= 2 {
+            assert!(beam_directions.len() >= 2);
+        } else {
+            assert_eq!(beam.lines.len(), 1);
+        }
+        assert!(beam.lines.len() <= 3);
     }
 
     #[test]
