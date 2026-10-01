@@ -801,8 +801,9 @@ mod tests {
             ..kill.clone()
         };
 
+        let evaluations = [food, kill];
         let chosen = choose_guaranteed_kill(
-            &[food, kill],
+            &evaluations,
             &normalized,
             MoveMask::all(),
             ReservedCellPolicy::default(),
