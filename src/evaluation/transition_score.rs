@@ -53,10 +53,8 @@ impl TransitionScore {
             let Some(parent_eval) = actor_evaluation(parent, &actor.id) else {
                 continue;
             };
-            let weights =
-                StrategicWeights::from_actor(&parent_eval.context, &parent_eval.metrics);
-
-            let score = score_actor_transition(parent, events, child, &actor.id, weights);
+            let score =
+                score_actor_transition(parent, events, child, &actor.id, parent_eval.weights);
             actors.insert(actor.id.clone(), score);
         }
 
@@ -194,8 +192,8 @@ fn score_actor_transition(
 fn actor_evaluation<'a>(
     node: &'a SearchNode,
     actor_id: &str,
-) -> Option<&'a crate::evaluation::ActorEvaluation> {
-    node.active_analysis()?.actor_evaluations.get(actor_id)
+) -> Option<&'a crate::evaluation::ActorSnapshot> {
+    node.active_analysis()?.actor_snapshots.get(actor_id)
 }
 
 fn food_distance_delta(before: Option<u16>, after: Option<u16>) -> (i64, i64) {
