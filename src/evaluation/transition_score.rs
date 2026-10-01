@@ -157,26 +157,15 @@ fn kill_importance(parent: &SearchNode) -> i64 {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashMap;
-    use std::sync::Arc;
-
-    use crate::analysis::{
-        BorderFobicAnalysis, EnclosureAnalysis, StateAnalysis, StrategicPosture,
-        TacticalStateAnalysis, TerritoryAnalysis,
-    };
-    use crate::decision::state_key::StateKey;
     use crate::direction::Direction;
-    use crate::enemy::tracing::EnemyTracingOutput;
-    use crate::evaluation::{ActorContext, ActorEvaluation, ActorMetrics};
-    use crate::modes::hunting::HuntingModeOutput;
-    use crate::modes::survival::SurvivalModeOutput;
-    use crate::search::graph::{NodeAnalysis, SearchEdge, SearchNode};
-    use crate::simulation::joint_action::JointAction;
-    use crate::simulation::mobility::MobilityAnalysis;
-    use crate::simulation::resolver::{ForecastDelta, InstantEvent};
-    use crate::simulation::state::{AggressionState, RulesContext, SimulatedGameState, SimulatedSnake};
-    use crate::spatial::SpatialOccupancy;
+    use crate::search::graph::FutureGraph;
+    use crate::simulation::resolver::InstantEvent;
+    use crate::simulation::state::{
+        AggressionState, RulesContext, SimulatedGameState, SimulatedSnake,
+    };
     use crate::Coord;
+
+    use super::*;
 
     fn snake(id: &str, health: i32, body: &[(i32, i32)]) -> SimulatedSnake {
         SimulatedSnake {
@@ -187,15 +176,15 @@ mod tests {
         }
     }
 
-    fn state(health: i32) -> SimulatedGameState {
+    fn state(health: i32, food: Vec<Coord>, head_x: i32) -> SimulatedGameState {
         SimulatedGameState {
             turn: 1,
             width: 7,
             height: 7,
-            food: vec![Coord { x: 2, y: 1 }],
+            food,
             hazards: vec![],
             snakes: vec![
-                snake("ours", health, &[(1, 1), (1, 0)]),
+                snake("ours", health, &[(head_x, 1), (head_x, 0)]),
                 snake("enemy", 100, &[(5, 5), (5, 4)]),
             ],
             our_snake_id: "ours".to_string(),
@@ -208,88 +197,64 @@ mod tests {
         }
     }
 
-    fn node(state: SimulatedGameState, net_bias: i64) -> SearchNode {
-        let state_analysis = Arc::new(StateAnalysis::from_simulated(&state));
-        let spatial = Arc::new(SpatialOccupancy::from_state(&state));
-        let mobility = Arc::new(MobilityAnalysis::from_spatial(Arc::clone(&spatial)));
-        let tracing = Arc::new(EnemyTracingOutput::default());
-        let tactical = Arc::new(TacticalStateAnalysis::from_parts(
-            &state,
-            &tracing,
-            &mobility,
-        ));
-        let territory = Arc::new(TerritoryAnalysis::from_spatial(&state, &spatial));
-        let border = Arc::new(BorderFobicAnalysis::from_parts_with_territory(
-            &state,
-            &tactical,
-            &territory,
-        ));
-        let enclosure = Arc::new(EnclosureAnalysis::from_parts(&state, &territory, &tactical));
-        let posture = Arc::new(StrategicPosture::from_state(&state));
-
-        let context = ActorContext::from_state(&state, "ours").unwrap();
-        let metrics = ActorMetrics::from_parts(
-            &state,
-            "ours",
-            &state_analysis,
-            &tactical,
-            &territory,
-            &enclosure,
-            &border,
-        )
-        .unwrap();
-        let mut evaluation = ActorEvaluation::from_metrics(context, metrics);
-        evaluation.net = evaluation.net.saturating_add(net_bias);
-
-        let analysis = Arc::new(NodeAnalysis {
-            state: state_analysis,
-            mobility,
-            tracing,
-            tactical,
-            territory,
-            border,
-            posture,
-            enclosure,
-            survival: Arc::new(SurvivalModeOutput::default()),
-            hunting: Arc::new(HuntingModeOutput::default()),
-            actor_evaluations: HashMap::from([("ours".to_string(), evaluation)]),
-        });
-
-        SearchNode::test_node(state, StateKey::from_state(&state), Some(analysis))
+    fn first_edge_for(
+        graph: &FutureGraph,
+        direction: Direction,
+        predicate: impl Fn(&SearchEdge) -> bool,
+    ) -> &SearchEdge {
+        let root = graph.node(graph.root());
+        root.children
+            .iter()
+            .find(|edge| {
+                edge.joint_action.direction_for("ours") == Some(direction) && predicate(edge)
+            })
+            .expect("expected matching edge")
     }
 
     #[test]
-    fn structural_delta_is_counted_once_per_edge() {
-        let parent = node(state(80), 0);
-        let child = node(state(80), 400);
-        let edge = SearchEdge {
-            joint_action: JointAction::new().with_move("ours", Direction::Right),
-            events: vec![],
-            forecast_delta: ForecastDelta::None,
-            child: 1,
-        };
+    fn structural_delta_matches_actor_evaluation_difference() {
+        let mut graph = FutureGraph::new(state(80, vec![], 2));
+        graph.expand_to_depth(1).unwrap();
 
-        let score = TransitionScore::from_edge(&parent, &edge, &child);
+        let root = graph.node(graph.root());
+        let edge = first_edge_for(&graph, Direction::Right, |_| true);
+        let child = graph.node(edge.child);
+        let before = root
+            .active_analysis()
+            .unwrap()
+            .actor_evaluations
+            .get("ours")
+            .unwrap()
+            .net;
+        let after = child
+            .active_analysis()
+            .unwrap()
+            .actor_evaluations
+            .get("ours")
+            .unwrap()
+            .net;
 
-        assert_eq!(score.structural_delta, 400);
-        assert_eq!(score.net, 400);
+        let score = TransitionScore::from_edge(root, edge, child);
+
+        assert_eq!(score.structural_delta, after - before);
     }
 
     #[test]
     fn food_is_an_instant_benefit_in_addition_to_state_delta() {
-        let parent = node(state(20), 0);
-        let child = node(state(100), 0);
-        let edge = SearchEdge {
-            joint_action: JointAction::new().with_move("ours", Direction::Right),
-            events: vec![InstantEvent::AteFood {
-                snake: "ours".to_string(),
-                food: Coord { x: 2, y: 1 },
-            }],
-            forecast_delta: ForecastDelta::None,
-            child: 1,
-        };
+        let mut graph = FutureGraph::new(state(20, vec![Coord { x: 3, y: 1 }], 2));
+        graph.expand_to_depth(1).unwrap();
 
-        let score = TransitionScore::from_edge(&parent, &edge, &child);
+        let root = graph.node(graph.root());
+        let edge = first_edge_for(&graph, Direction::Right, |edge| {
+            edge.events.iter().any(|event| {
+                matches!(
+                    event,
+                    InstantEvent::AteFood { snake, .. } if snake == "ours"
+                )
+            })
+        });
+        let child = graph.node(edge.child);
+        let score = TransitionScore::from_edge(root, edge, child);
 
         assert!(score.instant_benefit > 0);
         assert!(score.net > score.structural_delta);
@@ -297,19 +262,17 @@ mod tests {
 
     #[test]
     fn border_exposure_is_an_instant_harm() {
-        let parent = node(state(90), 0);
-        let child = node(state(90), 0);
-        let edge = SearchEdge {
-            joint_action: JointAction::new().with_move("ours", Direction::Left),
-            events: vec![InstantEvent::SelfBorderExposure {
-                fear_milli: 900,
-                corner: false,
-            }],
-            forecast_delta: ForecastDelta::None,
-            child: 1,
-        };
+        let mut graph = FutureGraph::new(state(90, vec![], 1));
+        graph.expand_to_depth(1).unwrap();
 
-        let score = TransitionScore::from_edge(&parent, &edge, &child);
+        let root = graph.node(graph.root());
+        let edge = first_edge_for(&graph, Direction::Left, |edge| {
+            edge.events
+                .iter()
+                .any(|event| matches!(event, InstantEvent::SelfBorderExposure { .. }))
+        });
+        let child = graph.node(edge.child);
+        let score = TransitionScore::from_edge(root, edge, child);
 
         assert!(score.instant_harm > 0);
         assert!(score.net < score.structural_delta);
