@@ -233,7 +233,9 @@ mod tests {
 
         let beam = select_seed_beam(&candidates);
 
-        assert!(beam.iter().all(|line| line.root_direction == Direction::Right));
+        assert!(beam
+            .iter()
+            .all(|line| line.root_direction == Direction::Right));
         assert!(beam.iter().all(BeamLine::is_viable));
     }
 
