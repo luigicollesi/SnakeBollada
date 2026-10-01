@@ -12,8 +12,7 @@ impl SpatialOccupancy {
     pub(crate) fn from_state(state: &SimulatedGameState) -> Self {
         let width = state.width as u16;
         let height = state.height as u16;
-        let mut retained_body =
-            vec![false; usize::from(width).saturating_mul(usize::from(height))];
+        let mut retained_body = vec![false; usize::from(width).saturating_mul(usize::from(height))];
 
         for snake in state.snakes.iter().filter(|snake| snake.alive) {
             let retained_len = snake.body.len().saturating_sub(1);
