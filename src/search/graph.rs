@@ -805,4 +805,26 @@ mod tests {
         assert!(graph.root_children_match_food(&child_food));
         assert!(!graph.root_children_match_food(&[Coord { x: 0, y: 0 }]));
     }
+
+    #[test]
+    fn build_node_reuses_precomputed_state_key() {
+        let initial = state();
+        let key = StateKey::from_state(&initial);
+
+        let node = build_node_with_key(initial, key.clone());
+
+        assert_eq!(node.key, key);
+    }
+
+    #[test]
+    fn depth_expansion_reports_frontier_size_used_for_expansion() {
+        let mut graph = FutureGraph::new(state());
+        let budget = SearchBudget::for_duration(Duration::from_secs(1));
+
+        let report = graph.expand_depth(1, &budget).unwrap();
+
+        assert!(report.completed);
+        assert_eq!(report.frontier_nodes, 1);
+    }
+
 }
