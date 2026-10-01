@@ -710,7 +710,7 @@ mod tests {
     }
 
     #[test]
-    fn reroot_discards_unreachable_past() {
+    fn reroot_preserves_node_ids_until_direction_retention_compacts() {
         let mut graph = FutureGraph::new(state());
         graph.expand_to_depth(2).unwrap();
 
@@ -720,9 +720,41 @@ mod tests {
 
         graph.reroot(child);
 
+        assert_eq!(graph.root(), child);
+        assert_eq!(graph.node(graph.root()).key, child_key);
+        assert_eq!(graph.node_count(), old_count);
+
+        let our_id = graph.node(graph.root()).state.our_snake_id.clone();
+        let direction = graph.node(graph.root()).children[0]
+            .joint_action
+            .direction_for(&our_id)
+            .unwrap();
+
+        graph.retain_chosen_direction(direction);
+
         assert_eq!(graph.root(), 0);
-        assert_eq!(graph.node(0).key, child_key);
+        assert_eq!(graph.node(graph.root()).key, child_key);
         assert!(graph.node_count() < old_count);
+    }
+
+    #[test]
+    fn evaluation_and_expansion_support_non_zero_root() {
+        use crate::decision::evaluation::evaluate_graph;
+
+        let mut graph = FutureGraph::new(state());
+        graph.expand_to_depth(2).unwrap();
+
+        let child = graph.node(graph.root()).children[0].child;
+        graph.reroot(child);
+
+        assert_ne!(graph.root(), 0);
+
+        let evaluations = evaluate_graph(&graph, 1);
+        assert!(!evaluations.is_empty());
+
+        let budget = SearchBudget::for_duration(Duration::from_secs(1));
+        let report = graph.expand_depth(1, &budget).unwrap();
+        assert!(report.completed);
     }
 
     #[test]
