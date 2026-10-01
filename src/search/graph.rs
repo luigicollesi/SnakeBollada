@@ -941,6 +941,11 @@ impl FutureGraph {
     }
 }
 
+fn shared_empty_state_analysis() -> Arc<StateAnalysis> {
+    static EMPTY: OnceLock<Arc<StateAnalysis>> = OnceLock::new();
+    Arc::clone(EMPTY.get_or_init(|| Arc::new(StateAnalysis::default())))
+}
+
 fn shared_empty_posture() -> Arc<StrategicPosture> {
     static EMPTY: OnceLock<Arc<StrategicPosture>> = OnceLock::new();
     Arc::clone(EMPTY.get_or_init(|| Arc::new(StrategicPosture::default())))
@@ -1022,26 +1027,25 @@ fn build_node_with_key(
         let spatial = Arc::new(SpatialOccupancy::from_state(&state));
         let mobility = Arc::new(MobilityAnalysis::from_spatial(Arc::clone(&spatial)));
 
-        let (state_analysis, territory) = rayon::join(
-            || match profile {
-                AnalysisProfile::Full => StateAnalysis::from_simulated(&state),
-                AnalysisProfile::BeamLean => StateAnalysis::from_simulated_routes_only(&state),
-            },
-            || match profile {
-                AnalysisProfile::Full => TerritoryAnalysis::from_spatial(&state, &spatial),
-                AnalysisProfile::BeamLean => {
-                    TerritoryAnalysis::from_spatial_actor_relative(&state, &spatial)
-                }
-            },
-        );
-        let state_analysis = Arc::new(state_analysis);
-        let territory = Arc::new(territory);
+        let (state_analysis, territory) = match profile {
+            AnalysisProfile::Full => {
+                let (state_analysis, territory) = rayon::join(
+                    || StateAnalysis::from_simulated(&state),
+                    || TerritoryAnalysis::from_spatial(&state, &spatial),
+                );
+                (Arc::new(state_analysis), Arc::new(territory))
+            }
+            AnalysisProfile::BeamLean => (
+                shared_empty_state_analysis(),
+                Arc::new(TerritoryAnalysis::from_spatial_actor_relative(
+                    &state, &spatial,
+                )),
+            ),
+        };
 
         let tracing = Arc::new(match profile {
             AnalysisProfile::Full => trace_with_mobility(&state, &state_analysis, &mobility),
-            AnalysisProfile::BeamLean => {
-                trace_actor_relative_with_mobility(&state, &state_analysis, &mobility)
-            }
+            AnalysisProfile::BeamLean => trace_actor_relative_with_mobility(&state, &mobility),
         });
         let tactical = Arc::new(match profile {
             AnalysisProfile::Full => TacticalStateAnalysis::from_parts(&state, &tracing, &mobility),
@@ -1093,7 +1097,6 @@ fn build_node_with_key(
                 let metrics = ActorUtilityMetrics::from_parts(
                     &state,
                     &snake.id,
-                    &state_analysis,
                     &mobility,
                     &territory,
                     &enclosure,
