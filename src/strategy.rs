@@ -108,6 +108,7 @@ impl DepthSearchStats {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct SearchMetadata {
     pub(crate) completed_depth: u8,
+    pub(crate) analyzed_depth: u8,
     pub(crate) nodes: u32,
     pub(crate) edges: u32,
     pub(crate) transposition_hits: u32,
@@ -134,6 +135,7 @@ impl Default for SearchMetadata {
     fn default() -> Self {
         Self {
             completed_depth: 0,
+            analyzed_depth: 0,
             nodes: 0,
             edges: 0,
             transposition_hits: 0,
