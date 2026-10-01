@@ -8,9 +8,7 @@ use crate::direction::{Direction, MoveMask};
 use crate::forecast::ForecastCertainty;
 use crate::search::budget::SearchBudget;
 use crate::search::graph::{FutureGraph, NodeId, SearchEdge, SearchNode};
-use crate::simulation::resolver::{
-    EliminationAttribution, ForecastDelta, InstantEvent,
-};
+use crate::simulation::resolver::{EliminationAttribution, ForecastDelta, InstantEvent};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum TerminalAssessment {
@@ -49,15 +47,9 @@ impl DirectionSurvivalSummary {
         Self {
             total_routes: 1,
             death_routes: u64::from(terminal == TerminalAssessment::Lost),
-            dead_end_routes: u64::from(
-                terminal != TerminalAssessment::Lost && safe_moves == 0,
-            ),
-            forced_routes: u64::from(
-                terminal != TerminalAssessment::Lost && safe_moves == 1,
-            ),
-            constrained_routes: u64::from(
-                terminal != TerminalAssessment::Lost && safe_moves == 2,
-            ),
+            dead_end_routes: u64::from(terminal != TerminalAssessment::Lost && safe_moves == 0),
+            forced_routes: u64::from(terminal != TerminalAssessment::Lost && safe_moves == 1),
+            constrained_routes: u64::from(terminal != TerminalAssessment::Lost && safe_moves == 2),
             min_future_mobility: safe_moves,
             min_reachable_space: reachable_space,
             min_second_order_mobility: u32::from(safe_moves),
@@ -406,22 +398,14 @@ fn apply_edge(
         .events
         .iter()
         .any(|event| matches!(event, InstantEvent::SelfDeadEnd));
-    let forced_now = edge.events.iter().any(|event| {
-        matches!(
-            event,
-            InstantEvent::SelfConstrained {
-                remaining_moves: 1
-            }
-        )
-    });
-    let constrained_now = edge.events.iter().any(|event| {
-        matches!(
-            event,
-            InstantEvent::SelfConstrained {
-                remaining_moves: 2
-            }
-        )
-    });
+    let forced_now = edge
+        .events
+        .iter()
+        .any(|event| matches!(event, InstantEvent::SelfConstrained { remaining_moves: 1 }));
+    let constrained_now = edge
+        .events
+        .iter()
+        .any(|event| matches!(event, InstantEvent::SelfConstrained { remaining_moves: 2 }));
 
     let child_safe_moves = child_node.analysis.tactical.ours.safe_moves.len();
     let mut survival = child.survival;
@@ -469,9 +453,9 @@ fn aggregate_direction(
     parent: &SearchNode,
     outcomes: &[EdgeOutcome],
 ) -> DirectionEvaluation {
-    let total_routes = outcomes
-        .iter()
-        .fold(0_u64, |sum, outcome| sum.saturating_add(outcome.survival.total_routes));
+    let total_routes = outcomes.iter().fold(0_u64, |sum, outcome| {
+        sum.saturating_add(outcome.survival.total_routes)
+    });
 
     let terminal = outcomes
         .iter()
@@ -531,8 +515,8 @@ fn aggregate_direction(
         .iter()
         .filter(|outcome| outcome.terminal != TerminalAssessment::Lost)
         .peekable();
-    let reserved_override = surviving.peek().is_some()
-        && surviving.all(|outcome| outcome.reserved_override_all);
+    let reserved_override =
+        surviving.peek().is_some() && surviving.all(|outcome| outcome.reserved_override_all);
 
     DirectionEvaluation {
         direction,
@@ -548,10 +532,7 @@ fn aggregate_direction(
     }
 }
 
-fn saturating_sum(
-    outcomes: &[EdgeOutcome],
-    value: impl Fn(&EdgeOutcome) -> u64,
-) -> u64 {
+fn saturating_sum(outcomes: &[EdgeOutcome], value: impl Fn(&EdgeOutcome) -> u64) -> u64 {
     outcomes
         .iter()
         .fold(0_u64, |sum, outcome| sum.saturating_add(value(outcome)))
@@ -568,10 +549,7 @@ fn weighted_average(
     (weighted / denominator) as f32
 }
 
-fn next_certainty(
-    current: ForecastCertainty,
-    delta: ForecastDelta,
-) -> ForecastCertainty {
+fn next_certainty(current: ForecastCertainty, delta: ForecastDelta) -> ForecastCertainty {
     match (current, delta) {
         (ForecastCertainty::FoodProvisional, _) | (_, ForecastDelta::FoodUncertainty) => {
             ForecastCertainty::FoodProvisional
@@ -899,10 +877,7 @@ mod tests {
         }
     }
 
-    fn evaluation(
-        direction: Direction,
-        survival: DirectionSurvivalSummary,
-    ) -> DirectionEvaluation {
+    fn evaluation(direction: Direction, survival: DirectionSurvivalSummary) -> DirectionEvaluation {
         DirectionEvaluation {
             direction,
             terminal: if survival.death_routes > 0 {
@@ -959,12 +934,7 @@ mod tests {
         let state = state(vec![]);
 
         assert_eq!(
-            compare_direction(
-                &safe,
-                &dangerous,
-                &state,
-                ReservedCellPolicy::default(),
-            ),
+            compare_direction(&safe, &dangerous, &state, ReservedCellPolicy::default(),),
             Ordering::Less
         );
     }
