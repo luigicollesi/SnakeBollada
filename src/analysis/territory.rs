@@ -1029,4 +1029,39 @@ mod tests {
             }
         }
     }
+
+    #[test]
+    fn shared_spatial_preserves_consumer_specific_head_semantics() {
+        use std::sync::Arc;
+
+        use crate::simulation::mobility::{DeterministicMoveBlock, MobilityAnalysis};
+        use crate::spatial::SpatialOccupancy;
+
+        let state = state(
+            7,
+            7,
+            vec![
+                snake("ours", &[(2, 2)]),
+                snake("enemy", &[(3, 2), (3, 1)]),
+            ],
+        );
+        let spatial = Arc::new(SpatialOccupancy::from_state(&state));
+        let mobility = MobilityAnalysis::from_spatial(Arc::clone(&spatial));
+        let territory = TerritoryAnalysis::from_spatial(&state, &spatial);
+
+        assert_eq!(
+            mobility.classify_move(
+                &state,
+                state.snake("ours").unwrap(),
+                Direction::Right,
+            ),
+            Some(DeterministicMoveBlock::DeterministicBodyCollision)
+        );
+        assert!(territory.for_snake("ours").unwrap().reachable_space > 0);
+        assert_eq!(
+            territory.for_snake("ours"),
+            TerritoryAnalysis::from_state(&state).for_snake("ours")
+        );
+    }
+
 }
