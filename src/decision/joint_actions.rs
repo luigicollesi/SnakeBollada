@@ -29,6 +29,25 @@ impl JointActionGenerator {
         tracing: &EnemyTracingOutput,
         profiles: &OpponentProfiles,
     ) -> Self {
+        Self::new_with_profiles_and_scope(state, our_moves, tracing, profiles, false)
+    }
+
+    pub(crate) fn new_actor_relative_with_profiles(
+        state: &SimulatedGameState,
+        our_moves: MoveMask,
+        tracing: &EnemyTracingOutput,
+        profiles: &OpponentProfiles,
+    ) -> Self {
+        Self::new_with_profiles_and_scope(state, our_moves, tracing, profiles, true)
+    }
+
+    fn new_with_profiles_and_scope(
+        state: &SimulatedGameState,
+        our_moves: MoveMask,
+        tracing: &EnemyTracingOutput,
+        profiles: &OpponentProfiles,
+        all_legal_enemy_moves: bool,
+    ) -> Self {
         let Some(ours) = state.snake(&state.our_snake_id).filter(|snake| snake.alive) else {
             return Self {
                 options: vec![],
@@ -53,7 +72,13 @@ impl JointActionGenerator {
         for enemy in enemies {
             let moves = tracing
                 .for_enemy(&enemy.id)
-                .map(|set| set.ordered_search_moves_with_profile(profiles.get(&enemy.id)))
+                .map(|set| {
+                    if all_legal_enemy_moves {
+                        set.ordered_legal_moves_with_profile(profiles.get(&enemy.id))
+                    } else {
+                        set.ordered_search_moves_with_profile(profiles.get(&enemy.id))
+                    }
+                })
                 .unwrap_or_else(|| normalized_moves(MoveMask::all()).iter().collect());
 
             options.push((enemy.id.clone(), moves));
@@ -252,6 +277,41 @@ mod tests {
             assert!(action.direction_for("enemy-a").is_some());
             assert!(action.direction_for("enemy-b").is_some());
         }
+    }
+
+    #[test]
+    fn actor_relative_generator_keeps_legal_moves_filtered_by_legacy_plausibility() {
+        let state = state(vec![snake("ours", &[(1, 1)]), snake("enemy", &[(5, 5)])]);
+        let tracing = EnemyTracingOutput {
+            enemies: HashMap::from([(
+                "enemy".to_string(),
+                EnemyMoveSet {
+                    legal_moves: MoveMask::from_iter([
+                        Direction::Left,
+                        Direction::Down,
+                        Direction::Right,
+                    ]),
+                    plausible_moves: MoveMask::single(Direction::Left),
+                    hypotheses: vec![],
+                    eliminations: vec![],
+                },
+            )]),
+        };
+
+        let legacy = JointActionGenerator::new(
+            &state,
+            MoveMask::single(Direction::Up),
+            &tracing,
+        );
+        let actor_relative = JointActionGenerator::new_actor_relative_with_profiles(
+            &state,
+            MoveMask::single(Direction::Up),
+            &tracing,
+            &OpponentProfiles::default(),
+        );
+
+        assert_eq!(legacy.estimated_count(), 1);
+        assert_eq!(actor_relative.estimated_count(), 3);
     }
 
     #[test]
