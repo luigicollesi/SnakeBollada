@@ -494,7 +494,7 @@ fn choose_food_opening<'a>(
                     && !evaluation.survival.is_forced_death()
                     && !evaluation.survival.is_forced_dead_end()
                     && evaluation.survival.death_rate_milli() <= death_limit
-                    && evaluation.survival.max_self_enclosure_risk < 3
+                    && evaluation.survival.max_self_enclosure_risk < 2
             })
     };
 
@@ -881,14 +881,14 @@ mod tests {
     }
 
     #[test]
-    fn opening_drops_committed_food_when_route_has_death_response() {
+    fn committed_food_survives_partial_death_branch_when_safe_continuation_exists() {
         use crate::decision::evaluation::DirectionSurvivalSummary;
         use crate::direction::{Direction, MoveMask};
 
         let normalized = SimulatedGameState::from(&state("standard"));
         let dangerous = DirectionEvaluation {
             direction: Direction::Right,
-            terminal: TerminalAssessment::Lost,
+            terminal: TerminalAssessment::Running,
             survival: DirectionSurvivalSummary {
                 total_routes: 2,
                 death_routes: 1,
@@ -918,7 +918,7 @@ mod tests {
             certainty: ForecastCertainty::Deterministic,
         };
 
-        assert!(choose_food_opening(
+        let chosen = choose_food_opening(
             &[dangerous],
             &[],
             &[committed],
@@ -926,7 +926,9 @@ mod tests {
             MoveMask::all(),
             ReservedCellPolicy::default(),
         )
-        .is_none());
+        .expect("partial danger must not invalidate a committed beneficial line");
+
+        assert_eq!(chosen.0.direction, Direction::Right);
     }
 
     #[test]
