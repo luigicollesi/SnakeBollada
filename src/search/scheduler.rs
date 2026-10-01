@@ -181,12 +181,7 @@ fn base_frontier(graph: &FutureGraph, base_depth: u8) -> Vec<(NodeId, NodeId, Di
         }
 
         for edge in &graph.node(node_id).children {
-            queue.push_back((
-                edge.child,
-                node_id,
-                root_direction,
-                depth.saturating_add(1),
-            ));
+            queue.push_back((edge.child, node_id, root_direction, depth.saturating_add(1)));
         }
     }
 
