@@ -404,6 +404,17 @@ impl DagEvaluator<'_> {
     }
 }
 
+fn strategic_drives(node: &SearchNode) -> (f32, f32) {
+    let Some(analysis) = node.active_analysis() else {
+        return (0.0, 0.0);
+    };
+
+    (
+        f32::from(analysis.posture.food_drive_milli()) / 1000.0,
+        f32::from(analysis.posture.hunt_drive_milli) / 1000.0,
+    )
+}
+
 fn terminal_assessment(node: &SearchNode) -> TerminalAssessment {
     let ours_alive = node
         .state
@@ -436,10 +447,10 @@ fn evaluate_frontier(
     } else {
         LeafPotential::default()
     };
-    let aggression = node.state.aggression.value.clamp(0.0, 1.0);
+    let (food_drive, hunt_drive) = strategic_drives(node);
     let (food_discount, hunting_discount) = certainty_discounts(certainty);
-    let utility = potential.food * food_discount * (1.0 - aggression)
-        + potential.hunting * hunting_discount * aggression;
+    let utility = potential.food * food_discount * food_drive
+        + potential.hunting * hunting_discount * hunt_drive;
 
     NodeEvaluation {
         terminal,
@@ -484,9 +495,9 @@ fn apply_edge(
         .saturating_add(edge_enemy_kills(edge));
 
     let (food_discount, hunting_discount) = certainty_discounts(certainty);
-    let aggression = child_node.state.aggression.value.clamp(0.0, 1.0);
-    let local_utility = realized_food * food_discount * (1.0 - aggression)
-        + (realized_hunting + territorial_delta) * hunting_discount * aggression;
+    let (food_drive, hunt_drive) = strategic_drives(child_node);
+    let local_utility = realized_food * food_discount * food_drive
+        + (realized_hunting + territorial_delta) * hunting_discount * hunt_drive;
 
     let death_now = edge
         .events
