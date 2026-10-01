@@ -3,7 +3,7 @@
 use std::collections::HashMap;
 
 use crate::direction::Direction;
-use crate::evaluation::TransitionScore;
+use crate::evaluation::{ActorTable, TransitionScore};
 
 use super::beam::{select_seed_beam, BeamLine, BeamStep, LineId, LineTerminal};
 use super::bounds::ValueBound;
@@ -34,7 +34,7 @@ pub(crate) struct ContinuationEvaluation {
     pub(crate) harm_total: i64,
     pub(crate) our_utility_total: i64,
     pub(crate) opponent_utility_total: i64,
-    pub(crate) actor_utility_totals: HashMap<String, i64>,
+    pub(crate) actor_utility_totals: ActorTable<i64>,
     pub(crate) value: i64,
     pub(crate) terminal: LineTerminal,
     pub(crate) bound: ValueBound,
@@ -48,7 +48,7 @@ struct EvaluatedLine {
     harm_total: i64,
     our_utility_total: i64,
     opponent_utility_total: i64,
-    actor_utility_totals: HashMap<String, i64>,
+    actor_utility_totals: ActorTable<i64>,
     terminal: LineTerminal,
     bound: ValueBound,
     steps: Vec<BeamStep>,
@@ -61,11 +61,8 @@ impl EvaluatedLine {
         edge: &SearchEdge,
         transition: TransitionScore,
     ) -> Self {
-        for (actor_id, score) in &transition.actors {
-            self.actor_utility_totals
-                .entry(actor_id.clone())
-                .and_modify(|total| *total = total.saturating_add(score.net))
-                .or_insert(score.net);
+        for (actor_id, score) in transition.actors.iter() {
+            self.actor_utility_totals.add(actor_id, score.net);
         }
 
         if self.terminal == LineTerminal::Running {
@@ -333,7 +330,7 @@ fn frontier_line(exact: bool) -> EvaluatedLine {
         harm_total: 0,
         our_utility_total: 0,
         opponent_utility_total: 0,
-        actor_utility_totals: HashMap::new(),
+        actor_utility_totals: ActorTable::new(),
         terminal: LineTerminal::Running,
         bound: if exact {
             ValueBound::Exact(0)
@@ -356,7 +353,7 @@ fn terminal_line(node: &SearchNode) -> Option<EvaluatedLine> {
             harm_total: TERMINAL_VALUE,
             our_utility_total: -TERMINAL_VALUE,
             opponent_utility_total: 0,
-            actor_utility_totals: HashMap::new(),
+            actor_utility_totals: ActorTable::new(),
             terminal: LineTerminal::Lost,
             bound: ValueBound::Exact(-TERMINAL_VALUE),
             steps: Vec::new(),
@@ -378,7 +375,7 @@ fn terminal_line(node: &SearchNode) -> Option<EvaluatedLine> {
         harm_total: 0,
         our_utility_total: TERMINAL_VALUE,
         opponent_utility_total: 0,
-        actor_utility_totals: HashMap::new(),
+        actor_utility_totals: ActorTable::new(),
         terminal: LineTerminal::Won,
         bound: ValueBound::Exact(TERMINAL_VALUE),
         steps: Vec::new(),
@@ -673,7 +670,7 @@ mod tests {
             harm_total: ours.max(0).saturating_sub(ours),
             our_utility_total: ours,
             opponent_utility_total: opponents,
-            actor_utility_totals: HashMap::from([
+            actor_utility_totals: ActorTable::from_iter([
                 ("ours".to_string(), ours),
                 ("enemy-a".to_string(), enemy_a),
                 ("enemy-b".to_string(), enemy_b),
@@ -697,7 +694,7 @@ mod tests {
             harm_total: ours.max(0).saturating_sub(ours),
             our_utility_total: ours,
             opponent_utility_total: opponents,
-            actor_utility_totals: HashMap::from([
+            actor_utility_totals: ActorTable::from_iter([
                 ("ours".to_string(), ours),
                 ("enemy".to_string(), opponents),
             ]),
