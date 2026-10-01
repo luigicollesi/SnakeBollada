@@ -16,9 +16,7 @@ use crate::modes::{food, hunting::HuntingPlanKind};
 use crate::search::budget::SearchBudget;
 use crate::search::graph::FutureGraph;
 use crate::search::scheduler::SelectiveSearchScheduler;
-use crate::simulation::state::{
-    SimulatedGameState, SimulationSupport, OPENING_FOOD_TARGET_FRUITS,
-};
+use crate::simulation::state::{SimulatedGameState, SimulationSupport, OPENING_FOOD_TARGET_FRUITS};
 use crate::strategy::{
     choose_move_baseline, CacheInvalidationReason, Decision, DecisionReason, DepthSearchStats,
     DirectionOutcomeSummary, SearchMetadata,
@@ -52,13 +50,7 @@ impl DecisionEngine {
 
         let prioritize_food = normalized.aggression.fruits_eaten < OPENING_FOOD_TARGET_FRUITS;
         let mut graph = FutureGraph::new(normalized);
-        self.decide_with_graph_with_reserve_and_intent(
-            state,
-            &mut graph,
-            0,
-            None,
-            prioritize_food,
-        )
+        self.decide_with_graph_with_reserve_and_intent(state, &mut graph, 0, None, prioritize_food)
     }
 
     pub(crate) fn decide_with_graph(&self, state: &GameState, graph: &mut FutureGraph) -> Decision {
