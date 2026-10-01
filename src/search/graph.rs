@@ -1064,6 +1064,72 @@ mod tests {
     }
 
     #[test]
+    fn parallel_batch_preserves_deterministic_edge_order() {
+        let mut first = FutureGraph::new(state());
+        first.use_beam_lean_analysis();
+        first.expand_to_depth(1).unwrap();
+
+        let mut second = FutureGraph::new(state());
+        second.use_beam_lean_analysis();
+        second.expand_to_depth(1).unwrap();
+
+        let signature = |graph: &FutureGraph| {
+            graph
+                .node(graph.root())
+                .children
+                .iter()
+                .map(|edge| {
+                    (
+                        edge.joint_action.clone(),
+                        graph.node(edge.child).key.clone(),
+                        edge.transition.clone(),
+                    )
+                })
+                .collect::<Vec<_>>()
+        };
+
+        assert_eq!(signature(&first), signature(&second));
+    }
+
+    #[test]
+    fn parallel_batch_deduplicates_equivalent_resolved_states() {
+        let mut initial = state();
+        initial.food.clear();
+        initial
+            .snakes
+            .iter_mut()
+            .find(|snake| snake.id == "enemy")
+            .unwrap()
+            .health = 1;
+
+        let mut graph = FutureGraph::new(initial);
+        graph.use_beam_lean_analysis();
+        graph.expand_to_depth(1).unwrap();
+
+        let root = graph.root();
+        let our_id = graph.node(root).state.our_snake_id.clone();
+        let mut found_shared_child = false;
+
+        for direction in crate::direction::Direction::ALL {
+            let children = graph
+                .node(root)
+                .children
+                .iter()
+                .filter(|edge| edge.joint_action.direction_for(&our_id) == Some(direction))
+                .map(|edge| edge.child)
+                .collect::<Vec<_>>();
+            if children.len() >= 2 && children.windows(2).any(|pair| pair[0] == pair[1]) {
+                found_shared_child = true;
+                break;
+            }
+        }
+
+        assert!(found_shared_child);
+        assert!(graph.transposition_hits() > 0);
+        assert!(graph.edge_count() as usize > graph.node_count().saturating_sub(1));
+    }
+
+    #[test]
     fn edge_events_are_kept_outside_child_node() {
         let mut initial = state();
         initial.food = vec![Coord { x: 2, y: 1 }];
