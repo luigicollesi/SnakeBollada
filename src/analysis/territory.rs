@@ -1040,21 +1040,14 @@ mod tests {
         let state = state(
             7,
             7,
-            vec![
-                snake("ours", &[(2, 2)]),
-                snake("enemy", &[(3, 2), (3, 1)]),
-            ],
+            vec![snake("ours", &[(2, 2)]), snake("enemy", &[(3, 2), (3, 1)])],
         );
         let spatial = Arc::new(SpatialOccupancy::from_state(&state));
         let mobility = MobilityAnalysis::from_spatial(Arc::clone(&spatial));
         let territory = TerritoryAnalysis::from_spatial(&state, &spatial);
 
         assert_eq!(
-            mobility.classify_move(
-                &state,
-                state.snake("ours").unwrap(),
-                Direction::Right,
-            ),
+            mobility.classify_move(&state, state.snake("ours").unwrap(), Direction::Right,),
             Some(DeterministicMoveBlock::DeterministicBodyCollision)
         );
         assert!(territory.for_snake("ours").unwrap().reachable_space > 0);
@@ -1063,5 +1056,4 @@ mod tests {
             TerritoryAnalysis::from_state(&state).for_snake("ours")
         );
     }
-
 }
