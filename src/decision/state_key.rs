@@ -31,10 +31,7 @@ impl StateKey {
         Self::from_state_with_aggression(state, false)
     }
 
-    fn from_state_with_aggression(
-        state: &SimulatedGameState,
-        include_aggression: bool,
-    ) -> Self {
+    fn from_state_with_aggression(state: &SimulatedGameState, include_aggression: bool) -> Self {
         let mut snakes = state
             .snakes
             .iter()
