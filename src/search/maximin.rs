@@ -47,12 +47,14 @@ impl EvaluatedLine {
             .instant_benefit
             .saturating_sub(transition.instant_harm);
 
-        self.value = self.value.saturating_add(instant_net);
+        if self.terminal == LineTerminal::Running {
+            self.value = self.value.saturating_add(instant_net);
+            self.bound = shift_bound(self.bound, instant_net);
+        }
         self.benefit_total = self
             .benefit_total
             .saturating_add(transition.instant_benefit);
         self.harm_total = self.harm_total.saturating_add(transition.instant_harm);
-        self.bound = shift_bound(self.bound, instant_net);
         self.steps.insert(
             0,
             BeamStep {
