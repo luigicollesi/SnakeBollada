@@ -67,6 +67,7 @@ impl SelectiveSearchScheduler {
         budget: &SearchBudget,
         base_depth: u8,
         intent: Option<&DecisionIntent>,
+        reevaluation_reserve: Duration,
     ) -> Result<SelectiveSearchStats, SearchError> {
         if base_evaluations.is_empty() || budget.soft_expired() {
             return Ok(SelectiveSearchStats::default());
@@ -98,7 +99,7 @@ impl SelectiveSearchScheduler {
             ..SelectiveSearchStats::default()
         };
 
-        while budget.can_afford_soft(MIN_EXPANSION_SLICE) {
+        while budget.can_afford_soft(MIN_EXPANSION_SLICE.saturating_add(reevaluation_reserve)) {
             let Some(entry) = frontier.pop() else {
                 break;
             };
