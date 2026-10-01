@@ -217,7 +217,10 @@ pub(crate) fn deepen_while_affordable(
     })
 }
 
-fn append_continuation(line: &BeamLine, continuation: ContinuationEvaluation) -> BeamLine {
+pub(crate) fn append_continuation(
+    line: &BeamLine,
+    continuation: ContinuationEvaluation,
+) -> BeamLine {
     let prefix_value = line
         .our_utility_total
         .saturating_sub(line.opponent_utility_total);
