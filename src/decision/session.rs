@@ -701,7 +701,10 @@ mod tests {
         let game = state(3, vec![Coord { x: 3, y: 3 }, Coord { x: 3, y: 2 }]);
         let graph = FutureGraph::new(SimulatedGameState::from(&game));
         let mut decision_state = DecisionState {
-            intent: Some(DecisionIntent::Food(FoodIntent::new(Coord { x: 4, y: 4 }, 2))),
+            intent: Some(DecisionIntent::Food(FoodIntent::new(
+                Coord { x: 4, y: 4 },
+                2,
+            ))),
             ..DecisionState::default()
         };
         let decision = Decision {
