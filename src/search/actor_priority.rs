@@ -48,7 +48,11 @@ pub(crate) fn edge_priority(
     _child: &SearchNode,
 ) -> ActorEdgePriority {
     let our_id = parent.state.our_snake_id.as_str();
-    let ours = edge.transition.for_actor(our_id).copied().unwrap_or_default();
+    let ours = edge
+        .transition
+        .for_actor(our_id)
+        .copied()
+        .unwrap_or_default();
 
     let mut strongest_enemy_opportunity = 0_i64;
     let mut strongest_enemy_harm = 0_i64;
@@ -63,8 +67,7 @@ pub(crate) fn edge_priority(
             continue;
         };
         strongest_enemy_opportunity = strongest_enemy_opportunity.max(score.net.max(0));
-        strongest_enemy_harm =
-            strongest_enemy_harm.max(score.net.saturating_neg().max(0));
+        strongest_enemy_harm = strongest_enemy_harm.max(score.net.saturating_neg().max(0));
     }
 
     ActorEdgePriority {
