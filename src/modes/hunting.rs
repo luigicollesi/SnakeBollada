@@ -1,8 +1,6 @@
 #![allow(dead_code)]
 
-use crate::analysis::{
-    EnclosureAnalysis, EnclosureRisk, TacticalStateAnalysis, TerritoryAnalysis,
-};
+use crate::analysis::{EnclosureAnalysis, EnclosureRisk, TacticalStateAnalysis, TerritoryAnalysis};
 use crate::direction::Direction;
 use crate::enemy::tracing::EnemyTracingOutput;
 use crate::simulation::state::SimulatedGameState;
@@ -134,7 +132,9 @@ pub(crate) fn analyze(
         }
 
         if ours.length() >= TERRITORY_HUNT_MIN_LENGTH && state.aggression.value >= 0.20 {
-            if let Some(choke) = enemy_territory.nearest_choke().filter(|choke| choke.distance <= 6)
+            if let Some(choke) = enemy_territory
+                .nearest_choke()
+                .filter(|choke| choke.distance <= 6)
             {
                 let gain_bonus = choke
                     .cut_gain
@@ -366,23 +366,17 @@ mod tests {
             0.2,
         );
 
-        assert!(!analyze_state(&short)
-            .plans
-            .iter()
-            .any(|plan| matches!(
-                plan.kind,
-                HuntingPlanKind::ChokeCut | HuntingPlanKind::TerritorySqueeze
-            )));
-        assert!(analyze_state(&long)
-            .plans
-            .iter()
-            .any(|plan| matches!(
-                plan.kind,
-                HuntingPlanKind::HeadPressure
-                    | HuntingPlanKind::EdgePin
-                    | HuntingPlanKind::ChokeCut
-                    | HuntingPlanKind::TerritorySqueeze
-            )));
+        assert!(!analyze_state(&short).plans.iter().any(|plan| matches!(
+            plan.kind,
+            HuntingPlanKind::ChokeCut | HuntingPlanKind::TerritorySqueeze
+        )));
+        assert!(analyze_state(&long).plans.iter().any(|plan| matches!(
+            plan.kind,
+            HuntingPlanKind::HeadPressure
+                | HuntingPlanKind::EdgePin
+                | HuntingPlanKind::ChokeCut
+                | HuntingPlanKind::TerritorySqueeze
+        )));
     }
 
     #[test]
@@ -392,8 +386,17 @@ mod tests {
                 snake(
                     "ours",
                     &[
-                        (1, 1), (1, 0), (0, 0), (0, 1), (0, 2), (0, 3), (0, 4), (1, 4),
-                        (2, 4), (2, 3), (2, 2),
+                        (1, 1),
+                        (1, 0),
+                        (0, 0),
+                        (0, 1),
+                        (0, 2),
+                        (0, 3),
+                        (0, 4),
+                        (1, 4),
+                        (2, 4),
+                        (2, 3),
+                        (2, 2),
                     ],
                 ),
                 snake("enemy", &[(6, 1), (6, 0), (5, 0)]),
