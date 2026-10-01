@@ -417,7 +417,12 @@ mod tests {
 
         let decision = choose_move(&state);
 
-        assert_eq!(decision.direction, Direction::Up);
+        assert_eq!(
+            decision.direction,
+            Direction::Up,
+            "search outcomes: {:#?}",
+            decision.search.direction_outcomes
+        );
         assert_eq!(decision.target_food, Some(safe_food));
     }
 
