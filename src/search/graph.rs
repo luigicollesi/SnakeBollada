@@ -193,7 +193,6 @@ impl FutureGraph {
 
     pub(crate) fn reroot(&mut self, node_id: NodeId) {
         self.root = node_id;
-        self.garbage_collect();
     }
 
     fn garbage_collect(&mut self) {
