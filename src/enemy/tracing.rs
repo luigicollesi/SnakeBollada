@@ -4,6 +4,7 @@ use std::collections::HashMap;
 
 use crate::analysis::{EnclosureAnalysis, StateAnalysis, TacticalStateAnalysis, TerritoryAnalysis};
 use crate::direction::{Direction, MoveMask};
+use crate::enemy::profile::OpponentProfile;
 use crate::forecast::ForecastCertainty;
 use crate::modes::{food, hunting};
 use crate::simulation::mobility::{DeterministicMoveBlock, MobilityAnalysis};
@@ -98,6 +99,13 @@ impl EnemyMoveSet {
     }
 
     pub(crate) fn ordered_search_moves(&self) -> Vec<Direction> {
+        self.ordered_search_moves_with_profile(None)
+    }
+
+    pub(crate) fn ordered_search_moves_with_profile(
+        &self,
+        profile: Option<&OpponentProfile>,
+    ) -> Vec<Direction> {
         let search = self.search_moves();
         let mut moves = search.iter().collect::<Vec<_>>();
         moves.sort_by(|left, right| {
@@ -108,9 +116,17 @@ impl EnemyMoveSet {
                 .map_or(0, |hypothesis| hypothesis.threat.rank())
                 .cmp(&left_hypothesis.map_or(0, |hypothesis| hypothesis.threat.rank()))
                 .then_with(|| {
-                    right_hypothesis
-                        .map_or(0, |hypothesis| hypothesis.plausibility_milli)
-                        .cmp(&left_hypothesis.map_or(0, |hypothesis| hypothesis.plausibility_milli))
+                    let left_plausibility = left_hypothesis.map_or(0, |hypothesis| {
+                        profile.map_or(hypothesis.plausibility_milli, |profile| {
+                            profile.adjusted_plausibility(hypothesis)
+                        })
+                    });
+                    let right_plausibility = right_hypothesis.map_or(0, |hypothesis| {
+                        profile.map_or(hypothesis.plausibility_milli, |profile| {
+                            profile.adjusted_plausibility(hypothesis)
+                        })
+                    });
+                    right_plausibility.cmp(&left_plausibility)
                 })
                 .then_with(|| left.rank().cmp(&right.rank()))
         });
