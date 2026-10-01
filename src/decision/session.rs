@@ -256,13 +256,20 @@ impl DecisionState {
             return;
         }
 
+        let (Some(target), Some(kind)) = (decision.target_enemy.as_deref(), decision.hunt_kind)
+        else {
+            return;
+        };
+
         let root = graph.node(graph.root());
         let Some(plan) = root.active_analysis().and_then(|analysis| {
             analysis
                 .hunting
                 .plans
                 .iter()
-                .find(|plan| committable_hunt_plan(plan))
+                .find(|plan| {
+                    plan.target == target && plan.kind == kind && committable_hunt_plan(plan)
+                })
         }) else {
             return;
         };
