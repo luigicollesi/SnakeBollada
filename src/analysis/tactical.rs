@@ -119,6 +119,57 @@ impl TacticalStateAnalysis {
         Self::from_parts(state, tracing, &mobility)
     }
 
+    pub(crate) fn from_parts_actor_relative(
+        state: &SimulatedGameState,
+        tracing: &EnemyTracingOutput,
+        mobility: &MobilityAnalysis,
+    ) -> Self {
+        let threat_map = ThreatMap::from_state(state, tracing);
+        let deterministic_moves = mobility.deterministic_moves_for(state, &state.our_snake_id);
+        let safe_moves = state
+            .snake(&state.our_snake_id)
+            .and_then(|snake| snake.head())
+            .map(|head| {
+                MoveMask::from_iter(
+                    deterministic_moves
+                        .iter()
+                        .filter(|direction| !threat_map.is_lethal(direction.apply(head))),
+                )
+            })
+            .unwrap_or_else(MoveMask::empty);
+
+        let ours = SnakeMobilitySnapshot {
+            deterministic_moves,
+            safe_moves,
+            best_reachable_space: 0,
+        };
+
+        let enemies = state
+            .snakes
+            .par_iter()
+            .filter(|snake| snake.alive && snake.id != state.our_snake_id)
+            .filter_map(|enemy| {
+                let move_set = tracing.for_enemy(&enemy.id)?;
+                Some((
+                    enemy.id.clone(),
+                    EnemyTacticalSnapshot {
+                        snake_id: enemy.id.clone(),
+                        legal_moves: move_set.legal_moves,
+                        plausible_moves: move_set.legal_moves,
+                        best_reachable_space: 0,
+                        length: enemy.length(),
+                    },
+                ))
+            })
+            .collect::<HashMap<_, _>>();
+
+        Self {
+            ours,
+            enemies,
+            threat_map,
+        }
+    }
+
     pub(crate) fn from_parts(
         state: &SimulatedGameState,
         tracing: &EnemyTracingOutput,
