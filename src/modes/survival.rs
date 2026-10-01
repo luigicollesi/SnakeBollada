@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 
-use crate::analysis::{BorderFobicAnalysis, TacticalStateAnalysis};
+use crate::analysis::{BorderFobicAnalysis, TacticalStateAnalysis, TerritoryAnalysis};
 use crate::direction::Direction;
 use crate::simulation::mobility::MobilityAnalysis;
 use crate::simulation::state::SimulatedGameState;
@@ -95,7 +95,8 @@ pub(crate) fn analyze(
     state: &SimulatedGameState,
     tactical: &TacticalStateAnalysis,
 ) -> SurvivalModeOutput {
-    let border = BorderFobicAnalysis::from_parts(state, tactical);
+    let territory = TerritoryAnalysis::from_state(state);
+    let border = BorderFobicAnalysis::from_parts_with_territory(state, tactical, &territory);
     analyze_with_border(state, tactical, &border)
 }
 
