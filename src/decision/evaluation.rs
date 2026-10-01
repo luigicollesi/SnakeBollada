@@ -61,11 +61,14 @@ impl DirectionSurvivalSummary {
     }
 
     fn with_parent_snapshot(mut self, parent: &SearchNode) -> Self {
-        let safe_moves = parent.analysis.tactical.ours.safe_moves.len();
+        let analysis = parent
+            .active_analysis()
+            .expect("running parent must have analysis");
+        let safe_moves = analysis.tactical.ours.safe_moves.len();
         self.min_future_mobility = self.min_future_mobility.min(safe_moves);
         self.min_reachable_space = self
             .min_reachable_space
-            .min(parent.analysis.tactical.ours.best_reachable_space);
+            .min(analysis.tactical.ours.best_reachable_space);
         self
     }
 
