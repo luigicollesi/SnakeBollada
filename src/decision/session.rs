@@ -189,7 +189,16 @@ impl DecisionState {
             })
             .is_some_and(|route| route.reachable && route.distance.is_some());
 
-        if !viable {
+        let dominant_hunt_available = root.active_analysis().is_some_and(|analysis| {
+            analysis.posture.favors_dominant_hunt()
+                && analysis
+                    .hunting
+                    .plans
+                    .iter()
+                    .any(|plan| committable_hunt_plan(plan) && plan.score_milli >= 400)
+        });
+
+        if !viable || dominant_hunt_available {
             self.intent = None;
         }
     }
@@ -224,8 +233,13 @@ impl DecisionState {
         decision: &Decision,
     ) {
         if let Some(DecisionIntent::Food(current)) = self.intent.as_ref() {
-            if state.board.food.contains(&current.target) {
+            if state.board.food.contains(&current.target)
+                && decision.reason != crate::strategy::DecisionReason::HuntingTactical
+            {
                 return;
+            }
+            if decision.reason == crate::strategy::DecisionReason::HuntingTactical {
+                self.intent = None;
             }
         }
 
