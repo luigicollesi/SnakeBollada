@@ -97,7 +97,7 @@ fn classify_benefits(context: &ActorContext, metrics: &ActorMetrics) -> ActorBen
         mobility: i32::from(mobility),
         space: i32::from(space),
         food_access: i32::from(food_access),
-        growth: i32::from(growth),
+        growth,
         territory: i32::from(territory),
         dominance: i32::from(dominance),
         hunting: i32::from(metrics.hunting_opportunity_milli),
@@ -165,13 +165,13 @@ fn classify_harms(_context: &ActorContext, metrics: &ActorMetrics) -> ActorHarms
     ]);
 
     ActorHarms {
-        dead_end: i32::from(dead_end),
-        constrained: i32::from(constrained),
+        dead_end,
+        constrained,
         low_mobility: i32::from(low_mobility),
         insufficient_space: i32::from(insufficient_space),
         enclosure: i32::from(enclosure),
         border: i32::from(border),
-        corner: i32::from(corner),
+        corner,
         enemy_pin: i32::from(metrics.enemy_pin_risk_milli),
         starvation: i32::from(starvation),
         food_denial: i32::from(food_denial),
