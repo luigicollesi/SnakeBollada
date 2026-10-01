@@ -4,7 +4,7 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::Arc;
 use std::time::Duration;
 
-use crate::analysis::transition::analyze_transition;
+use crate::analysis::transition::analyze_transition_parts;
 use crate::analysis::{
     BorderFobicAnalysis, EnclosureAnalysis, StateAnalysis, StrategicPosture, TacticalStateAnalysis,
     TerritoryAnalysis,
@@ -18,7 +18,9 @@ use crate::modes::hunting::{self, HuntingModeOutput};
 use crate::modes::survival::{self, SurvivalModeOutput};
 use crate::simulation::joint_action::JointAction;
 use crate::simulation::mobility::MobilityAnalysis;
-use crate::simulation::resolver::{resolve_turn, ForecastDelta, InstantEvent, ResolveError};
+use crate::simulation::resolver::{
+    resolve_turn, ForecastDelta, InstantEvent, ResolveError, TurnResolution,
+};
 use crate::simulation::state::SimulatedGameState;
 
 use super::budget::SearchBudget;
@@ -463,13 +465,18 @@ impl FutureGraph {
 
             let resolution = resolve_turn(&state, &joint_action)?;
             let child_key = StateKey::from_state(&resolution.state);
+            let TurnResolution {
+                state: resolved_state,
+                events: resolution_events,
+                forecast_delta,
+            } = resolution;
 
             let child = if let Some(existing) = self.transpositions.get(&child_key).copied() {
                 self.transposition_hits = self.transposition_hits.saturating_add(1);
                 existing
             } else {
                 let child = self.nodes.len();
-                let node = build_node_with_key(resolution.state.clone(), child_key.clone());
+                let node = build_node_with_key(resolved_state, child_key.clone());
                 self.transpositions.insert(child_key, child);
                 self.nodes.push(node);
                 child
@@ -477,16 +484,22 @@ impl FutureGraph {
 
             let mut events = if let Some(child_analysis) = self.nodes[child].analysis.as_ref() {
                 let after_tactical = Arc::clone(&child_analysis.tactical);
-                analyze_transition(&before_tactical, &resolution, &after_tactical).events
+                analyze_transition_parts(
+                    &before_tactical,
+                    &self.nodes[child].state,
+                    &resolution_events,
+                    &after_tactical,
+                )
+                .events
             } else {
-                resolution.events.clone()
+                resolution_events.clone()
             };
             append_border_exposure_event(&self.nodes[child], &mut events);
 
             self.nodes[node_id].children.push(SearchEdge {
                 joint_action,
                 events,
-                forecast_delta: resolution.forecast_delta,
+                forecast_delta,
                 child,
             });
             self.edge_count = self.edge_count.saturating_add(1);
