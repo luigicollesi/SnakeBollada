@@ -58,15 +58,6 @@ impl Direction {
         }
     }
 
-    pub(crate) fn from_heads(previous: Coord, current: Coord) -> Option<Self> {
-        match (current.x - previous.x, current.y - previous.y) {
-            (0, 1) => Some(Direction::Up),
-            (1, 0) => Some(Direction::Right),
-            (0, -1) => Some(Direction::Down),
-            (-1, 0) => Some(Direction::Left),
-            _ => None,
-        }
-    }
 }
 
 #[cfg_attr(not(test), allow(dead_code))]
