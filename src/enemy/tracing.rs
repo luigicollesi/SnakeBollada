@@ -115,7 +115,6 @@ impl EnemyMoveSet {
         self.ordered_moves(legal, profile)
     }
 
-
     pub(crate) fn ordered_search_moves_with_profile(
         &self,
         profile: Option<&OpponentProfile>,
