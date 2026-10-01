@@ -257,7 +257,6 @@ impl MaximinEvaluator<'_> {
 
         let mut edge_variants = Vec::with_capacity(edges.len());
         for edge in edges {
-            let child = self.graph.node(edge.child);
             let transition = edge.transition.clone();
             let variants = self
                 .evaluate_node_variants(edge.child, remaining_depth.saturating_sub(1))
