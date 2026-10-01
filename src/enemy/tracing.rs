@@ -661,8 +661,9 @@ fn structural_move_set(
         }
     }
 
+    let reachable_space = reachable_space_by_direction(state, mobility, snake, legal_moves);
     let plausible_moves =
-        apply_space_filter(state, mobility, snake, legal_moves, &mut eliminations);
+        apply_space_filter(snake, legal_moves, &reachable_space, &mut eliminations);
 
     EnemyMoveSet {
         legal_moves,
