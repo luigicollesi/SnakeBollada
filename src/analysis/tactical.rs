@@ -216,6 +216,23 @@ mod tests {
     }
 
     #[test]
+    fn enemy_food_route_does_not_hide_larger_head_to_head_threat() {
+        let mut state = state(vec![
+            snake("ours", &[(2, 1), (1, 1)]),
+            snake("enemy", &[(2, 3), (3, 3), (3, 2)]),
+        ]);
+        state.food = vec![crate::Coord { x: 4, y: 3 }];
+
+        let analysis = StateAnalysis::from_simulated(&state);
+        let tracing = trace(&state, &analysis);
+        let tactical = TacticalStateAnalysis::from_state(&state, &tracing);
+
+        let contested = Coord { x: 2, y: 2 };
+        assert!(tactical.threat_map.is_lethal(contested));
+        assert!(!tactical.ours.safe_moves.contains(Direction::Up));
+    }
+
+    #[test]
     fn doomed_enemy_fallback_does_not_create_head_to_head_threats() {
         let mut enemy = snake("enemy", &[(0, 0)]);
         enemy.health = 1;
