@@ -685,11 +685,8 @@ impl FutureGraph {
                 existing
             } else {
                 let child = self.nodes.len();
-                let node = build_node_with_key(
-                    resolved_state,
-                    child_key.clone(),
-                    self.analysis_profile,
-                );
+                let node =
+                    build_node_with_key(resolved_state, child_key.clone(), self.analysis_profile);
                 self.transpositions.insert(child_key, child);
                 self.nodes.push(node);
                 child
@@ -932,7 +929,12 @@ mod tests {
         assert!(analysis.hunting.plans.is_empty());
         assert_eq!(
             analysis.actor_snapshots.len(),
-            child.state.snakes.iter().filter(|snake| snake.alive).count()
+            child
+                .state
+                .snakes
+                .iter()
+                .filter(|snake| snake.alive)
+                .count()
         );
     }
 
