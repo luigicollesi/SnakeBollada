@@ -1136,6 +1136,24 @@ mod tests {
     }
 
     #[test]
+    fn independent_beam_graph_starts_clean_and_lean_from_current_root() {
+        let mut legacy = FutureGraph::new(state());
+        legacy.expand_to_depth(1).unwrap();
+        assert!(!legacy.node(legacy.root()).children.is_empty());
+
+        let beam = legacy.independent_beam_graph();
+        let root = beam.node(beam.root());
+        let analysis = root.active_analysis().expect("beam root must be analyzable");
+
+        assert_eq!(beam.node_count(), 1);
+        assert_eq!(beam.edge_count(), 0);
+        assert!(root.children.is_empty());
+        assert!(analysis.survival.candidates.is_empty());
+        assert!(analysis.hunting.candidates.is_empty());
+        assert!(!analysis.actor_snapshots.is_empty());
+    }
+
+    #[test]
     fn beam_lean_nodes_skip_legacy_modes_but_keep_actor_snapshots() {
         let mut graph = FutureGraph::new(state());
         graph.use_beam_lean_analysis();
