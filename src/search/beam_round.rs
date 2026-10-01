@@ -51,7 +51,57 @@ pub(crate) fn deepen_checkpoint_once(
     let edges_before = graph.edge_count();
     let started = Instant::now();
     let mut candidate_lines = Vec::with_capacity(checkpoint.lines.len());
-    let mut lines_attempted = 0_u8;
+    let mut running_tips = Vec::new();
+
+    for line in &checkpoint.lines {
+        if line.terminal != LineTerminal::Running {
+            continue;
+        }
+
+        let Some(tip) = line_tip(line) else {
+            return Ok(incomplete_outcome(
+                checkpoint,
+                target_depth,
+                running_tips.len().try_into().unwrap_or(u8::MAX),
+                nodes_before,
+                edges_before,
+                graph,
+                started,
+            ));
+        };
+
+        if !running_tips.contains(&tip) {
+            running_tips.push(tip);
+        }
+    }
+
+    let lines_attempted = checkpoint
+        .lines
+        .iter()
+        .filter(|line| line.terminal == LineTerminal::Running)
+        .count()
+        .try_into()
+        .unwrap_or(u8::MAX);
+
+    // Grow every active route one layer before allowing any route to consume
+    // the next layer. This keeps the common-depth checkpoint fair under a
+    // tight budget.
+    for pass_depth in 1..=ROUND_DEPTH {
+        for &tip in &running_tips {
+            let expansion = graph.expand_prioritized_subtree(tip, pass_depth, budget)?;
+            if !expansion.completed {
+                return Ok(incomplete_outcome(
+                    checkpoint,
+                    target_depth,
+                    lines_attempted,
+                    nodes_before,
+                    edges_before,
+                    graph,
+                    started,
+                ));
+            }
+        }
+    }
 
     for line in &checkpoint.lines {
         if line.terminal != LineTerminal::Running {
@@ -59,7 +109,6 @@ pub(crate) fn deepen_checkpoint_once(
             continue;
         }
 
-        lines_attempted = lines_attempted.saturating_add(1);
         let Some(tip) = line_tip(line) else {
             return Ok(incomplete_outcome(
                 checkpoint,
@@ -71,19 +120,6 @@ pub(crate) fn deepen_checkpoint_once(
                 started,
             ));
         };
-
-        let expansion = graph.expand_prioritized_subtree(tip, ROUND_DEPTH, budget)?;
-        if !expansion.completed {
-            return Ok(incomplete_outcome(
-                checkpoint,
-                target_depth,
-                lines_attempted,
-                nodes_before,
-                edges_before,
-                graph,
-                started,
-            ));
-        }
 
         let Some(continuation) = evaluate_continuations(graph, tip, ROUND_DEPTH)
             .into_iter()
