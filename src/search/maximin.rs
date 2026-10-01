@@ -392,10 +392,7 @@ fn max_our_choices(lines: Vec<EvaluatedLine>) -> EvaluatedLine {
         .expect("MAX requires at least one line")
 }
 
-fn select_selfish_opponent_response(
-    node: &SearchNode,
-    lines: Vec<EvaluatedLine>,
-) -> EvaluatedLine {
+fn select_selfish_opponent_response(node: &SearchNode, lines: Vec<EvaluatedLine>) -> EvaluatedLine {
     let lower = lines
         .iter()
         .map(|line| line.bound.lower())
@@ -465,11 +462,13 @@ fn opponent_regret(
     enemies: &[&str],
     maxima: &HashMap<&str, i64>,
 ) -> (i64, i64) {
-    enemies.iter().fold((0_i64, 0_i64), |(worst, total), enemy_id| {
-        let best = maxima.get(*enemy_id).copied().unwrap_or(0);
-        let regret = best.saturating_sub(actor_utility(line, enemy_id)).max(0);
-        (worst.max(regret), total.saturating_add(regret))
-    })
+    enemies
+        .iter()
+        .fold((0_i64, 0_i64), |(worst, total), enemy_id| {
+            let best = maxima.get(*enemy_id).copied().unwrap_or(0);
+            let regret = best.saturating_sub(actor_utility(line, enemy_id)).max(0);
+            (worst.max(regret), total.saturating_add(regret))
+        })
 }
 
 fn rank_and_dedup_variants(lines: &mut Vec<EvaluatedLine>, limit: usize) {
