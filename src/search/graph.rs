@@ -561,7 +561,12 @@ fn build_node_with_key(state: SimulatedGameState, key: StateKey) -> SearchNode {
         let enclosure = Arc::new(EnclosureAnalysis::from_parts(&state, &territory, &tactical));
         let survival = Arc::new(survival::analyze_with_border(&state, &tactical, &border));
         let hunting = Arc::new(hunting::analyze(
-            &state, &tactical, &tracing, &territory, &enclosure,
+            &state,
+            &tactical,
+            &tracing,
+            &territory,
+            &enclosure,
+            &posture,
         ));
         Some(Arc::new(NodeAnalysis {
             state: state_analysis,
