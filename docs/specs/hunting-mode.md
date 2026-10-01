@@ -313,3 +313,33 @@ A saída é candidata, não pontuação final.
 - [ ] eventos são instantâneos e específicos da rota;
 - [ ] agressividade não é aplicada dentro do modo;
 - [ ] bordas/quinas não são decididas pelo modo.
+
+## Atualização V3 — Dominance Frontier
+
+Competitive Territory distingue células ganhas por vantagem de comprimento:
+
+- `dominance_claim_cells`;
+- `dominance_frontier_cells`;
+- `favorable_head_frontier`.
+
+Quando nossa ETA empata com a de um inimigo menor, a célula pode representar território que ele não consegue contestar sem perder o head-to-head. Essa vantagem entra no score territorial, no HuntIntent progress e no selective search.
+
+`HeadPressure` agora é committable quando o score alcança o threshold e usa lock curto de dois turnos. Outros HuntIntents mantêm janela maior. HeadPressure só deve ser criado quando existe pressão de fronteira real, não apenas porque somos maiores.
+
+Territory hunting não depende mais de `aggression >= 0.20`. Ele pode ser ativado por `StrategicPosture.hunt_drive_milli` ou por sermos a maior cobra.
+
+O progresso de Hunting combina:
+
+```text
+target territory loss
+our territory gain
+frontier gain
+dominance frontier gain
+target escape loss
+enclosure progress
+plan progress
+- self enclosure
+- border growth
+```
+
+Se o inimigo recua e cede território, o HuntIntent pode continuar sem perseguir diretamente sua cabeça.
