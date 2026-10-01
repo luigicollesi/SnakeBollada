@@ -24,6 +24,17 @@ pub(crate) struct StateKey {
 
 impl StateKey {
     pub(crate) fn from_state(state: &SimulatedGameState) -> Self {
+        Self::from_state_with_aggression(state, true)
+    }
+
+    pub(crate) fn from_beam_state(state: &SimulatedGameState) -> Self {
+        Self::from_state_with_aggression(state, false)
+    }
+
+    fn from_state_with_aggression(
+        state: &SimulatedGameState,
+        include_aggression: bool,
+    ) -> Self {
         let mut snakes = state
             .snakes
             .iter()
@@ -51,8 +62,16 @@ impl StateKey {
             food,
             hazards,
             rules: state.rules.clone(),
-            aggression_fruits_eaten: state.aggression.fruits_eaten,
-            aggression_milli: aggression_bucket(state.aggression.value),
+            aggression_fruits_eaten: if include_aggression {
+                state.aggression.fruits_eaten
+            } else {
+                0
+            },
+            aggression_milli: if include_aggression {
+                aggression_bucket(state.aggression.value)
+            } else {
+                0
+            },
         }
     }
 
@@ -139,6 +158,20 @@ mod tests {
         let mut right = sample_state();
         right.snakes[0].health -= 1;
 
+        assert_ne!(StateKey::from_state(&left), StateKey::from_state(&right));
+    }
+
+    #[test]
+    fn beam_key_ignores_legacy_aggression_state() {
+        let left = sample_state();
+        let mut right = sample_state();
+        right.aggression.fruits_eaten = right.aggression.fruits_eaten.saturating_add(5);
+        right.aggression.value = 0.95;
+
+        assert_eq!(
+            StateKey::from_beam_state(&left),
+            StateKey::from_beam_state(&right)
+        );
         assert_ne!(StateKey::from_state(&left), StateKey::from_state(&right));
     }
 
