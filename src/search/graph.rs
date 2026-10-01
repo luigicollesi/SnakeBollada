@@ -33,6 +33,12 @@ use super::budget::SearchBudget;
 pub(crate) type NodeId = usize;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum AnalysisProfile {
+    Full,
+    BeamLean,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct ExpansionReport {
     pub(crate) completed_depth: u8,
     pub(crate) nodes: u32,
@@ -138,6 +144,7 @@ pub(crate) struct FutureGraph {
     transposition_hits: u32,
     edge_count: u32,
     opponent_profiles: OpponentProfiles,
+    analysis_profile: AnalysisProfile,
 }
 
 impl FutureGraph {
@@ -149,7 +156,7 @@ impl FutureGraph {
         root_state: SimulatedGameState,
         opponent_profiles: OpponentProfiles,
     ) -> Self {
-        let root_node = build_node(root_state);
+        let root_node = build_node(root_state, AnalysisProfile::Full);
         let root_key = root_node.key.clone();
 
         Self {
@@ -159,11 +166,16 @@ impl FutureGraph {
             transposition_hits: 0,
             edge_count: 0,
             opponent_profiles,
+            analysis_profile: AnalysisProfile::Full,
         }
     }
 
     pub(crate) fn set_opponent_profiles(&mut self, opponent_profiles: OpponentProfiles) {
         self.opponent_profiles = opponent_profiles;
+    }
+
+    pub(crate) fn use_beam_lean_analysis(&mut self) {
+        self.analysis_profile = AnalysisProfile::BeamLean;
     }
 
     pub(crate) fn root(&self) -> NodeId {
@@ -673,7 +685,11 @@ impl FutureGraph {
                 existing
             } else {
                 let child = self.nodes.len();
-                let node = build_node_with_key(resolved_state, child_key.clone());
+                let node = build_node_with_key(
+                    resolved_state,
+                    child_key.clone(),
+                    self.analysis_profile,
+                );
                 self.transpositions.insert(child_key, child);
                 self.nodes.push(node);
                 child
@@ -751,12 +767,16 @@ fn is_terminal_state(state: &SimulatedGameState) -> bool {
     !ours_alive || !living_enemies
 }
 
-fn build_node(state: SimulatedGameState) -> SearchNode {
+fn build_node(state: SimulatedGameState, profile: AnalysisProfile) -> SearchNode {
     let key = StateKey::from_state(&state);
-    build_node_with_key(state, key)
+    build_node_with_key(state, key, profile)
 }
 
-fn build_node_with_key(state: SimulatedGameState, key: StateKey) -> SearchNode {
+fn build_node_with_key(
+    state: SimulatedGameState,
+    key: StateKey,
+    profile: AnalysisProfile,
+) -> SearchNode {
     let analysis = if is_terminal_state(&state) {
         None
     } else {
@@ -780,14 +800,19 @@ fn build_node_with_key(state: SimulatedGameState, key: StateKey) -> SearchNode {
         let posture = Arc::new(StrategicPosture::from_state(&state));
         let enclosure = Arc::new(EnclosureAnalysis::from_parts(&state, &territory, &tactical));
 
-        let (survival, hunting) = rayon::join(
-            || survival::analyze_with_border(&state, &tactical, &border),
-            || {
-                hunting::analyze(
-                    &state, &tactical, &tracing, &territory, &enclosure, &posture,
-                )
-            },
-        );
+        let (survival, hunting) = match profile {
+            AnalysisProfile::Full => rayon::join(
+                || survival::analyze_with_border(&state, &tactical, &border),
+                || {
+                    hunting::analyze(
+                        &state, &tactical, &tracing, &territory, &enclosure, &posture,
+                    )
+                },
+            ),
+            AnalysisProfile::BeamLean => {
+                (SurvivalModeOutput::default(), HuntingModeOutput::default())
+            }
+        };
         let survival = Arc::new(survival);
         let hunting = Arc::new(hunting);
 
