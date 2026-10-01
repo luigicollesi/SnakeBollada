@@ -71,7 +71,9 @@ impl BorderFobicAnalysis {
                 .unwrap_or(u16::MAX);
             let inward_safe_moves = safe_moves
                 .iter()
-                .filter(|direction| edge_distance(state, direction.apply(head)) > head_edge_distance)
+                .filter(|direction| {
+                    edge_distance(state, direction.apply(head)) > head_edge_distance
+                })
                 .count()
                 .try_into()
                 .unwrap_or(u8::MAX);
