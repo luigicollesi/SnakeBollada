@@ -2,7 +2,9 @@
 
 use std::time::{Duration, Instant};
 
-use super::beam::{BeamCheckpoint, BeamLine, LineTerminal, ROUND_DEPTH};
+use super::beam::{
+    select_seed_beam, BeamCheckpoint, BeamLine, LineId, LineTerminal, ROUND_DEPTH,
+};
 use super::bounds::ValueBound;
 use super::budget::SearchBudget;
 use super::graph::{FutureGraph, NodeId, SearchError};
@@ -50,31 +52,6 @@ pub(crate) fn deepen_checkpoint_once(
     let nodes_before = graph.node_count();
     let edges_before = graph.edge_count();
     let started = Instant::now();
-    let mut candidate_lines = Vec::with_capacity(checkpoint.lines.len());
-    let mut running_tips = Vec::new();
-
-    for line in &checkpoint.lines {
-        if line.terminal != LineTerminal::Running {
-            continue;
-        }
-
-        let Some(tip) = line_tip(line) else {
-            return Ok(incomplete_outcome(
-                checkpoint,
-                target_depth,
-                running_tips.len().try_into().unwrap_or(u8::MAX),
-                nodes_before,
-                edges_before,
-                graph,
-                started,
-            ));
-        };
-
-        if !running_tips.contains(&tip) {
-            running_tips.push(tip);
-        }
-    }
-
     let lines_attempted = checkpoint
         .lines
         .iter()
@@ -83,47 +60,20 @@ pub(crate) fn deepen_checkpoint_once(
         .try_into()
         .unwrap_or(u8::MAX);
 
-    // Grow every active route one layer before allowing any route to consume
-    // the next layer. This keeps the common-depth checkpoint fair under a
-    // tight budget.
-    for pass_depth in 1..=ROUND_DEPTH {
-        for &tip in &running_tips {
-            let expansion = graph.expand_prioritized_subtree(tip, pass_depth, budget)?;
-            if !expansion.completed {
-                return Ok(incomplete_outcome(
-                    checkpoint,
-                    target_depth,
-                    lines_attempted,
-                    nodes_before,
-                    edges_before,
-                    graph,
-                    started,
-                ));
-            }
-        }
-    }
+    let mut working_lines = checkpoint.lines.clone();
+    let mut next_line_id = working_lines
+        .iter()
+        .map(|line| line.id.0)
+        .max()
+        .unwrap_or(0)
+        .saturating_add(1);
 
-    for line in &checkpoint.lines {
-        if line.terminal != LineTerminal::Running {
-            candidate_lines.push(line.clone());
-            continue;
-        }
-
-        let Some(tip) = line_tip(line) else {
-            return Ok(incomplete_outcome(
-                checkpoint,
-                target_depth,
-                lines_attempted,
-                nodes_before,
-                edges_before,
-                graph,
-                started,
-            ));
-        };
-
-        let Some(continuation) = evaluate_continuations(graph, tip, ROUND_DEPTH)
-            .into_iter()
-            .find(|continuation| continuation.bound.is_exact())
+    // ROUND_DEPTH is intentionally applied as independent one-ply beam steps.
+    // We prune after every layer so discarded futures never consume the next
+    // layer's node-analysis budget.
+    for _ in 0..ROUND_DEPTH {
+        let Some(next_lines) =
+            advance_lines_one_layer(graph, &working_lines, budget, &mut next_line_id)?
         else {
             return Ok(incomplete_outcome(
                 checkpoint,
@@ -135,11 +85,10 @@ pub(crate) fn deepen_checkpoint_once(
                 started,
             ));
         };
-
-        candidate_lines.push(append_continuation(line, continuation));
+        working_lines = next_lines;
     }
 
-    if !checkpoint.can_commit(&candidate_lines) {
+    if !checkpoint.can_commit(&working_lines) {
         return Ok(incomplete_outcome(
             checkpoint,
             target_depth,
@@ -151,10 +100,10 @@ pub(crate) fn deepen_checkpoint_once(
         ));
     }
 
-    sort_lines(&mut candidate_lines);
+    sort_lines(&mut working_lines);
     let committed = BeamCheckpoint {
         completed_depth: target_depth,
-        lines: candidate_lines,
+        lines: working_lines,
     };
 
     Ok(BeamRoundOutcome {
@@ -172,6 +121,67 @@ pub(crate) fn deepen_checkpoint_once(
             elapsed_us: started.elapsed().as_micros().try_into().unwrap_or(u64::MAX),
         },
     })
+}
+
+fn advance_lines_one_layer(
+    graph: &mut FutureGraph,
+    lines: &[BeamLine],
+    budget: &SearchBudget,
+    next_line_id: &mut u32,
+) -> Result<Option<Vec<BeamLine>>, SearchError> {
+    let mut tips = Vec::<NodeId>::new();
+    for line in lines {
+        if line.terminal != LineTerminal::Running {
+            continue;
+        }
+        let Some(tip) = line_tip(line) else {
+            return Ok(None);
+        };
+        if !tips.contains(&tip) {
+            tips.push(tip);
+        }
+    }
+
+    for tip in tips {
+        let expansion = graph.expand_prioritized_subtree(tip, 1, budget)?;
+        if !expansion.completed {
+            return Ok(None);
+        }
+    }
+
+    let mut candidates = Vec::new();
+    for line in lines {
+        if line.terminal != LineTerminal::Running {
+            candidates.push(line.clone());
+            continue;
+        }
+
+        let Some(tip) = line_tip(line) else {
+            return Ok(None);
+        };
+
+        let continuations = evaluate_continuations(graph, tip, 1);
+        for continuation in continuations
+            .into_iter()
+            .filter(|continuation| continuation.bound.is_exact())
+        {
+            let mut candidate = append_continuation(line, continuation);
+            candidate.id = LineId(*next_line_id);
+            *next_line_id = next_line_id.saturating_add(1);
+            candidates.push(candidate);
+        }
+    }
+
+    if candidates.is_empty() {
+        return Ok(None);
+    }
+
+    let selected = select_seed_beam(&candidates);
+    if selected.is_empty() {
+        Ok(None)
+    } else {
+        Ok(Some(selected))
+    }
 }
 
 pub(crate) fn deepen_while_affordable(
