@@ -350,6 +350,7 @@ fn structural_relevant(
 pub(crate) struct TerritoryAnalysis {
     width: u16,
     height: u16,
+    distances: HashMap<String, Vec<u16>>,
     snakes: HashMap<String, SnakeTerritorySnapshot>,
     competitive: HashMap<String, CompetitiveTerritorySnapshot>,
     competitive_ids: Vec<String>,
@@ -381,6 +382,7 @@ impl TerritoryAnalysis {
         let TerritoryCore {
             width,
             height,
+            distances,
             snakes: core_snakes,
             competitive,
             competitive_ids,
@@ -413,11 +415,18 @@ impl TerritoryAnalysis {
         Self {
             width,
             height,
+            distances,
             snakes,
             competitive,
             competitive_ids,
             competitive_claims,
         }
+    }
+
+    pub(crate) fn distance_for(&self, snake_id: &str, coord: Coord) -> Option<u16> {
+        let index = index_of(self.width, self.height, coord)?;
+        let distance = *self.distances.get(snake_id)?.get(index)?;
+        (distance != u16::MAX).then_some(distance)
     }
 
     pub(crate) fn for_snake(&self, snake_id: &str) -> Option<&SnakeTerritorySnapshot> {
@@ -1034,6 +1043,28 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn distance_field_is_available_from_territory_core() {
+        let state = state(
+            7,
+            7,
+            vec![
+                snake("ours", &[(1, 1), (1, 0)]),
+                snake("enemy", &[(5, 5), (5, 4)]),
+            ],
+        );
+        let territory = TerritoryAnalysis::from_state(&state);
+
+        assert_eq!(
+            territory.distance_for("ours", Coord { x: 3, y: 1 }),
+            Some(2)
+        );
+        assert_eq!(
+            territory.distance_for("enemy", Coord { x: 3, y: 5 }),
+            Some(2)
+        );
     }
 
     #[test]
