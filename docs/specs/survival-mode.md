@@ -317,3 +317,23 @@ EnemyPinRisk reutiliza Competitive Territory para avaliar as primeiras células 
 - mínimo inward control.
 
 O selective search aprofunda linhas cujo border/pin risk cresce entre parent e child.
+
+## Atualização V3 — Exposição temporal de borda e EscapeIntent
+
+A borda agora é avaliada como custo por turno previsto, não apenas como característica do estado final. Cada transição cuja nova cabeça esteja na borda emite `SelfBorderExposure` com o `fear_milli` do BorderFobic e indicação de canto.
+
+O evaluator acumula por rota:
+
+- `border_exposure_ticks`;
+- `corner_exposure_ticks`;
+- `cumulative_border_cost_milli`.
+
+O custo base é proporcional ao medo de borda da cobra e é cobrado em toda aresta prevista na parede. Portanto uma sequência `EDGE -> EDGE -> EDGE` acumula três custos antes da direção raiz ser escolhida. Canto amplifica o custo.
+
+Potencial abstrato de Food/Hunting em folhas não zera mais sozinho a reserva de borda. O override exige resultado causal realizado, enquanto a utilidade da linha continua podendo superar o custo acumulado quando há benefício suficiente.
+
+`EscapePressure` reutiliza as distribuições já calculadas pelo FutureGraph: death rate, dead-end rate, forced rate, constrained rate, EnemyPinRisk, enclosure e mobilidade. Escape inicia apenas em pressão alta (`>= 650`), mas uma fuga já ativa só é liberada depois de pressão `<= 300` por dois turnos consecutivos.
+
+`DecisionIntent::Escape` memoriza o objetivo de reduzir pressão, não uma direção fixa. Durante Escape, a direção com menor pressão futura vence Food/Hunting; uma rota pela borda permanece permitida quando realmente reduz morte/dead-end/pin.
+
+A telemetria por direção expõe `average_border_ticks_milli` e `average_border_cost_milli`, e a telemetria raiz expõe `escape_pressure_milli` e `escape_selected`.
