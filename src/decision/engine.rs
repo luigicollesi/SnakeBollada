@@ -448,6 +448,10 @@ fn hunting_intent_progress(
         .competitive_for_snake(&root.state.our_snake_id)
         .map(|snapshot| i32::from(snapshot.winning_frontier) - i32::from(snapshot.losing_frontier))
         .unwrap_or(0);
+    let before_dominance_frontier = root_analysis
+        .territory
+        .competitive_for_snake(&root.state.our_snake_id)
+        .map_or(0, |snapshot| i32::from(snapshot.dominance_frontier_cells));
     let before_border = root_analysis
         .border
         .ours()
@@ -521,6 +525,13 @@ fn hunting_intent_progress(
                     - before_frontier
             })
             .unwrap_or(0);
+        let dominance_frontier_delta = analysis
+            .territory
+            .competitive_for_snake(&child.state.our_snake_id)
+            .map(|snapshot| {
+                i32::from(snapshot.dominance_frontier_cells) - before_dominance_frontier
+            })
+            .unwrap_or(0);
         let after_border = analysis
             .border
             .ours()
@@ -558,6 +569,7 @@ fn hunting_intent_progress(
                 .saturating_add(target_control_delta.saturating_mul(2))
                 .saturating_add(our_control_delta)
                 .saturating_add(frontier_delta.saturating_mul(35))
+                .saturating_add(dominance_frontier_delta.saturating_mul(110))
                 .saturating_sub(our_risk.saturating_mul(120))
                 .saturating_sub(border_growth.max(0).saturating_mul(2))
                 .saturating_sub(i32::from(after_border).saturating_div(5)),
