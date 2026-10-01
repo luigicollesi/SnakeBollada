@@ -90,10 +90,8 @@ impl ActorContext {
 
         let board_occupancy_milli = ratio_milli(occupied, board_cells);
         let body_density_milli = ratio_milli(actor_length, board_cells);
-        let food_density_milli = ratio_milli(
-            state.food.len().try_into().unwrap_or(u32::MAX),
-            board_cells,
-        );
+        let food_density_milli =
+            ratio_milli(state.food.len().try_into().unwrap_or(u32::MAX), board_cells);
         let hazard_density_milli = ratio_milli(
             state.hazards.len().try_into().unwrap_or(u32::MAX),
             board_cells,
@@ -192,16 +190,10 @@ fn relative_size_pressure(actor_length: u32, largest_enemy: u32) -> (u16, u16) {
 
     if actor_length >= largest_enemy {
         let lead = actor_length.saturating_sub(largest_enemy);
-        (
-            ratio_milli(lead, largest_enemy.max(1)),
-            0,
-        )
+        (ratio_milli(lead, largest_enemy.max(1)), 0)
     } else {
         let deficit = largest_enemy.saturating_sub(actor_length);
-        (
-            0,
-            ratio_milli(deficit, actor_length.max(1)),
-        )
+        (0, ratio_milli(deficit, actor_length.max(1)))
     }
 }
 
@@ -305,11 +297,7 @@ mod tests {
         let duel = state(snake("ours", 6, 90), vec![snake("a", 6, 100)]);
         let crowded = state(
             snake("ours", 6, 90),
-            vec![
-                snake("a", 6, 100),
-                snake("b", 6, 100),
-                snake("c", 6, 100),
-            ],
+            vec![snake("a", 6, 100), snake("b", 6, 100), snake("c", 6, 100)],
         );
 
         let duel = ActorContext::from_state(&duel, "ours").unwrap();
