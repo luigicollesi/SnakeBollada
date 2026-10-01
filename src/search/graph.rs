@@ -5,7 +5,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use crate::analysis::transition::analyze_transition;
-use crate::analysis::{StateAnalysis, TacticalStateAnalysis};
+use crate::analysis::{EnclosureAnalysis, StateAnalysis, TacticalStateAnalysis, TerritoryAnalysis};
 use crate::decision::joint_actions::JointActionGenerator;
 use crate::decision::state_key::StateKey;
 use crate::direction::MoveMask;
@@ -43,6 +43,8 @@ pub(crate) struct NodeAnalysis {
     pub(crate) mobility: Arc<MobilityAnalysis>,
     pub(crate) tracing: Arc<EnemyTracingOutput>,
     pub(crate) tactical: Arc<TacticalStateAnalysis>,
+    pub(crate) territory: Arc<TerritoryAnalysis>,
+    pub(crate) enclosure: Arc<EnclosureAnalysis>,
 }
 
 #[derive(Debug, Clone)]
@@ -409,11 +411,19 @@ fn build_node(state: SimulatedGameState) -> SearchNode {
         let tactical = Arc::new(TacticalStateAnalysis::from_parts(
             &state, &tracing, &mobility,
         ));
+        let territory = Arc::new(TerritoryAnalysis::from_state(&state));
+        let enclosure = Arc::new(EnclosureAnalysis::from_parts(
+            &state,
+            &territory,
+            &tactical,
+        ));
         Some(Arc::new(NodeAnalysis {
             state: state_analysis,
             mobility,
             tracing,
             tactical,
+            territory,
+            enclosure,
         }))
     };
 
