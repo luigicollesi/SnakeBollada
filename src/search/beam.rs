@@ -101,7 +101,7 @@ impl BeamCheckpoint {
         candidate_lines.len() == self.lines.len()
             && candidate_lines
                 .iter()
-                .all(|line| line.completes_depth(target_depth))
+                .all(|line| line.completes_depth(target_depth) && line.bound.is_exact())
     }
 
     pub(crate) fn best_line(&self) -> Option<&BeamLine> {
