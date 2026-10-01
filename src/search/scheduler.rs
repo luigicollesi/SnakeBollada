@@ -114,8 +114,6 @@ impl SelectiveSearchScheduler {
             } else {
                 stats.reused_expansions = stats.reused_expansions.saturating_add(1);
             }
-            stats.max_selective_depth = stats.max_selective_depth.max(entry.depth);
-
             let children = graph
                 .node(entry.node_id)
                 .children
@@ -124,6 +122,7 @@ impl SelectiveSearchScheduler {
                 .collect::<Vec<_>>();
 
             let next_depth = entry.depth.saturating_add(1);
+            stats.max_selective_depth = stats.max_selective_depth.max(next_depth);
             let root_relevance = relevance[usize::from(entry.root_direction.rank())];
             for child in children {
                 enqueue(
