@@ -14,10 +14,12 @@ Implementado em `dev`:
 - budget global cobrindo expansão **e avaliação E2E**; uma profundidade só substitui a anterior quando ambas terminam;
 - estimativa de próxima profundidade baseada em frontier, branching e custo observado;
 - reserva de deadline baseada em timeout, latência e jitter recente da própria partida;
-- avaliação root → leaf isolada por branch, sem somar eventos de siblings;
+- avaliação bottom-up memoizada sobre o DAG, sem materializar todas as rotas root → leaf;
+- memoização por `(NodeId, ForecastCertainty, remaining_depth)`, preservando certainty branch-local;
+- respostas adversárias agregadas por pior caso plausível antes de qualquer média/ratio;
 - Survival lexicográfico antes de qualquer recompensa;
 - agressividade branch-local para ponderar Food versus Hunting;
-- leaf potential separado de eventos realizados para reduzir horizon blindness;
+- reward realizado separado de leaf potential para reduzir horizon blindness sem fabricar eventos;
 - política de bordas/quinas com override apenas para resultado tático causal;
 - rolling horizon por partida com prune, re-root e garbage collection;
 - validação de food antes do lookup, distinguindo `FoodSpawn` e `FoodMutation`;
@@ -92,7 +94,10 @@ restore target depth
 iterative deepening if budget allows
    |
    v
-evaluate E2E routes
+bottom-up DAG evaluation
+   |
+   v
+aggregate worst plausible opponent response
    |
    v
 apply Survival priority
@@ -192,7 +197,7 @@ Como o grafo possui transpositions, eventos pertencem à transição e não ao n
 ```rust
 struct SearchNode {
     state: SimulatedGameState,
-    analysis: Arc<StateAnalysis>,
+    analysis: Option<Arc<NodeAnalysis>>,
     children: Vec<SearchEdge>,
 }
 
@@ -390,62 +395,50 @@ node.survival_score
 
 A avaliação acontece somente durante traversal de uma rota completa.
 
-## 16. Rota E2E é unidade atômica
+## 16. Avaliação bottom-up do DAG
 
-Exemplo:
-
-```text
-Route A:
-LEFT -> RIGHT -> eat food
-
-Route B:
-LEFT -> UP -> constrained
-```
-
-Nunca calculamos:
+Cada node é avaliado a partir de seus filhos e memoizado.
 
 ```text
-LEFT = AteFood(Route A) - Constrained(Route B)
+frontier
+   ↓
+LeafEvaluation
+   ↓
+edge composition
+   ↓
+opponent-response aggregation
+   ↓
+choose OUR best future move
+   ↓
+parent NodeEvaluation
 ```
 
-Primeiro:
+Transpositions são avaliadas uma vez por certainty/profundidade restante, em vez de uma vez por caminho que alcança o mesmo estado.
 
-```text
-evaluate Route A
-evaluate Route B
-```
+Eventos continuam pertencendo às edges e são compostos localmente. Siblings nunca compartilham reward.
 
-separadamente.
-
-Somente depois agrupamos os resultados por primeira direção.
-
-## 17. RouteEvaluation
+## 17. NodeEvaluation e DirectionEvaluation
 
 ```rust
-struct RouteEvaluation {
-    initial_move: Direction,
-
-    benefit: f32,
-    harm: f32,
-    utility: f32,
-
-    survival: SurvivalRouteAssessment,
-    died: bool,
-
-    events: Vec<InstantEvent>,
-    certainty: RouteCertainty,
+struct NodeEvaluation {
+    terminal: TerminalAssessment,
+    survival: DirectionSurvivalSummary,
+    strategic: StrategicEnvelope,
+    chosen_move: Option<Direction>,
 }
 ```
 
-```text
-utility = benefit - harm
+````rust
+struct DirectionEvaluation {
+    direction: Direction,
+    terminal: TerminalAssessment,
+    survival: DirectionSurvivalSummary,
+    worst_strategic_utility: f32,
+    average_strategic_utility: f32,
+}
 ```
 
-Morte não é uma penalidade finita:
-
-```text
-Died => terminal hard failure
-```
+`Won > Running > Lost` é aplicado antes de qualquer utility.
 
 ## 18. Benefícios
 
@@ -505,7 +498,7 @@ A seleção usa uma ordem lexicográfica:
 
 Food ou kill nunca compensam uma morte inevitável.
 
-## 21. Survival por distribuição de rotas futuras
+## 21. Survival adversarial com distribuição secundária
 
 Para cada primeira direção, depois de avaliar as rotas E2E separadamente:
 
@@ -522,7 +515,9 @@ struct DirectionSurvivalSummary {
 
 Esse resumo não mistura eventos entre rotas; ele conta outcomes.
 
-Quanto maior a fração de futuros que converge para morte/beco/forced state, pior a direção.
+A existência de qualquer resposta plausível que cause morte/beco/forced state é considerada antes da proporção de rotas.
+
+Contagens continuam sendo mantidas por programação dinâmica para telemetria e desempates secundários, sem materializar as rotas.
 
 ## 22. Agressividade
 
@@ -584,13 +579,19 @@ struct DirectionEvaluation {
 }
 ```
 
-Ordem inicial:
+Ordem:
 
-1. melhor classe de Survival;
-2. menor death/dead-end/forced ratio;
-3. melhor pior rota estratégica sobrevivente;
-4. comparar próximas rotas piores quando necessário;
-5. aplicar critérios determinísticos de desempate.
+1. `Won > Running > Lost`;
+2. ausência de resposta letal plausível;
+3. ausência de dead-end plausível;
+4. ausência de forced/constrained future;
+5. maior mobilidade futura mínima;
+6. maior espaço mínimo;
+7. maior second-order mobility mínima;
+8. política de células reservadas;
+9. maior pior utility estratégica;
+10. maior utility estratégica média;
+11. desempate determinístico.
 
 Não somar eventos de routes diferentes.
 
