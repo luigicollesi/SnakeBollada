@@ -837,8 +837,10 @@ impl FutureGraph {
             }
             self.perf_stats.resolved_actions =
                 self.perf_stats.resolved_actions.saturating_add(edge_count);
-            self.perf_stats.new_nodes_built =
-                self.perf_stats.new_nodes_built.saturating_add(built_node_count);
+            self.perf_stats.new_nodes_built = self
+                .perf_stats
+                .new_nodes_built
+                .saturating_add(built_node_count);
             self.perf_stats.resolve_us = self
                 .perf_stats
                 .resolve_us
