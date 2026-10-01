@@ -968,6 +968,70 @@ mod tests {
         }
     }
 
+    fn dominant_contest_state(health: i32) -> GameState {
+        let mut ours = snake(
+            "ours",
+            vec![
+                Coord { x: 2, y: 1 },
+                Coord { x: 1, y: 1 },
+                Coord { x: 1, y: 0 },
+                Coord { x: 0, y: 0 },
+                Coord { x: 0, y: 1 },
+                Coord { x: 0, y: 2 },
+                Coord { x: 1, y: 2 },
+                Coord { x: 1, y: 3 },
+            ],
+        );
+        ours.health = health;
+        let enemy = snake(
+            "enemy",
+            vec![
+                Coord { x: 2, y: 3 },
+                Coord { x: 3, y: 3 },
+                Coord { x: 3, y: 4 },
+            ],
+        );
+
+        GameState {
+            game: Game {
+                id: "dominance-arbitration".to_string(),
+                ruleset: HashMap::from([("name".to_string(), json!("standard"))]),
+                timeout: 500,
+            },
+            turn: 12,
+            board: Board {
+                width: 7,
+                height: 7,
+                food: vec![Coord { x: 4, y: 1 }],
+                snakes: vec![ours.clone(), enemy],
+                hazards: vec![],
+            },
+            you: ours,
+        }
+    }
+
+    #[test]
+    fn apex_healthy_snake_hunts_before_ordinary_food() {
+        let state = dominant_contest_state(90);
+        let decision = DecisionEngine::stateless().decide(&state);
+
+        assert_eq!(decision.reason, DecisionReason::HuntingTactical);
+        assert_eq!(decision.target_enemy.as_deref(), Some("enemy"));
+        assert!(decision.hunt_kind.is_some());
+        assert!(decision.search.hunt_drive_milli > decision.search.food_urgency_milli);
+    }
+
+    #[test]
+    fn apex_low_health_snake_prioritizes_critical_food() {
+        let state = dominant_contest_state(15);
+        let decision = DecisionEngine::stateless().decide(&state);
+
+        assert_eq!(decision.reason, DecisionReason::FoodStrategic);
+        assert!(decision.target_food.is_some());
+        assert!(decision.target_enemy.is_none());
+        assert!(decision.search.food_urgency_milli >= 800);
+    }
+
     #[test]
     fn standard_ruleset_uses_future_search() {
         let state = state("standard");
