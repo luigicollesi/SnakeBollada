@@ -271,7 +271,7 @@ fn actor_evaluation<'a>(
     node: &'a SearchNode,
     actor_id: &str,
 ) -> Option<&'a crate::evaluation::ActorSnapshot> {
-    node.active_analysis()?.actor_snapshot(&node.state, actor_id)
+    node.active_analysis()?.actor_snapshot(actor_id)
 }
 
 fn food_distance_delta(before: Option<u16>, after: Option<u16>) -> (i64, i64) {
