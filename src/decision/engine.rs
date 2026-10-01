@@ -318,6 +318,16 @@ impl DecisionEngine {
                 })
         };
 
+        let selected_hunt = if dominant_hunt_choice.is_some() {
+            dominant_hunt_plan.map(|plan| (plan.target.clone(), plan.kind))
+        } else if hunt_intent_choice.is_some() {
+            intent
+                .and_then(DecisionIntent::hunt)
+                .map(|hunt| (hunt.target.clone(), hunt.kind))
+        } else {
+            None
+        };
+
         let reachable_cells = root
             .active_analysis()
             .expect("active root must have analysis")
@@ -342,6 +352,8 @@ impl DecisionEngine {
             direction: best.direction,
             reason,
             target_food: food_target.map(|candidate| candidate.target_food),
+            target_enemy: selected_hunt.as_ref().map(|(target, _)| target.clone()),
+            hunt_kind: selected_hunt.as_ref().map(|(_, kind)| *kind),
             path_distance: food_target.map(|candidate| candidate.distance),
             reachable_cells,
             search: SearchMetadata {
