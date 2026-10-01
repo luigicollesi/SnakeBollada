@@ -7,7 +7,7 @@ mod transition_score;
 mod weights;
 
 pub(crate) use context::ActorContext;
-pub(crate) use metrics::{ActorMetrics, ActorUtilityMetrics};
+pub(crate) use metrics::ActorUtilityMetrics;
 pub(crate) use transition_score::TransitionScore;
 pub(crate) use weights::{NeedWeights, StrategicWeights};
 
