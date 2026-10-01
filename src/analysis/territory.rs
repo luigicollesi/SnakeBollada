@@ -226,6 +226,45 @@ struct TerritoryStructural {
 }
 
 impl TerritoryStructural {
+    fn from_core_actor_relative(state: &SimulatedGameState, core: &TerritoryCore) -> Self {
+        if core.open.is_empty() {
+            return Self::default();
+        }
+
+        let relevant_ids = state
+            .snakes
+            .iter()
+            .filter(|snake| snake.alive)
+            .filter_map(|snake| {
+                let snapshot = core.snakes.get(&snake.id)?;
+                structural_relevant(
+                    state,
+                    snapshot.exclusive_space,
+                    snapshot.contested_space,
+                    snapshot.escape_frontier,
+                )
+                .then_some(snake.id.as_str())
+            })
+            .collect::<Vec<_>>();
+
+        if relevant_ids.is_empty() {
+            return Self::default();
+        }
+
+        let articulation = articulation_points(core.width, core.height, &core.open);
+        let useful_chokes = state
+            .snakes
+            .par_iter()
+            .filter(|snake| snake.alive && relevant_ids.contains(&snake.id.as_str()))
+            .filter_map(|snake| {
+                useful_chokes_for_snake(snake, core, &articulation)
+                    .map(|chokes| (snake.id.clone(), chokes))
+            })
+            .collect::<HashMap<_, _>>();
+
+        Self { useful_chokes }
+    }
+
     fn from_core(state: &SimulatedGameState, core: &TerritoryCore) -> Self {
         if core.open.is_empty() {
             return Self::default();
@@ -238,50 +277,78 @@ impl TerritoryStructural {
             .par_iter()
             .filter(|snake| snake.alive)
             .filter_map(|snake| {
-                let head = snake.head()?;
-                let field = core.distances.get(&snake.id)?;
-                let snapshot = core.snakes.get(&snake.id)?;
-
-                let mut useful_chokes = articulation
-                    .iter()
-                    .filter_map(|coord| {
-                        let index = index_of(core.width, core.height, *coord)?;
-                        let distance = field[index];
-                        if distance == u16::MAX || *coord == head || distance > 8 {
-                            return None;
-                        }
-
-                        let trapped_space = reachable_count(
-                            core.width,
-                            core.height,
-                            &core.open,
-                            head,
-                            Some(*coord),
-                        );
-                        let cut_gain = snapshot.reachable_space.saturating_sub(trapped_space);
-                        let minimum_gain = u32::try_from(snake.length()).unwrap_or(u32::MAX).max(4);
-                        (cut_gain >= minimum_gain).then_some(ChokePoint {
-                            coord: *coord,
-                            distance,
-                            trapped_space,
-                            cut_gain,
-                        })
-                    })
-                    .collect::<Vec<_>>();
-                useful_chokes.sort_by(|left, right| {
-                    left.distance
-                        .cmp(&right.distance)
-                        .then_with(|| right.cut_gain.cmp(&left.cut_gain))
-                        .then_with(|| left.coord.cmp(&right.coord))
-                });
-                useful_chokes.truncate(MAX_CHOKES_PER_SNAKE);
-
-                Some((snake.id.clone(), useful_chokes))
+                useful_chokes_for_snake(snake, core, &articulation)
+                    .map(|chokes| (snake.id.clone(), chokes))
             })
             .collect::<HashMap<_, _>>();
 
         Self { useful_chokes }
     }
+}
+
+fn useful_chokes_for_snake(
+    snake: &crate::simulation::state::SimulatedSnake,
+    core: &TerritoryCore,
+    articulation: &[Coord],
+) -> Option<Vec<ChokePoint>> {
+    let head = snake.head()?;
+    let field = core.distances.get(&snake.id)?;
+    let snapshot = core.snakes.get(&snake.id)?;
+
+    let mut useful_chokes = articulation
+        .iter()
+        .filter_map(|coord| {
+            let index = index_of(core.width, core.height, *coord)?;
+            let distance = field[index];
+            if distance == u16::MAX || *coord == head || distance > 8 {
+                return None;
+            }
+
+            let trapped_space = reachable_count(
+                core.width,
+                core.height,
+                &core.open,
+                head,
+                Some(*coord),
+            );
+            let cut_gain = snapshot.reachable_space.saturating_sub(trapped_space);
+            let minimum_gain = u32::try_from(snake.length()).unwrap_or(u32::MAX).max(4);
+            (cut_gain >= minimum_gain).then_some(ChokePoint {
+                coord: *coord,
+                distance,
+                trapped_space,
+                cut_gain,
+            })
+        })
+        .collect::<Vec<_>>();
+    useful_chokes.sort_by(|left, right| {
+        left.distance
+            .cmp(&right.distance)
+            .then_with(|| right.cut_gain.cmp(&left.cut_gain))
+            .then_with(|| left.coord.cmp(&right.coord))
+    });
+    useful_chokes.truncate(MAX_CHOKES_PER_SNAKE);
+    Some(useful_chokes)
+}
+
+fn structural_relevant(
+    state: &SimulatedGameState,
+    exclusive_space: u32,
+    contested_space: u32,
+    escape_frontier: u8,
+) -> bool {
+    if escape_frontier <= 1 {
+        return true;
+    }
+
+    let board_cells = state.width.saturating_mul(state.height).max(1);
+    let effective_control = exclusive_space.saturating_add(contested_space / 2);
+    let share_milli = effective_control
+        .saturating_mul(1000)
+        .saturating_div(board_cells)
+        .min(1000);
+
+    share_milli <= 400
 }
 
 #[derive(Debug, Clone, Default)]
@@ -303,6 +370,15 @@ impl TerritoryAnalysis {
     pub(crate) fn from_spatial(state: &SimulatedGameState, spatial: &SpatialOccupancy) -> Self {
         let core = TerritoryCore::from_spatial(state, spatial);
         let structural = TerritoryStructural::from_core(state, &core);
+        Self::from_parts(core, structural)
+    }
+
+    pub(crate) fn from_spatial_actor_relative(
+        state: &SimulatedGameState,
+        spatial: &SpatialOccupancy,
+    ) -> Self {
+        let core = TerritoryCore::from_spatial(state, spatial);
+        let structural = TerritoryStructural::from_core_actor_relative(state, &core);
         Self::from_parts(core, structural)
     }
 
