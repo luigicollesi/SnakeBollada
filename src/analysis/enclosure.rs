@@ -46,6 +46,23 @@ impl EnclosureAnalysis {
         territory: &TerritoryAnalysis,
         tactical: &TacticalStateAnalysis,
     ) -> Self {
+        Self::from_parts_with_scope(state, territory, tactical, false)
+    }
+
+    pub(crate) fn from_parts_actor_relative(
+        state: &SimulatedGameState,
+        territory: &TerritoryAnalysis,
+        tactical: &TacticalStateAnalysis,
+    ) -> Self {
+        Self::from_parts_with_scope(state, territory, tactical, true)
+    }
+
+    fn from_parts_with_scope(
+        state: &SimulatedGameState,
+        territory: &TerritoryAnalysis,
+        tactical: &TacticalStateAnalysis,
+        all_legal_enemy_moves: bool,
+    ) -> Self {
         let mut snakes = HashMap::new();
 
         for snake in state.snakes.iter().filter(|snake| snake.alive) {
@@ -60,7 +77,7 @@ impl EnclosureAnalysis {
                     .enemies
                     .get(&snake.id)
                     .map(|enemy| {
-                        if enemy.plausible_moves.is_empty() {
+                        if all_legal_enemy_moves || enemy.plausible_moves.is_empty() {
                             enemy.legal_moves.len()
                         } else {
                             enemy.plausible_moves.len()
