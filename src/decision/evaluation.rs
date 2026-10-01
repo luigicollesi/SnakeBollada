@@ -1,7 +1,7 @@
 #![allow(dead_code)]
 
 use std::cmp::Ordering;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use crate::decision::policy::ReservedCellPolicy;
 use crate::direction::{Direction, MoveMask};
@@ -104,6 +104,7 @@ struct NodeEvaluation {
     terminal: TerminalAssessment,
     survival: DirectionSurvivalSummary,
     strategic: StrategicEnvelope,
+    guaranteed_enemy_kills: u16,
     reserved_override_all: bool,
     chosen_move: Option<Direction>,
 }
@@ -113,6 +114,7 @@ struct EdgeOutcome {
     terminal: TerminalAssessment,
     survival: DirectionSurvivalSummary,
     strategic: StrategicEnvelope,
+    guaranteed_enemy_kills: u16,
     reserved_override_all: bool,
 }
 
@@ -127,6 +129,7 @@ pub(crate) struct DirectionEvaluation {
     pub(crate) average_hunting_value: f32,
     pub(crate) average_leaf_food_potential: f32,
     pub(crate) average_leaf_hunting_potential: f32,
+    pub(crate) guaranteed_enemy_kills: u16,
     pub(crate) reserved_override: bool,
 }
 
@@ -261,6 +264,7 @@ impl DagEvaluator<'_> {
                     average_leaf_food_potential: best.average_leaf_food_potential,
                     average_leaf_hunting_potential: best.average_leaf_hunting_potential,
                 },
+                guaranteed_enemy_kills: best.guaranteed_enemy_kills,
                 reserved_override_all: best.reserved_override,
                 chosen_move: Some(best.direction),
             }
@@ -370,6 +374,7 @@ fn evaluate_frontier(
             average_leaf_food_potential: potential.food,
             average_leaf_hunting_potential: potential.hunting,
         },
+        guaranteed_enemy_kills: 0,
         reserved_override_all: false,
         chosen_move: None,
     }
@@ -395,6 +400,9 @@ fn apply_edge(
         })
         .count() as f32;
     let realized_hunting = edge_hunting_delta(parent, edge);
+    let guaranteed_enemy_kills = child
+        .guaranteed_enemy_kills
+        .saturating_add(edge_enemy_kills(edge));
 
     let (food_discount, hunting_discount) = certainty_discounts(certainty);
     let aggression = child_node.state.aggression.value.clamp(0.0, 1.0);
@@ -459,6 +467,7 @@ fn apply_edge(
             average_leaf_food_potential: child.strategic.average_leaf_food_potential,
             average_leaf_hunting_potential: child.strategic.average_leaf_hunting_potential,
         },
+        guaranteed_enemy_kills,
         reserved_override_all: causal_reserved_event(&edge.events) || child.reserved_override_all,
     }
 }
@@ -541,6 +550,12 @@ fn aggregate_direction(
         outcome.strategic.average_leaf_hunting_potential
     });
 
+    let guaranteed_enemy_kills = outcomes
+        .iter()
+        .map(|outcome| outcome.guaranteed_enemy_kills)
+        .min()
+        .unwrap_or(0);
+
     let mut surviving = outcomes
         .iter()
         .filter(|outcome| outcome.terminal != TerminalAssessment::Lost)
@@ -558,6 +573,7 @@ fn aggregate_direction(
         average_hunting_value,
         average_leaf_food_potential,
         average_leaf_hunting_potential,
+        guaranteed_enemy_kills,
         reserved_override,
     }
 }
@@ -650,6 +666,26 @@ fn enemy_pressure_level(node: &SearchNode, enemy_id: &str) -> f32 {
     } else {
         0.0
     }
+}
+
+fn edge_enemy_kills(edge: &SearchEdge) -> u16 {
+    let mut killed = HashSet::new();
+
+    for event in &edge.events {
+        match event {
+            InstantEvent::EnemyKilled {
+                enemy,
+                attribution: EliminationAttribution::OurSnake,
+                ..
+            }
+            | InstantEvent::HeadToHeadWon { enemy } => {
+                killed.insert(enemy.as_str());
+            }
+            _ => {}
+        }
+    }
+
+    killed.len().try_into().unwrap_or(u16::MAX)
 }
 
 fn causal_reserved_event(events: &[InstantEvent]) -> bool {
@@ -810,6 +846,20 @@ pub(crate) fn compare_direction(
                 .cmp(&right.survival.has_constrained_response())
         })
         .then_with(|| {
+            effective_reserved_penalty(policy, state, left)
+                .total_cmp(&effective_reserved_penalty(policy, state, right))
+        })
+        .then_with(|| {
+            right
+                .worst_strategic_utility
+                .total_cmp(&left.worst_strategic_utility)
+        })
+        .then_with(|| {
+            right
+                .average_strategic_utility
+                .total_cmp(&left.average_strategic_utility)
+        })
+        .then_with(|| {
             right
                 .survival
                 .min_future_mobility
@@ -826,20 +876,6 @@ pub(crate) fn compare_direction(
                 .survival
                 .min_second_order_mobility
                 .cmp(&left.survival.min_second_order_mobility)
-        })
-        .then_with(|| {
-            effective_reserved_penalty(policy, state, left)
-                .total_cmp(&effective_reserved_penalty(policy, state, right))
-        })
-        .then_with(|| {
-            right
-                .worst_strategic_utility
-                .total_cmp(&left.worst_strategic_utility)
-        })
-        .then_with(|| {
-            right
-                .average_strategic_utility
-                .total_cmp(&left.average_strategic_utility)
         })
         .then_with(|| left.direction.rank().cmp(&right.direction.rank()))
 }
@@ -928,6 +964,7 @@ mod tests {
             average_hunting_value: 0.0,
             average_leaf_food_potential: 0.0,
             average_leaf_hunting_potential: 0.0,
+            guaranteed_enemy_kills: 0,
             reserved_override: false,
         }
     }
