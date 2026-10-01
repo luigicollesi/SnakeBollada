@@ -222,10 +222,11 @@ fn trace_enemy(
         }
     }
 
+    let reachable_space = reachable_space_by_direction(state, mobility, enemy, legal_moves);
     let structural_moves =
-        apply_space_filter(state, mobility, enemy, legal_moves, &mut eliminations);
+        apply_space_filter(enemy, legal_moves, &reachable_space, &mut eliminations);
 
-    let survival_moves = survival_policy_moves(state, mobility, enemy, structural_moves);
+    let survival_moves = survival_policy_moves(structural_moves, &reachable_space);
     let food_moves = food_policy_moves(state, analysis, enemy, structural_moves);
     let hunting_moves = hunting_policy_moves(state, enemy, structural_moves);
     let threat_moves = head_threat_moves(state, mobility, enemy, structural_moves);
@@ -318,11 +319,24 @@ fn hard_reason(block: DeterministicMoveBlock) -> MoveEliminationReason {
     }
 }
 
-fn apply_space_filter(
+fn reachable_space_by_direction(
     state: &SimulatedGameState,
     mobility: &MobilityAnalysis,
     enemy: &SimulatedSnake,
     current: MoveMask,
+) -> [u32; 4] {
+    let mut reachable = [0_u32; 4];
+    for direction in current.iter() {
+        reachable[usize::from(direction.rank())] =
+            mobility.reachable_space(state, &enemy.id, direction);
+    }
+    reachable
+}
+
+fn apply_space_filter(
+    enemy: &SimulatedSnake,
+    current: MoveMask,
+    reachable_space: &[u32; 4],
     eliminations: &mut Vec<MoveElimination>,
 ) -> MoveMask {
     if current.is_empty() {
@@ -330,7 +344,7 @@ fn apply_space_filter(
     }
 
     let viable = MoveMask::from_iter(current.iter().filter(|direction| {
-        mobility.reachable_space(state, &enemy.id, *direction) >= enemy.length() as u32
+        reachable_space[usize::from(direction.rank())] >= enemy.length() as u32
     }));
 
     conservative_filter(
@@ -341,34 +355,21 @@ fn apply_space_filter(
     )
 }
 
-fn survival_policy_moves(
-    state: &SimulatedGameState,
-    mobility: &MobilityAnalysis,
-    enemy: &SimulatedSnake,
-    current: MoveMask,
-) -> MoveMask {
+fn survival_policy_moves(current: MoveMask, reachable_space: &[u32; 4]) -> MoveMask {
     if current.is_empty() {
         return current;
     }
 
-    let scored = current
+    let best_space = current
         .iter()
-        .map(|direction| {
-            (
-                direction,
-                mobility.reachable_space(state, &enemy.id, direction),
-            )
-        })
-        .collect::<Vec<_>>();
-    let best_space = scored.iter().map(|(_, space)| *space).max().unwrap_or(0);
+        .map(|direction| reachable_space[usize::from(direction.rank())])
+        .max()
+        .unwrap_or(0);
     let floor = best_space.saturating_mul(3).saturating_div(4);
 
-    MoveMask::from_iter(
-        scored
-            .into_iter()
-            .filter(|(_, space)| *space >= floor)
-            .map(|(direction, _)| direction),
-    )
+    MoveMask::from_iter(current.iter().filter(|direction| {
+        reachable_space[usize::from(direction.rank())] >= floor
+    }))
 }
 
 fn food_policy_moves(
