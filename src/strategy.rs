@@ -129,6 +129,14 @@ pub(crate) struct BeamShadowMetadata {
     pub(crate) node_build_us: u64,
     pub(crate) merge_us: u64,
     pub(crate) edge_score_us: u64,
+    pub(crate) our_food_utility: i64,
+    pub(crate) our_hunting_utility: i64,
+    pub(crate) our_survival_utility: i64,
+    pub(crate) our_terminal_utility: i64,
+    pub(crate) opponent_food_utility: i64,
+    pub(crate) opponent_hunting_utility: i64,
+    pub(crate) opponent_survival_utility: i64,
+    pub(crate) opponent_terminal_utility: i64,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
