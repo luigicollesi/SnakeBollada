@@ -16,7 +16,7 @@ use crate::decision::state_key::StateKey;
 use crate::direction::MoveMask;
 use crate::enemy::profile::OpponentProfiles;
 use crate::enemy::tracing::{trace_with_mobility, EnemyTracingOutput};
-use crate::evaluation::{ActorContext, ActorEvaluation, ActorMetrics, TransitionScore};
+use crate::evaluation::{ActorContext, ActorMetrics, ActorSnapshot, TransitionScore};
 use crate::modes::hunting::{self, HuntingModeOutput};
 use crate::modes::survival::{self, SurvivalModeOutput};
 use crate::simulation::joint_action::JointAction;
@@ -92,7 +92,7 @@ pub(crate) struct NodeAnalysis {
     pub(crate) enclosure: Arc<EnclosureAnalysis>,
     pub(crate) survival: Arc<SurvivalModeOutput>,
     pub(crate) hunting: Arc<HuntingModeOutput>,
-    pub(crate) actor_evaluations: HashMap<String, ActorEvaluation>,
+    pub(crate) actor_snapshots: HashMap<String, ActorSnapshot>,
 }
 
 #[derive(Debug, Clone)]
@@ -796,7 +796,7 @@ fn build_node_with_key(state: SimulatedGameState, key: StateKey) -> SearchNode {
         let survival = Arc::new(survival);
         let hunting = Arc::new(hunting);
 
-        let actor_evaluations = state
+        let actor_snapshots = state
             .snakes
             .par_iter()
             .filter(|snake| snake.alive)
@@ -813,7 +813,7 @@ fn build_node_with_key(state: SimulatedGameState, key: StateKey) -> SearchNode {
                 )?;
                 Some((
                     snake.id.clone(),
-                    ActorEvaluation::from_metrics(context, metrics),
+                    ActorSnapshot::new(context, metrics),
                 ))
             })
             .collect();
@@ -828,7 +828,7 @@ fn build_node_with_key(state: SimulatedGameState, key: StateKey) -> SearchNode {
             enclosure,
             survival,
             hunting,
-            actor_evaluations,
+            actor_snapshots,
         }))
     };
 
@@ -888,17 +888,17 @@ mod tests {
             .expect("running root must have analysis");
 
         let ours = analysis
-            .actor_evaluations
+            .actor_snapshots
             .get("ours")
             .expect("our actor evaluation must exist");
         let enemy = analysis
-            .actor_evaluations
+            .actor_snapshots
             .get("enemy")
             .expect("enemy actor evaluation must exist");
 
-        assert_eq!(ours.net, ours.benefit_total - ours.harm_total);
-        assert_eq!(enemy.net, enemy.benefit_total - enemy.harm_total);
-        assert_eq!(analysis.actor_evaluations.len(), 2);
+        assert_eq!(ours.weights.total(), 1000);
+        assert_eq!(enemy.weights.total(), 1000);
+        assert_eq!(analysis.actor_snapshots.len(), 2);
     }
 
     #[test]
