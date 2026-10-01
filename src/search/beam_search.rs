@@ -40,6 +40,21 @@ fn search_from_seed(
     budget: &SearchBudget,
 ) -> Result<BeamSearchResult, SearchError> {
     let seed_stats = seed.stats;
+
+    if has_single_root_direction(&seed.checkpoint) {
+        let completed_depth = seed.checkpoint.completed_depth;
+        return Ok(BeamSearchResult {
+            checkpoint: seed.checkpoint,
+            seed: seed_stats,
+            deepening: BeamDeepeningStats {
+                rounds_completed: 0,
+                attempted_depth: completed_depth,
+                completed_depth,
+                elapsed_us: 0,
+            },
+        });
+    }
+
     let deepening = deepen_while_affordable(graph, seed.checkpoint, budget)?;
 
     Ok(BeamSearchResult {
@@ -47,6 +62,17 @@ fn search_from_seed(
         seed: seed_stats,
         deepening: deepening.stats,
     })
+}
+
+fn has_single_root_direction(checkpoint: &BeamCheckpoint) -> bool {
+    let Some(first) = checkpoint.lines.first() else {
+        return false;
+    };
+
+    checkpoint
+        .lines
+        .iter()
+        .all(|line| line.root_direction == first.root_direction)
 }
 
 #[cfg(test)]
@@ -122,6 +148,43 @@ mod tests {
         assert!(!result.checkpoint.lines.is_empty());
         assert!(result.checkpoint.lines.len() <= BEAM_WIDTH);
         assert!(result.best_line().is_some());
+    }
+
+    #[test]
+    fn single_root_direction_skips_deepening() {
+        use crate::direction::Direction;
+        use crate::search::beam::{BeamLine, LineTerminal};
+
+        let mut graph = FutureGraph::new(state());
+        let line = BeamLine::exact(
+            1,
+            Direction::Right,
+            SEED_DEPTH,
+            100,
+            0,
+            LineTerminal::Running,
+        );
+        let checkpoint = BeamCheckpoint::new(vec![line]).unwrap();
+        let seed = BeamSeedResult {
+            stats: BeamSeedStats {
+                completed: true,
+                completed_depth: SEED_DEPTH,
+                line_count: 1,
+                new_nodes: 0,
+                new_edges: 0,
+                elapsed_us: 0,
+            },
+            checkpoint,
+        };
+        let budget = SearchBudget::for_duration(Duration::from_secs(10));
+
+        let result = search_from_seed(&mut graph, seed, &budget).unwrap();
+
+        assert_eq!(result.checkpoint.lines.len(), 1);
+        assert_eq!(result.best_line().unwrap().root_direction, Direction::Right);
+        assert_eq!(result.deepening.rounds_completed, 0);
+        assert_eq!(result.deepening.attempted_depth, SEED_DEPTH);
+        assert_eq!(result.completed_depth(), SEED_DEPTH);
     }
 
     #[test]
