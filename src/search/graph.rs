@@ -1,7 +1,7 @@
 #![allow(dead_code)]
 
 use std::collections::{HashMap, HashSet, VecDeque};
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 
 use rayon::prelude::*;
@@ -924,6 +924,21 @@ impl FutureGraph {
     }
 }
 
+fn shared_empty_posture() -> Arc<StrategicPosture> {
+    static EMPTY: OnceLock<Arc<StrategicPosture>> = OnceLock::new();
+    Arc::clone(EMPTY.get_or_init(|| Arc::new(StrategicPosture::default())))
+}
+
+fn shared_empty_survival() -> Arc<SurvivalModeOutput> {
+    static EMPTY: OnceLock<Arc<SurvivalModeOutput>> = OnceLock::new();
+    Arc::clone(EMPTY.get_or_init(|| Arc::new(SurvivalModeOutput::default())))
+}
+
+fn shared_empty_hunting() -> Arc<HuntingModeOutput> {
+    static EMPTY: OnceLock<Arc<HuntingModeOutput>> = OnceLock::new();
+    Arc::clone(EMPTY.get_or_init(|| Arc::new(HuntingModeOutput::default())))
+}
+
 fn duration_us(duration: Duration) -> u64 {
     duration.as_micros().try_into().unwrap_or(u64::MAX)
 }
@@ -1007,10 +1022,10 @@ fn build_node_with_key(
                 )
             }
         });
-        let posture = Arc::new(match profile {
-            AnalysisProfile::Full => StrategicPosture::from_state(&state),
-            AnalysisProfile::BeamLean => StrategicPosture::default(),
-        });
+        let posture = match profile {
+            AnalysisProfile::Full => Arc::new(StrategicPosture::from_state(&state)),
+            AnalysisProfile::BeamLean => shared_empty_posture(),
+        };
         let enclosure = Arc::new(match profile {
             AnalysisProfile::Full => EnclosureAnalysis::from_parts(&state, &territory, &tactical),
             AnalysisProfile::BeamLean => {
@@ -1019,20 +1034,19 @@ fn build_node_with_key(
         });
 
         let (survival, hunting) = match profile {
-            AnalysisProfile::Full => rayon::join(
-                || survival::analyze_with_border(&state, &tactical, &border),
-                || {
-                    hunting::analyze(
-                        &state, &tactical, &tracing, &territory, &enclosure, &posture,
-                    )
-                },
-            ),
-            AnalysisProfile::BeamLean => {
-                (SurvivalModeOutput::default(), HuntingModeOutput::default())
+            AnalysisProfile::Full => {
+                let (survival, hunting) = rayon::join(
+                    || survival::analyze_with_border(&state, &tactical, &border),
+                    || {
+                        hunting::analyze(
+                            &state, &tactical, &tracing, &territory, &enclosure, &posture,
+                        )
+                    },
+                );
+                (Arc::new(survival), Arc::new(hunting))
             }
+            AnalysisProfile::BeamLean => (shared_empty_survival(), shared_empty_hunting()),
         };
-        let survival = Arc::new(survival);
-        let hunting = Arc::new(hunting);
 
         let actor_snapshots = state
             .snakes
