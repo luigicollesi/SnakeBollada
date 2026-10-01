@@ -1,6 +1,6 @@
 # SPEC — Hunting Mode
 
-**Status:** Implementado V1 — FutureGraph multi-turn integrado  
+**Status:** Implementado V2 — Hunting territorial + enclosure integrado ao FutureGraph  
 **Branch alvo:** `dev`  
 **Depende de:** `enemy-tracing.md`, `decision-making.md`
 
@@ -25,7 +25,40 @@ Integração multi-turn concluída:
 - leaf hunting potential reconhece pressão no horizonte sem inventar eventos;
 - kill causal supersede benefícios menores do mesmo alvo para evitar double counting.
 
-Pendente para V2: choke/articulation points e modelos probabilísticos de comportamento.
+Implementado na V2 territorial:
+
+- `TerritoryAnalysis` por node do FutureGraph, com multi-source BFS/Voronoi de espaço;
+- espaço alcançável, exclusivo e contestado por cobra;
+- articulation points de largura 1 e cálculo do ganho de corte;
+- análise de choke limitada a pontos próximos para proteger o orçamento de busca;
+- `escape_frontier`, distância da borda e suporte geométrico de boundary;
+- `EnclosureAnalysis` com estados `Safe / Pressure / Constrained / Critical`;
+- risco de enclosure próprio faz parte do comparador adversarial de Survival;
+- Food Opening abandona uma fruta comprometida se a linha entrar em `Constrained/Critical`;
+- Hunting territorial passa a produzir planos progressivos:
+  - `HeadPressure`;
+  - `EdgePin`;
+  - `ChokeCut`;
+  - `TerritorySqueeze`;
+  - `PartialWrap`;
+  - `FullEnclosure`;
+  - `StarvationSiege`;
+- leaf hunting potential usa o melhor plano territorial além da pressão tática tradicional;
+- aumento de oportunidade territorial entre parent/child gera recompensa incremental limitada;
+- guaranteed kill continua separado e pode superar Food Opening apenas quando não cria enclosure próprio.
+
+Gates iniciais implementados para Standard:
+
+```text
+length >= 6  -> EdgePin
+length >= 7  -> ChokeCut / TerritorySqueeze
+length >= 9  -> PartialWrap
+length >= 12 -> FullEnclosure com suporte de borda/choke
+length >= 14 -> FullEnclosure em área aberta
+length >= 10 -> StarvationSiege
+```
+
+Pendente após V2: separadores explícitos de largura 2, calibração empírica dos gates por benchmark e modelo probabilístico adicional de comportamento.
 
 ## 1. Objetivo
 
