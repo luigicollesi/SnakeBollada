@@ -14,22 +14,30 @@ pub(crate) fn analyze_transition(
     resolution: &TurnResolution,
     after: &TacticalStateAnalysis,
 ) -> TransitionAnalysis {
-    let mut events = resolution.events.clone();
+    analyze_transition_parts(before, &resolution.state, &resolution.events, after)
+}
 
-    derive_survival_events(&mut events, resolution, after);
-    derive_hunting_events(&mut events, before, resolution, after);
+pub(crate) fn analyze_transition_parts(
+    before: &TacticalStateAnalysis,
+    state: &crate::simulation::state::SimulatedGameState,
+    base_events: &[InstantEvent],
+    after: &TacticalStateAnalysis,
+) -> TransitionAnalysis {
+    let mut events = base_events.to_vec();
+
+    derive_survival_events(&mut events, state, after);
+    derive_hunting_events(&mut events, before, state, after);
 
     TransitionAnalysis { events }
 }
 
 fn derive_survival_events(
     events: &mut Vec<InstantEvent>,
-    resolution: &TurnResolution,
+    state: &crate::simulation::state::SimulatedGameState,
     after: &TacticalStateAnalysis,
 ) {
-    let ours_alive = resolution
-        .state
-        .snake(&resolution.state.our_snake_id)
+    let ours_alive = state
+        .snake(&state.our_snake_id)
         .is_some_and(|snake| snake.alive);
 
     if !ours_alive
@@ -51,7 +59,7 @@ fn derive_survival_events(
 fn derive_hunting_events(
     events: &mut Vec<InstantEvent>,
     before: &TacticalStateAnalysis,
-    resolution: &TurnResolution,
+    state: &crate::simulation::state::SimulatedGameState,
     after: &TacticalStateAnalysis,
 ) {
     for (enemy_id, before_enemy) in &before.enemies {
@@ -63,7 +71,7 @@ fn derive_hunting_events(
             continue;
         };
 
-        let caused_by_ours = our_body_contributes(&resolution.state, enemy_id, after_enemy);
+        let caused_by_ours = our_body_contributes(state, enemy_id, after_enemy);
 
         if after_enemy.legal_moves.is_empty() {
             events.push(InstantEvent::EnemyTrapped {
