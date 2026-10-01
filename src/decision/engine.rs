@@ -14,7 +14,7 @@ use crate::strategy::{
     choose_move_baseline, CacheInvalidationReason, Decision, DecisionReason, DepthSearchStats,
     DirectionOutcomeSummary, SearchMetadata,
 };
-use crate::GameState;
+use crate::{Coord, GameState};
 
 const TARGET_DEPTH: u8 = 3;
 const MAX_ITERATIVE_DEPTH: u8 = 6;
@@ -55,6 +55,23 @@ impl DecisionEngine {
         state: &GameState,
         graph: &mut FutureGraph,
         extra_reserve_ms: u64,
+    ) -> Decision {
+        self.decide_with_graph_with_reserve_and_food_preference(
+            state,
+            graph,
+            extra_reserve_ms,
+            None,
+            false,
+        )
+    }
+
+    pub(crate) fn decide_with_graph_with_reserve_and_food_preference(
+        &self,
+        state: &GameState,
+        graph: &mut FutureGraph,
+        extra_reserve_ms: u64,
+        preferred_food: Option<Coord>,
+        prioritize_food: bool,
     ) -> Decision {
         let budget = SearchBudget::from_state_with_extra_reserve(state, extra_reserve_ms);
         let mut completed_depth = 0_u8;
@@ -150,32 +167,66 @@ impl DecisionEngine {
         }
 
         let root = graph.node(graph.root());
-
-        let Some(best) = choose_best_direction(
-            &evaluations,
-            &root.state,
-            root.active_analysis()
-                .expect("active root must have analysis")
-                .tactical
-                .ours
-                .safe_moves,
-            ReservedCellPolicy::default(),
-        ) else {
-            return baseline_fallback(state);
-        };
+        let root_analysis = root
+            .active_analysis()
+            .expect("active root must have analysis");
+        let robust_safe_moves = root_analysis.tactical.ours.safe_moves;
+        let policy = ReservedCellPolicy::default();
 
         let food_candidates = food::candidates(
             &root.state,
-            &root
-                .active_analysis()
-                .expect("active root must have analysis")
-                .state,
+            &root_analysis.state,
             ForecastCertainty::Deterministic,
         );
-        let food_target = food_candidates
-            .candidates
-            .iter()
-            .find(|candidate| candidate.first_move == best.direction);
+        let preferred_candidates = preferred_food
+            .filter(|target| root.state.food.contains(target))
+            .map(|target| {
+                food::candidates_for_target(
+                    &root.state,
+                    &root_analysis.state,
+                    target,
+                    ForecastCertainty::Deterministic,
+                )
+            })
+            .unwrap_or_default();
+
+        let opening_food_choice = prioritize_food
+            .then(|| {
+                choose_food_opening(
+                    &evaluations,
+                    &food_candidates.candidates,
+                    &preferred_candidates,
+                    &root.state,
+                    robust_safe_moves,
+                    policy,
+                )
+            })
+            .flatten();
+
+        let Some(best) = opening_food_choice
+            .as_ref()
+            .map(|(evaluation, _)| *evaluation)
+            .or_else(|| {
+                choose_best_direction(
+                    &evaluations,
+                    &root.state,
+                    robust_safe_moves,
+                    policy,
+                )
+            })
+        else {
+            return baseline_fallback(state);
+        };
+
+        let food_target = opening_food_choice
+            .as_ref()
+            .map(|(_, candidate)| candidate)
+            .or_else(|| {
+                food_candidates
+                    .candidates
+                    .iter()
+                    .find(|candidate| candidate.first_move == best.direction)
+            });
 
         let reachable_cells = root
             .active_analysis()
@@ -183,17 +234,17 @@ impl DecisionEngine {
             .mobility
             .reachable_space(&root.state, &root.state.our_snake_id, best.direction);
 
-        let reason = classify_decision_reason(
-            best,
-            &evaluations,
-            &root.state,
-            root.active_analysis()
-                .expect("active root must have analysis")
-                .tactical
-                .ours
-                .safe_moves,
-            ReservedCellPolicy::default(),
-        );
+        let reason = if opening_food_choice.is_some() {
+            DecisionReason::FoodStrategic
+        } else {
+            classify_decision_reason(
+                best,
+                &evaluations,
+                &root.state,
+                robust_safe_moves,
+                policy,
+            )
+        };
 
         Decision {
             direction: best.direction,
@@ -232,6 +283,44 @@ impl DecisionEngine {
         }
     }
 }
+
+fn choose_food_opening<'a>(
+    evaluations: &'a [DirectionEvaluation],
+    ranked_candidates: &[food::FoodCandidate],
+    preferred_candidates: &[food::FoodCandidate],
+    state: &SimulatedGameState,
+    robust_safe_moves: crate::direction::MoveMask,
+    policy: ReservedCellPolicy,
+) -> Option<(&'a DirectionEvaluation, food::FoodCandidate)> {
+    let viable = |candidate: &food::FoodCandidate| {
+        evaluations
+            .iter()
+            .find(|evaluation| evaluation.direction == candidate.first_move)
+            .filter(|evaluation| {
+                (robust_safe_moves.is_empty()
+                    || robust_safe_moves.contains(evaluation.direction))
+                    && !evaluation.survival.has_death_response()
+                    && !evaluation.survival.has_dead_end_response()
+                    && !evaluation.survival.has_forced_response()
+            })
+    };
+
+    let preferred = preferred_candidates
+        .iter()
+        .filter_map(|candidate| viable(candidate).map(|evaluation| (evaluation, candidate)))
+        .min_by(|(left, _), (right, _)| {
+            crate::decision::evaluation::compare_direction(left, right, state, policy)
+        });
+
+    if let Some((evaluation, candidate)) = preferred {
+        return Some((evaluation, candidate.clone()));
+    }
+
+    ranked_candidates
+        .iter()
+        .find_map(|candidate| viable(candidate).map(|evaluation| (evaluation, candidate.clone())))
+}
+
 
 fn baseline_fallback(state: &GameState) -> Decision {
     let mut decision = choose_move_baseline(state);
