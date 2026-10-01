@@ -507,9 +507,7 @@ fn build_node(state: SimulatedGameState) -> SearchNode {
         ));
         let territory = Arc::new(TerritoryAnalysis::from_state(&state));
         let border = Arc::new(BorderFobicAnalysis::from_parts_with_territory(
-            &state,
-            &tactical,
-            &territory,
+            &state, &tactical, &territory,
         ));
         let posture = Arc::new(StrategicPosture::from_state(&state));
         let enclosure = Arc::new(EnclosureAnalysis::from_parts(&state, &territory, &tactical));
