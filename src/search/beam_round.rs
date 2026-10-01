@@ -412,10 +412,7 @@ mod tests {
 
         let deepened = append_continuation(&line, continuation);
 
-        assert_eq!(
-            deepened.value,
-            line.value.saturating_add(600)
-        );
+        assert_eq!(deepened.value, line.value.saturating_add(600));
         assert_eq!(deepened.benefit_total, line.benefit_total + 900);
         assert_eq!(deepened.harm_total, line.harm_total + 300);
         assert_eq!(
