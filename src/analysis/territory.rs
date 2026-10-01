@@ -153,7 +153,7 @@ impl TerritoryAnalysis {
                 .filter_map(|coord| {
                     let index = index_of(width, height, *coord)?;
                     let distance = field[index];
-                    if distance == u16::MAX || *coord == head {
+                    if distance == u16::MAX || *coord == head || distance > 8 {
                         return None;
                     }
 
