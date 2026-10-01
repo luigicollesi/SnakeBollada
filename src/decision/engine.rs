@@ -1,6 +1,9 @@
 use std::cmp::Ordering;
 
-use crate::decision::evaluation::{evaluate_graph_budgeted, DirectionEvaluation};
+use crate::decision::evaluation::{
+    choose_best_direction, compare_direction, evaluate_graph_budgeted, DagEvaluationStats,
+    DirectionEvaluation, TerminalAssessment,
+};
 use crate::decision::policy::ReservedCellPolicy;
 use crate::forecast::ForecastCertainty;
 use crate::modes::food;
@@ -48,6 +51,7 @@ impl DecisionEngine {
         let budget = SearchBudget::from_state_with_extra_reserve(state, extra_reserve_ms);
         let mut completed_depth = 0_u8;
         let mut evaluations = Vec::new();
+        let mut dag_stats = DagEvaluationStats::default();
         let mut depth_stats = [
             DepthSearchStats::empty(1),
             DepthSearchStats::empty(2),
@@ -111,7 +115,7 @@ impl DecisionEngine {
             }
 
             let evaluation_started = std::time::Instant::now();
-            let Some(depth_evaluations) = evaluate_graph_budgeted(graph, depth, &budget) else {
+            let Some(depth_result) = evaluate_graph_budgeted(graph, depth, &budget) else {
                 stats.evaluation_us = evaluation_started
                     .elapsed()
                     .as_micros()
@@ -129,7 +133,8 @@ impl DecisionEngine {
             depth_stats[usize::from(depth - 1)] = stats;
 
             completed_depth = depth;
-            evaluations = depth_evaluations;
+            evaluations = depth_result.directions;
+            dag_stats = depth_result.stats;
         }
 
         if completed_depth == 0 {
@@ -260,48 +265,57 @@ fn classify_decision_reason(
 }
 
 fn survival_compare(left: &DirectionEvaluation, right: &DirectionEvaluation) -> Ordering {
-    compare_lower_ratio(
-        left.survival.death_routes,
-        left.survival.total_routes,
-        right.survival.death_routes,
-        right.survival.total_routes,
-    )
-    .then_with(|| {
-        compare_lower_ratio(
-            left.survival.dead_end_routes,
-            left.survival.total_routes,
-            right.survival.dead_end_routes,
-            right.survival.total_routes,
-        )
-    })
-    .then_with(|| {
-        compare_lower_ratio(
-            left.survival.forced_routes,
-            left.survival.total_routes,
-            right.survival.forced_routes,
-            right.survival.total_routes,
-        )
-    })
-    .then_with(|| {
-        compare_lower_ratio(
-            left.survival.constrained_routes,
-            left.survival.total_routes,
-            right.survival.constrained_routes,
-            right.survival.total_routes,
-        )
-    })
-    .then_with(|| {
-        right
-            .survival
-            .min_future_mobility
-            .cmp(&left.survival.min_future_mobility)
-    })
-    .then_with(|| {
-        right
-            .survival
-            .min_reachable_space
-            .cmp(&left.survival.min_reachable_space)
-    })
+    terminal_survival_rank(left.terminal, right.terminal)
+        .then_with(|| {
+            left.survival
+                .has_death_response()
+                .cmp(&right.survival.has_death_response())
+        })
+        .then_with(|| {
+            left.survival
+                .has_dead_end_response()
+                .cmp(&right.survival.has_dead_end_response())
+        })
+        .then_with(|| {
+            left.survival
+                .has_forced_response()
+                .cmp(&right.survival.has_forced_response())
+        })
+        .then_with(|| {
+            left.survival
+                .has_constrained_response()
+                .cmp(&right.survival.has_constrained_response())
+        })
+        .then_with(|| {
+            right
+                .survival
+                .min_future_mobility
+                .cmp(&left.survival.min_future_mobility)
+        })
+        .then_with(|| {
+            right
+                .survival
+                .min_reachable_space
+                .cmp(&left.survival.min_reachable_space)
+        })
+        .then_with(|| {
+            right
+                .survival
+                .min_second_order_mobility
+                .cmp(&left.survival.min_second_order_mobility)
+        })
+}
+
+fn terminal_survival_rank(left: TerminalAssessment, right: TerminalAssessment) -> Ordering {
+    use TerminalAssessment::{Lost, Running, Won};
+
+    let rank = |terminal| match terminal {
+        Lost => 0_u8,
+        Running => 1,
+        Won => 2,
+    };
+
+    rank(right).cmp(&rank(left))
 }
 
 fn branching_milli(edges_generated: u32, frontier_nodes: u32) -> u32 {
@@ -387,110 +401,6 @@ fn utility_milli(value: f32) -> i32 {
         .clamp(i32::MIN as f32, i32::MAX as f32) as i32
 }
 
-fn choose_best_direction<'a>(
-    evaluations: &'a [DirectionEvaluation],
-    state: &SimulatedGameState,
-    robust_safe_moves: crate::direction::MoveMask,
-    policy: ReservedCellPolicy,
-) -> Option<&'a DirectionEvaluation> {
-    evaluations
-        .iter()
-        .filter(|evaluation| {
-            robust_safe_moves.is_empty() || robust_safe_moves.contains(evaluation.direction)
-        })
-        .min_by(|left, right| compare_direction(left, right, state, policy))
-}
-
-fn compare_direction(
-    left: &DirectionEvaluation,
-    right: &DirectionEvaluation,
-    state: &SimulatedGameState,
-    policy: ReservedCellPolicy,
-) -> Ordering {
-    compare_lower_ratio(
-        left.survival.death_routes,
-        left.survival.total_routes,
-        right.survival.death_routes,
-        right.survival.total_routes,
-    )
-    .then_with(|| {
-        compare_lower_ratio(
-            left.survival.dead_end_routes,
-            left.survival.total_routes,
-            right.survival.dead_end_routes,
-            right.survival.total_routes,
-        )
-    })
-    .then_with(|| {
-        compare_lower_ratio(
-            left.survival.forced_routes,
-            left.survival.total_routes,
-            right.survival.forced_routes,
-            right.survival.total_routes,
-        )
-    })
-    .then_with(|| {
-        compare_lower_ratio(
-            left.survival.constrained_routes,
-            left.survival.total_routes,
-            right.survival.constrained_routes,
-            right.survival.total_routes,
-        )
-    })
-    .then_with(|| {
-        right
-            .survival
-            .min_future_mobility
-            .cmp(&left.survival.min_future_mobility)
-    })
-    .then_with(|| {
-        right
-            .survival
-            .min_reachable_space
-            .cmp(&left.survival.min_reachable_space)
-    })
-    .then_with(|| {
-        effective_reserved_penalty(policy, state, left)
-            .total_cmp(&effective_reserved_penalty(policy, state, right))
-    })
-    .then_with(|| {
-        right
-            .worst_strategic_utility
-            .total_cmp(&left.worst_strategic_utility)
-    })
-    .then_with(|| {
-        right
-            .average_strategic_utility
-            .total_cmp(&left.average_strategic_utility)
-    })
-    .then_with(|| left.direction.rank().cmp(&right.direction.rank()))
-}
-
-fn effective_reserved_penalty(
-    policy: ReservedCellPolicy,
-    state: &SimulatedGameState,
-    evaluation: &DirectionEvaluation,
-) -> f32 {
-    if evaluation.reserved_override {
-        0.0
-    } else {
-        policy.penalty(state, evaluation.direction)
-    }
-}
-
-fn compare_lower_ratio(
-    left_numerator: u32,
-    left_denominator: u32,
-    right_numerator: u32,
-    right_denominator: u32,
-) -> Ordering {
-    let left_denominator = left_denominator.max(1) as u64;
-    let right_denominator = right_denominator.max(1) as u64;
-
-    (u64::from(left_numerator) * right_denominator)
-        .cmp(&(u64::from(right_numerator) * left_denominator))
-}
-
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
@@ -570,7 +480,7 @@ mod tests {
         let normalized = SimulatedGameState::from(&state);
         let safe = DirectionEvaluation {
             direction: Direction::Up,
-            routes: vec![],
+            terminal: TerminalAssessment::Running,
             survival: crate::decision::evaluation::DirectionSurvivalSummary {
                 total_routes: 1,
                 death_routes: 0,
@@ -579,6 +489,7 @@ mod tests {
                 constrained_routes: 0,
                 min_future_mobility: 2,
                 min_reachable_space: 10,
+                min_second_order_mobility: 2,
             },
             worst_strategic_utility: 0.0,
             average_strategic_utility: 0.0,
@@ -590,7 +501,7 @@ mod tests {
         };
         let threatened = DirectionEvaluation {
             direction: Direction::Right,
-            routes: vec![],
+            terminal: TerminalAssessment::Running,
             survival: safe.survival,
             worst_strategic_utility: 100.0,
             average_strategic_utility: 100.0,
@@ -621,7 +532,7 @@ mod tests {
         let normalized = SimulatedGameState::from(&state("standard"));
         let mut evaluation = DirectionEvaluation {
             direction: Direction::Up,
-            routes: vec![],
+            terminal: TerminalAssessment::Running,
             survival: crate::decision::evaluation::DirectionSurvivalSummary {
                 total_routes: 1,
                 death_routes: 0,
@@ -630,6 +541,7 @@ mod tests {
                 constrained_routes: 0,
                 min_future_mobility: 2,
                 min_reachable_space: 10,
+                min_second_order_mobility: 2,
             },
             worst_strategic_utility: 0.0,
             average_strategic_utility: 0.0,
@@ -659,7 +571,7 @@ mod tests {
 
         let safe = DirectionEvaluation {
             direction: Direction::Up,
-            routes: vec![],
+            terminal: TerminalAssessment::Running,
             survival: DirectionSurvivalSummary {
                 total_routes: 4,
                 death_routes: 0,
@@ -668,6 +580,7 @@ mod tests {
                 constrained_routes: 0,
                 min_future_mobility: 2,
                 min_reachable_space: 10,
+                min_second_order_mobility: 2,
             },
             worst_strategic_utility: 0.0,
             average_strategic_utility: 0.0,
@@ -679,7 +592,7 @@ mod tests {
         };
         let dangerous = DirectionEvaluation {
             direction: Direction::Right,
-            routes: vec![],
+            terminal: TerminalAssessment::Lost,
             survival: DirectionSurvivalSummary {
                 total_routes: 4,
                 death_routes: 1,
@@ -688,6 +601,7 @@ mod tests {
                 constrained_routes: 0,
                 min_future_mobility: 4,
                 min_reachable_space: 30,
+                min_second_order_mobility: 4,
             },
             worst_strategic_utility: 100.0,
             average_strategic_utility: 100.0,
