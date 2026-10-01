@@ -343,19 +343,18 @@ mod tests {
         use crate::decision::intent::{DecisionIntent, FoodIntent};
 
         let target = Coord { x: 6, y: 6 };
-        let mut game = state(
-            1,
-            vec![Coord { x: 0, y: 0 }, Coord { x: 0, y: 1 }],
-        );
+        let mut game = state(1, vec![Coord { x: 0, y: 0 }, Coord { x: 0, y: 1 }]);
         game.board.food = vec![target];
         let mut normalized = SimulatedGameState::from(&game);
 
-        normalized.snakes.push(crate::simulation::state::SimulatedSnake {
-            id: "wall".to_string(),
-            health: 100,
-            body: (0..7).map(|y| Coord { x: 1, y }).collect(),
-            alive: true,
-        });
+        normalized
+            .snakes
+            .push(crate::simulation::state::SimulatedSnake {
+                id: "wall".to_string(),
+                health: 100,
+                body: (0..7).map(|y| Coord { x: 1, y }).collect(),
+                alive: true,
+            });
         let graph = FutureGraph::new(normalized);
 
         let mut decision = DecisionState {
