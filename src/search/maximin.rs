@@ -170,7 +170,6 @@ pub(crate) fn evaluate_continuations(
         .collect()
 }
 
-
 impl MaximinEvaluator<'_> {
     fn evaluate_node(&mut self, node_id: NodeId, remaining_depth: u8) -> EvaluatedLine {
         self.evaluate_node_variants(node_id, remaining_depth)
