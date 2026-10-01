@@ -156,9 +156,7 @@ impl MaximinEvaluator<'_> {
         } else {
             let mut directions = Vec::new();
             for direction in Direction::ALL {
-                if let Some(line) =
-                    self.evaluate_direction(node_id, direction, remaining_depth)
-                {
+                if let Some(line) = self.evaluate_direction(node_id, direction, remaining_depth) {
                     directions.push(line);
                 }
             }
@@ -198,8 +196,7 @@ impl MaximinEvaluator<'_> {
         for edge in edges {
             let child = self.graph.node(edge.child);
             let transition = TransitionScore::from_edge(node, edge, child);
-            let child_line =
-                self.evaluate_node(edge.child, remaining_depth.saturating_sub(1));
+            let child_line = self.evaluate_node(edge.child, remaining_depth.saturating_sub(1));
             outcomes.push(child_line.shifted_by_edge(node_id, edge, transition));
         }
 
@@ -345,24 +342,16 @@ fn incomplete_bound(value: i64) -> ValueBound {
 
 fn widen_bound(bound: ValueBound, value: i64) -> ValueBound {
     ValueBound::Interval {
-        lower: bound
-            .lower()
-            .min(value.saturating_sub(INCOMPLETE_MARGIN)),
-        upper: bound
-            .upper()
-            .max(value.saturating_add(INCOMPLETE_MARGIN)),
+        lower: bound.lower().min(value.saturating_sub(INCOMPLETE_MARGIN)),
+        upper: bound.upper().max(value.saturating_add(INCOMPLETE_MARGIN)),
     }
 }
 
 fn shift_bound(bound: ValueBound, delta: i64) -> ValueBound {
     match bound {
         ValueBound::Exact(value) => ValueBound::Exact(value.saturating_add(delta)),
-        ValueBound::LowerBound(value) => {
-            ValueBound::LowerBound(value.saturating_add(delta))
-        }
-        ValueBound::UpperBound(value) => {
-            ValueBound::UpperBound(value.saturating_add(delta))
-        }
+        ValueBound::LowerBound(value) => ValueBound::LowerBound(value.saturating_add(delta)),
+        ValueBound::UpperBound(value) => ValueBound::UpperBound(value.saturating_add(delta)),
         ValueBound::Interval { lower, upper } => ValueBound::Interval {
             lower: lower.saturating_add(delta),
             upper: upper.saturating_add(delta),
