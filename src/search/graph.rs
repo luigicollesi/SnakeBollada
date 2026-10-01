@@ -1024,7 +1024,12 @@ fn build_node_with_key(
                 AnalysisProfile::Full => StateAnalysis::from_simulated(&state),
                 AnalysisProfile::BeamLean => StateAnalysis::from_simulated_routes_only(&state),
             },
-            || TerritoryAnalysis::from_spatial(&state, &spatial),
+            || match profile {
+                AnalysisProfile::Full => TerritoryAnalysis::from_spatial(&state, &spatial),
+                AnalysisProfile::BeamLean => {
+                    TerritoryAnalysis::from_spatial_actor_relative(&state, &spatial)
+                }
+            },
         );
         let state_analysis = Arc::new(state_analysis);
         let territory = Arc::new(territory);
