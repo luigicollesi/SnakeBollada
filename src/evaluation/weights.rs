@@ -15,7 +15,7 @@ pub(crate) struct NeedWeights {
     pub(crate) dominance: u16,
     pub(crate) hunting: u16,
     pub(crate) pressure: u16,
-    pub(crate) continuity: u16,
+    pub(crate) stability: u16,
 }
 
 impl NeedWeights {
@@ -129,7 +129,7 @@ impl NeedWeights {
             ),
             offensive_health,
         );
-        let continuity = weight(
+        let stability = weight(
             250,
             &[
                 (1000_u16.saturating_sub(health_pressure), 250),
@@ -149,7 +149,7 @@ impl NeedWeights {
             dominance,
             hunting,
             pressure,
-            continuity,
+            stability,
         }
     }
 }
