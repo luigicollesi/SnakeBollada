@@ -863,9 +863,8 @@ impl FutureGraph {
     }
 
     fn action_batch_size(&self, budget: Option<&SearchBudget>) -> usize {
-        let parallelism = rayon::current_num_threads()
-            .max(1)
-            .min(MAX_PARALLEL_ACTION_BATCH);
+        let parallelism =
+            rayon::current_num_threads().clamp(1, MAX_PARALLEL_ACTION_BATCH);
         if parallelism == 1 {
             return 1;
         }
