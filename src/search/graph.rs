@@ -6,8 +6,7 @@ use std::time::Duration;
 
 use crate::analysis::transition::analyze_transition;
 use crate::analysis::{
-    BorderFobicAnalysis, EnclosureAnalysis, StateAnalysis, TacticalStateAnalysis,
-    TerritoryAnalysis,
+    BorderFobicAnalysis, EnclosureAnalysis, StateAnalysis, TacticalStateAnalysis, TerritoryAnalysis,
 };
 use crate::decision::joint_actions::JointActionGenerator;
 use crate::decision::state_key::StateKey;
