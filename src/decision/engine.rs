@@ -1000,7 +1000,6 @@ mod tests {
             &normalized,
             robust,
             ReservedCellPolicy::default(),
-            false,
         )
         .unwrap();
 
@@ -1077,7 +1076,7 @@ mod tests {
             direction: Direction::Right,
             terminal: TerminalAssessment::Running,
             survival: DirectionSurvivalSummary {
-                total_routes: 2,
+                total_routes: 4,
                 death_routes: 1,
                 dead_end_routes: 0,
                 forced_routes: 0,
@@ -1119,7 +1118,7 @@ mod tests {
             ReservedCellPolicy::default(),
             false,
         )
-        .expect("partial danger must not invalidate a committed beneficial line");
+        .expect("limited partial danger must not invalidate a committed beneficial line");
 
         assert_eq!(chosen.0.direction, Direction::Right);
     }
@@ -1223,7 +1222,6 @@ mod tests {
             &normalized,
             MoveMask::all(),
             ReservedCellPolicy::default(),
-            false,
         )
         .unwrap();
 
@@ -1269,7 +1267,6 @@ mod tests {
             &normalized,
             MoveMask::all(),
             ReservedCellPolicy::default(),
-            false,
         )
         .is_none());
     }
