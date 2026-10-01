@@ -25,10 +25,7 @@ pub(crate) struct StrategicPosture {
 
 impl StrategicPosture {
     pub(crate) fn from_state(state: &SimulatedGameState) -> Self {
-        let Some(ours) = state
-            .snake(&state.our_snake_id)
-            .filter(|snake| snake.alive)
-        else {
+        let Some(ours) = state.snake(&state.our_snake_id).filter(|snake| snake.alive) else {
             return Self {
                 phase: StrategicPhase::Growth,
                 our_length: 0,
@@ -66,8 +63,7 @@ impl StrategicPosture {
         let growth_aggression_milli = (state.aggression.value.clamp(0.0, 1.0) * 1000.0)
             .round()
             .clamp(0.0, 1000.0) as u16;
-        let size_dominance_milli =
-            size_dominance_milli(lead_over_largest_enemy, unique_largest);
+        let size_dominance_milli = size_dominance_milli(lead_over_largest_enemy, unique_largest);
         let hunt_drive_milli = growth_aggression_milli.max(size_dominance_milli);
         let food_urgency_milli = food_urgency_milli(ours.health, state.rules.max_health);
 
@@ -152,13 +148,7 @@ fn food_urgency_milli(health: i32, max_health: i32) -> u16 {
     }
 }
 
-fn interpolate_descending(
-    value: i32,
-    low: i32,
-    high: i32,
-    low_score: u16,
-    high_score: u16,
-) -> u16 {
+fn interpolate_descending(value: i32, low: i32, high: i32, low_score: u16, high_score: u16) -> u16 {
     let span = high.saturating_sub(low).max(1);
     let offset = value.saturating_sub(low).clamp(0, span);
     let score_span = i32::from(low_score).saturating_sub(i32::from(high_score));
