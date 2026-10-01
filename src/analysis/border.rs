@@ -63,7 +63,7 @@ impl BorderFobicAnalysis {
             .par_iter()
             .filter(|snake| snake.alive)
             .filter_map(|snake| {
-                    let head = snake.head()?;
+                let head = snake.head()?;
                 let safe_moves =
                     actor_safe_moves(state, tactical, &snake.id, all_legal_enemy_moves);
                 let fear_milli = length_fear_milli(state, snake.length());
@@ -157,22 +157,21 @@ impl BorderFobicAnalysis {
                         .unwrap_or(1000)
                 };
 
-
                 Some((
                     snake.id.clone(),
                     BorderFobicSnapshot {
-                            fear_milli,
-                            head_edge_distance,
-                            body_on_edge,
-                            body_near_edge,
-                            leading_edge_chain,
-                            inward_safe_moves,
-                            corner_contact,
-                            preference_milli,
-                            structural_risk_milli,
-                            inward_control_milli,
-                            enemy_pin_risk_milli,
-                        },
+                        fear_milli,
+                        head_edge_distance,
+                        body_on_edge,
+                        body_near_edge,
+                        leading_edge_chain,
+                        inward_safe_moves,
+                        corner_contact,
+                        preference_milli,
+                        structural_risk_milli,
+                        inward_control_milli,
+                        enemy_pin_risk_milli,
+                    },
                 ))
             })
             .collect::<HashMap<_, _>>();
