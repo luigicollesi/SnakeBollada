@@ -121,6 +121,14 @@ pub(crate) struct BeamShadowMetadata {
     pub(crate) line_count: u8,
     pub(crate) best_value: i64,
     pub(crate) elapsed_us: u64,
+    pub(crate) action_batches: u32,
+    pub(crate) parallel_action_batches: u32,
+    pub(crate) resolved_actions: u32,
+    pub(crate) new_nodes_built: u32,
+    pub(crate) resolve_us: u64,
+    pub(crate) node_build_us: u64,
+    pub(crate) merge_us: u64,
+    pub(crate) edge_score_us: u64,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
