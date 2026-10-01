@@ -2,7 +2,7 @@
 
 use std::collections::{HashMap, HashSet};
 
-use super::weights::StrategicWeights;
+use super::{ActorTable, StrategicWeights};
 use crate::search::graph::{SearchEdge, SearchNode};
 use crate::simulation::resolver::{EliminationAttribution, InstantEvent};
 
@@ -32,7 +32,7 @@ struct ActorTransitionFacts {
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 struct TransitionFacts {
-    actors: HashMap<String, ActorTransitionFacts>,
+    actors: ActorTable<ActorTransitionFacts>,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -57,7 +57,7 @@ pub(crate) struct TransitionScore {
     pub(crate) structural_delta: i64,
     pub(crate) net: i64,
     pub(crate) opponent_net_total: i64,
-    pub(crate) actors: HashMap<String, ActorTransitionScore>,
+    pub(crate) actors: ActorTable<ActorTransitionScore>,
 }
 
 impl TransitionScore {
@@ -71,7 +71,7 @@ impl TransitionScore {
         child: &SearchNode,
     ) -> Self {
         let facts = TransitionFacts::from_parts(parent, events, child);
-        let mut actors = HashMap::new();
+        let mut actors = ActorTable::new();
 
         for actor in parent.state.snakes.iter().filter(|snake| snake.alive) {
             let (Some(parent_eval), Some(actor_facts)) = (
@@ -91,7 +91,7 @@ impl TransitionScore {
         let ours = actors.get(our_id).copied().unwrap_or_default();
         let opponent_net_total = actors
             .iter()
-            .filter(|(actor_id, _)| actor_id.as_str() != our_id)
+            .filter(|(actor_id, _)| *actor_id != our_id)
             .fold(0_i64, |sum, (_, score)| sum.saturating_add(score.net));
 
         Self {
