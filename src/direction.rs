@@ -57,7 +57,6 @@ impl Direction {
             Direction::Left => 3,
         }
     }
-
 }
 
 #[cfg_attr(not(test), allow(dead_code))]
