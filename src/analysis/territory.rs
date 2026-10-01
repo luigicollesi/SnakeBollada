@@ -4,6 +4,7 @@ use std::collections::{HashMap, HashSet, VecDeque};
 
 use crate::direction::Direction;
 use crate::simulation::state::SimulatedGameState;
+use crate::spatial::SpatialOccupancy;
 use crate::Coord;
 
 const MAX_CHOKES_PER_SNAKE: usize = 8;
@@ -72,28 +73,43 @@ impl SnakeTerritorySnapshot {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct CoreSnakeTerritorySnapshot {
+    snake_id: String,
+    reachable_space: u32,
+    exclusive_space: u32,
+    contested_space: u32,
+    escape_frontier: u8,
+    edge_distance: u16,
+}
+
 #[derive(Debug, Clone, Default)]
-pub(crate) struct TerritoryAnalysis {
+struct TerritoryCore {
     width: u16,
     height: u16,
-    snakes: HashMap<String, SnakeTerritorySnapshot>,
+    open: Vec<bool>,
+    distances: HashMap<String, Vec<u16>>,
+    snakes: HashMap<String, CoreSnakeTerritorySnapshot>,
     competitive: HashMap<String, CompetitiveTerritorySnapshot>,
     competitive_ids: Vec<String>,
     competitive_claims: Vec<CompetitiveClaim>,
 }
 
-impl TerritoryAnalysis {
-    pub(crate) fn from_state(state: &SimulatedGameState) -> Self {
-        let width = state.width as u16;
-        let height = state.height as u16;
+impl TerritoryCore {
+    fn from_state(state: &SimulatedGameState) -> Self {
+        let spatial = SpatialOccupancy::from_state(state);
+        Self::from_spatial(state, &spatial)
+    }
+
+    fn from_spatial(state: &SimulatedGameState, spatial: &SpatialOccupancy) -> Self {
+        let width = spatial.width();
+        let height = spatial.height();
         let cells = usize::from(width).saturating_mul(usize::from(height));
         if cells == 0 {
             return Self::default();
         }
 
-        let occupied = retained_occupancy(state, width, height);
-        let open = (0..cells).map(|index| !occupied[index]).collect::<Vec<_>>();
-        let articulation = articulation_points(width, height, &open);
+        let open = spatial.territory_open(state);
 
         let living = state
             .snakes
@@ -169,25 +185,74 @@ impl TerritoryAnalysis {
         let (competitive, competitive_claims, competitive_ids) =
             competitive_snapshots(state, width, height, &open, &living, &distances);
 
-        let mut snapshots = HashMap::new();
+        let mut snakes = HashMap::new();
         for (snake, head) in living {
-            let field = distances
-                .get(&snake.id)
-                .expect("living snake must have a distance field");
             let (reachable_space, exclusive_space, contested_space) =
                 ownership.get(&snake.id).copied().unwrap_or_default();
+
+            snakes.insert(
+                snake.id.clone(),
+                CoreSnakeTerritorySnapshot {
+                    snake_id: snake.id.clone(),
+                    reachable_space,
+                    exclusive_space,
+                    contested_space,
+                    escape_frontier: escape_frontier(width, height, &open, head, snake.length()),
+                    edge_distance: edge_distance(width, height, head),
+                },
+            );
+        }
+
+        Self {
+            width,
+            height,
+            open,
+            distances,
+            snakes,
+            competitive,
+            competitive_ids,
+            competitive_claims,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Default)]
+struct TerritoryStructural {
+    useful_chokes: HashMap<String, Vec<ChokePoint>>,
+}
+
+impl TerritoryStructural {
+    fn from_core(state: &SimulatedGameState, core: &TerritoryCore) -> Self {
+        if core.open.is_empty() {
+            return Self::default();
+        }
+
+        let articulation = articulation_points(core.width, core.height, &core.open);
+        let mut useful_chokes_by_snake = HashMap::new();
+
+        for snake in state.snakes.iter().filter(|snake| snake.alive) {
+            let Some(head) = snake.head() else {
+                continue;
+            };
+            let Some(field) = core.distances.get(&snake.id) else {
+                continue;
+            };
+            let Some(snapshot) = core.snakes.get(&snake.id) else {
+                continue;
+            };
 
             let mut useful_chokes = articulation
                 .iter()
                 .filter_map(|coord| {
-                    let index = index_of(width, height, *coord)?;
+                    let index = index_of(core.width, core.height, *coord)?;
                     let distance = field[index];
                     if distance == u16::MAX || *coord == head || distance > 8 {
                         return None;
                     }
 
-                    let trapped_space = reachable_count(width, height, &open, head, Some(*coord));
-                    let cut_gain = reachable_space.saturating_sub(trapped_space);
+                    let trapped_space =
+                        reachable_count(core.width, core.height, &core.open, head, Some(*coord));
+                    let cut_gain = snapshot.reachable_space.saturating_sub(trapped_space);
                     let minimum_gain = u32::try_from(snake.length()).unwrap_or(u32::MAX).max(4);
                     (cut_gain >= minimum_gain).then_some(ChokePoint {
                         coord: *coord,
@@ -205,24 +270,74 @@ impl TerritoryAnalysis {
             });
             useful_chokes.truncate(MAX_CHOKES_PER_SNAKE);
 
-            snapshots.insert(
-                snake.id.clone(),
-                SnakeTerritorySnapshot {
-                    snake_id: snake.id.clone(),
-                    reachable_space,
-                    exclusive_space,
-                    contested_space,
-                    escape_frontier: escape_frontier(width, height, &open, head, snake.length()),
-                    edge_distance: edge_distance(width, height, head),
-                    useful_chokes,
-                },
-            );
+            useful_chokes_by_snake.insert(snake.id.clone(), useful_chokes);
         }
+
+        Self {
+            useful_chokes: useful_chokes_by_snake,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Default)]
+pub(crate) struct TerritoryAnalysis {
+    width: u16,
+    height: u16,
+    snakes: HashMap<String, SnakeTerritorySnapshot>,
+    competitive: HashMap<String, CompetitiveTerritorySnapshot>,
+    competitive_ids: Vec<String>,
+    competitive_claims: Vec<CompetitiveClaim>,
+}
+
+impl TerritoryAnalysis {
+    pub(crate) fn from_state(state: &SimulatedGameState) -> Self {
+        let spatial = SpatialOccupancy::from_state(state);
+        Self::from_spatial(state, &spatial)
+    }
+
+    pub(crate) fn from_spatial(state: &SimulatedGameState, spatial: &SpatialOccupancy) -> Self {
+        let core = TerritoryCore::from_spatial(state, spatial);
+        let structural = TerritoryStructural::from_core(state, &core);
+        Self::from_parts(core, structural)
+    }
+
+    fn from_parts(core: TerritoryCore, mut structural: TerritoryStructural) -> Self {
+        let TerritoryCore {
+            width,
+            height,
+            snakes: core_snakes,
+            competitive,
+            competitive_ids,
+            competitive_claims,
+            ..
+        } = core;
+
+        let snakes = core_snakes
+            .into_iter()
+            .map(|(snake_id, snapshot)| {
+                let useful_chokes = structural
+                    .useful_chokes
+                    .remove(&snake_id)
+                    .unwrap_or_default();
+                (
+                    snake_id,
+                    SnakeTerritorySnapshot {
+                        snake_id: snapshot.snake_id,
+                        reachable_space: snapshot.reachable_space,
+                        exclusive_space: snapshot.exclusive_space,
+                        contested_space: snapshot.contested_space,
+                        escape_frontier: snapshot.escape_frontier,
+                        edge_distance: snapshot.edge_distance,
+                        useful_chokes,
+                    },
+                )
+            })
+            .collect();
 
         Self {
             width,
             height,
-            snakes: snapshots,
+            snakes,
             competitive,
             competitive_ids,
             competitive_claims,
@@ -493,29 +608,6 @@ fn control_weight(state: &SimulatedGameState, coord: Coord) -> u32 {
     } else {
         EMPTY_CONTROL_WEIGHT
     }
-}
-
-fn retained_occupancy(state: &SimulatedGameState, width: u16, height: u16) -> Vec<bool> {
-    let mut occupied = vec![false; usize::from(width).saturating_mul(usize::from(height))];
-
-    for snake in state.snakes.iter().filter(|snake| snake.alive) {
-        let retained_len = snake.body.len().saturating_sub(1);
-        for segment in snake.body.iter().take(retained_len) {
-            if let Some(index) = index_of(width, height, *segment) {
-                occupied[index] = true;
-            }
-        }
-    }
-
-    for snake in state.snakes.iter().filter(|snake| snake.alive) {
-        if let Some(head) = snake.head() {
-            if let Some(index) = index_of(width, height, head) {
-                occupied[index] = false;
-            }
-        }
-    }
-
-    occupied
 }
 
 fn bfs_distances(
@@ -871,5 +963,84 @@ mod tests {
 
         let territory = TerritoryAnalysis::from_state(&state);
         assert_eq!(territory.for_snake("ours").unwrap().edge_distance, 0);
+    }
+
+    #[test]
+    fn core_and_structural_parts_recompose_public_analysis() {
+        let state = state(
+            7,
+            7,
+            vec![
+                snake("ours", &[(6, 6), (6, 5), (6, 4), (5, 4), (4, 4), (3, 4)]),
+                snake("enemy", &[(1, 2), (1, 1), (1, 0)]),
+                snake(
+                    "wall",
+                    &[
+                        (4, 6),
+                        (2, 6),
+                        (2, 5),
+                        (2, 4),
+                        (2, 3),
+                        (2, 1),
+                        (2, 0),
+                        (4, 5),
+                    ],
+                ),
+            ],
+        );
+
+        let public = TerritoryAnalysis::from_state(&state);
+        let core = TerritoryCore::from_state(&state);
+        let structural = TerritoryStructural::from_core(&state, &core);
+        let recomposed = TerritoryAnalysis::from_parts(core, structural);
+
+        for snake_id in ["ours", "enemy", "wall"] {
+            assert_eq!(public.for_snake(snake_id), recomposed.for_snake(snake_id));
+            assert_eq!(
+                public.competitive_for_snake(snake_id),
+                recomposed.competitive_for_snake(snake_id)
+            );
+        }
+
+        for y in 0..7 {
+            for x in 0..7 {
+                let coord = Coord { x, y };
+                assert_eq!(
+                    public.competitive_owner_at(coord),
+                    recomposed.competitive_owner_at(coord)
+                );
+                assert_eq!(
+                    public.competitive_is_contested_at(coord),
+                    recomposed.competitive_is_contested_at(coord)
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn shared_spatial_preserves_consumer_specific_head_semantics() {
+        use std::sync::Arc;
+
+        use crate::simulation::mobility::{DeterministicMoveBlock, MobilityAnalysis};
+        use crate::spatial::SpatialOccupancy;
+
+        let state = state(
+            7,
+            7,
+            vec![snake("ours", &[(2, 2)]), snake("enemy", &[(3, 2), (3, 1)])],
+        );
+        let spatial = Arc::new(SpatialOccupancy::from_state(&state));
+        let mobility = MobilityAnalysis::from_spatial(Arc::clone(&spatial));
+        let territory = TerritoryAnalysis::from_spatial(&state, &spatial);
+
+        assert_eq!(
+            mobility.classify_move(&state, state.snake("ours").unwrap(), Direction::Right,),
+            Some(DeterministicMoveBlock::DeterministicBodyCollision)
+        );
+        assert!(territory.for_snake("ours").unwrap().reachable_space > 0);
+        assert_eq!(
+            territory.for_snake("ours"),
+            TerritoryAnalysis::from_state(&state).for_snake("ours")
+        );
     }
 }

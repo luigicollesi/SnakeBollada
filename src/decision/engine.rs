@@ -79,18 +79,14 @@ impl DecisionEngine {
                 break;
             }
 
-            let frontier_nodes = graph
-                .node_count_at_depth(depth.saturating_sub(1))
-                .try_into()
-                .unwrap_or(u32::MAX);
-
             let nodes_before = graph.node_count();
             let edges_before = graph.edge_count();
 
             let expansion_started = std::time::Instant::now();
-            let Ok(expansion_complete) = graph.expand_depth(depth, &budget) else {
+            let Ok(expansion) = graph.expand_depth(depth, &budget) else {
                 return baseline_fallback(state);
             };
+            let frontier_nodes = expansion.frontier_nodes;
             let expansion_us = expansion_started
                 .elapsed()
                 .as_micros()
@@ -114,7 +110,7 @@ impl DecisionEngine {
                 evaluation_us: 0,
             };
 
-            if !expansion_complete {
+            if !expansion.completed {
                 depth_stats[usize::from(depth - 1)] = stats;
                 break;
             }
