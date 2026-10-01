@@ -4,6 +4,7 @@ use crate::analysis::StateAnalysis;
 use crate::direction::Direction;
 use crate::forecast::ForecastCertainty;
 use crate::modes::food;
+use crate::modes::hunting::HuntingPlanKind;
 use crate::navigation::{reachable_after_move, NavigationMap};
 use crate::simulation::state::SimulatedGameState;
 use crate::{Coord, GameState};
@@ -172,11 +173,13 @@ impl Default for SearchMetadata {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Decision {
     pub(crate) direction: Direction,
     pub(crate) reason: DecisionReason,
     pub(crate) target_food: Option<Coord>,
+    pub(crate) target_enemy: Option<String>,
+    pub(crate) hunt_kind: Option<HuntingPlanKind>,
     pub(crate) path_distance: Option<u16>,
     pub(crate) reachable_cells: u32,
     pub(crate) search: SearchMetadata,
@@ -198,6 +201,8 @@ pub(crate) fn choose_move_baseline(state: &GameState) -> Decision {
             direction: Direction::Up,
             reason: DecisionReason::NoSafeMove,
             target_food: None,
+            target_enemy: None,
+            hunt_kind: None,
             path_distance: None,
             reachable_cells: 0,
             search: SearchMetadata::default(),
@@ -210,6 +215,8 @@ pub(crate) fn choose_move_baseline(state: &GameState) -> Decision {
             direction,
             reason: DecisionReason::OnlyLegalMove,
             target_food: None,
+            target_enemy: None,
+            hunt_kind: None,
             path_distance: None,
             reachable_cells: reachable_after_move(&map, state, direction),
             search: SearchMetadata::default(),
@@ -257,6 +264,8 @@ fn choose_food_candidate(
             direction: candidate.first_move,
             reason: DecisionReason::FoodStrategic,
             target_food: Some(candidate.target_food),
+            target_enemy: None,
+            hunt_kind: None,
             path_distance: Some(candidate.distance),
             reachable_cells: reachable,
             search: SearchMetadata::default(),
@@ -312,6 +321,8 @@ fn survival_fallback(
         direction: best.0,
         reason: DecisionReason::FutureMobility,
         target_food: None,
+        target_enemy: None,
+        hunt_kind: None,
         path_distance: None,
         reachable_cells: best.1,
         search: SearchMetadata::default(),
