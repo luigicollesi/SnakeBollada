@@ -973,11 +973,25 @@ fn build_node_with_key(
         let tactical = Arc::new(TacticalStateAnalysis::from_parts(
             &state, &tracing, &mobility,
         ));
-        let border = Arc::new(BorderFobicAnalysis::from_parts_with_territory(
-            &state, &tactical, &territory,
-        ));
+        let border = Arc::new(match profile {
+            AnalysisProfile::Full => BorderFobicAnalysis::from_parts_with_territory(
+                &state, &tactical, &territory,
+            ),
+            AnalysisProfile::BeamLean => {
+                BorderFobicAnalysis::from_parts_with_territory_actor_relative(
+                    &state, &tactical, &territory,
+                )
+            }
+        });
         let posture = Arc::new(StrategicPosture::from_state(&state));
-        let enclosure = Arc::new(EnclosureAnalysis::from_parts(&state, &territory, &tactical));
+        let enclosure = Arc::new(match profile {
+            AnalysisProfile::Full => {
+                EnclosureAnalysis::from_parts(&state, &territory, &tactical)
+            }
+            AnalysisProfile::BeamLean => {
+                EnclosureAnalysis::from_parts_actor_relative(&state, &territory, &tactical)
+            }
+        });
 
         let (survival, hunting) = match profile {
             AnalysisProfile::Full => rayon::join(
