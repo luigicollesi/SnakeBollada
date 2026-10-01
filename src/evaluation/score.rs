@@ -123,7 +123,9 @@ fn classify_harms(_context: &ActorContext, metrics: &ActorMetrics) -> ActorHarms
     let escape_pressure =
         1000_u16.saturating_sub(u16::from(metrics.escape_frontier.min(4)).saturating_mul(250));
     let enclosure = average_milli(&[
-        u16::from(metrics.enclosure_risk.min(3)).saturating_mul(333).min(1000),
+        u16::from(metrics.enclosure_risk.min(3))
+            .saturating_mul(333)
+            .min(1000),
         insufficient_space,
         escape_pressure,
         choke_pressure.saturating_add(boundary_pressure).min(1000),
@@ -251,7 +253,11 @@ fn food_access_milli(metrics: &ActorMetrics) -> u16 {
         Some(_) => 100,
         None => 700,
     };
-    let contest_score = if metrics.best_food_contested { 500 } else { 1000 };
+    let contest_score = if metrics.best_food_contested {
+        500
+    } else {
+        1000
+    };
 
     average_milli(&[distance_score, claim_score, contest_score])
 }
@@ -316,7 +322,9 @@ fn dominance_harm_milli(metrics: &ActorMetrics) -> u16 {
 fn frontier_ratio(primary: u16, secondary: u16) -> u16 {
     ratio_milli(
         u32::from(primary),
-        u32::from(primary).saturating_add(u32::from(secondary)).max(1),
+        u32::from(primary)
+            .saturating_add(u32::from(secondary))
+            .max(1),
     )
 }
 
