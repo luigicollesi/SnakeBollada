@@ -204,7 +204,7 @@ mod tests {
     fn equal_or_longer_enemy_marks_contested_destination_lethal() {
         let state = state(vec![
             snake("ours", &[(2, 1), (1, 1), (1, 0)]),
-            snake("enemy", &[(2, 3), (3, 3), (3, 2)]),
+            snake("enemy", &[(2, 3), (2, 4), (1, 4)]),
         ]);
         let analysis = StateAnalysis::from_simulated(&state);
         let tracing = trace(&state, &analysis);
