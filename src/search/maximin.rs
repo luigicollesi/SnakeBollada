@@ -392,7 +392,10 @@ fn max_our_choices(lines: Vec<EvaluatedLine>) -> EvaluatedLine {
         .expect("MAX requires at least one line")
 }
 
-fn select_selfish_opponent_response(node: &SearchNode, lines: Vec<EvaluatedLine>) -> EvaluatedLine {
+fn select_selfish_opponent_response(
+    node: &SearchNode,
+    lines: Vec<EvaluatedLine>,
+) -> EvaluatedLine {
     let lower = lines
         .iter()
         .map(|line| line.bound.lower())
@@ -413,34 +416,43 @@ fn select_selfish_opponent_response(node: &SearchNode, lines: Vec<EvaluatedLine>
         .map(|snake| snake.id.as_str())
         .collect::<Vec<_>>();
 
-    let maxima = enemies
+    let pure_best_responses = lines
         .iter()
-        .map(|enemy_id| {
-            let best = lines
-                .iter()
-                .map(|line| actor_utility(line, enemy_id))
-                .max()
-                .unwrap_or(0);
-            (*enemy_id, best)
-        })
-        .collect::<HashMap<_, _>>();
+        .filter(|candidate| is_pure_best_response(node, candidate, &lines, &enemies))
+        .cloned()
+        .collect::<Vec<_>>();
 
-    let mut chosen = lines
-        .into_iter()
-        .min_by(|left, right| {
-            let left_regret = opponent_regret(left, &enemies, &maxima);
-            let right_regret = opponent_regret(right, &enemies, &maxima);
+    let mut chosen = if pure_best_responses.is_empty() {
+        lines
+            .into_iter()
+            .min_by(|left, right| {
+                let left_regret = unilateral_regret(node, left, &enemies, &lines);
+                let right_regret = unilateral_regret(node, right, &enemies, &lines);
 
-            left_regret
-                .cmp(&right_regret)
-                .then_with(|| left.value.cmp(&right.value))
-                .then_with(|| {
-                    right
-                        .opponent_utility_total
-                        .cmp(&left.opponent_utility_total)
-                })
-        })
-        .expect("opponent response selection requires at least one line");
+                left_regret
+                    .cmp(&right_regret)
+                    .then_with(|| left.value.cmp(&right.value))
+                    .then_with(|| {
+                        right
+                            .opponent_utility_total
+                            .cmp(&left.opponent_utility_total)
+                    })
+            })
+            .expect("opponent response selection requires at least one line")
+    } else {
+        pure_best_responses
+            .into_iter()
+            .min_by(|left, right| {
+                left.value
+                    .cmp(&right.value)
+                    .then_with(|| {
+                        right
+                            .opponent_utility_total
+                            .cmp(&left.opponent_utility_total)
+                    })
+            })
+            .expect("pure best-response set cannot be empty")
+    };
 
     chosen.bound = if all_exact {
         ValueBound::Exact(chosen.value)
@@ -450,25 +462,76 @@ fn select_selfish_opponent_response(node: &SearchNode, lines: Vec<EvaluatedLine>
     chosen
 }
 
+fn is_pure_best_response(
+    node: &SearchNode,
+    candidate: &EvaluatedLine,
+    lines: &[EvaluatedLine],
+    enemies: &[&str],
+) -> bool {
+    enemies.iter().all(|enemy_id| {
+        let current = actor_utility(candidate, enemy_id);
+        lines
+            .iter()
+            .filter(|alternative| {
+                same_joint_context_except_actor(node, candidate, alternative, enemy_id)
+            })
+            .map(|alternative| actor_utility(alternative, enemy_id))
+            .max()
+            .unwrap_or(current)
+            <= current
+    })
+}
+
+fn unilateral_regret(
+    node: &SearchNode,
+    candidate: &EvaluatedLine,
+    enemies: &[&str],
+    lines: &[EvaluatedLine],
+) -> (i64, i64) {
+    enemies
+        .iter()
+        .fold((0_i64, 0_i64), |(worst, total), enemy_id| {
+            let current = actor_utility(candidate, enemy_id);
+            let best = lines
+                .iter()
+                .filter(|alternative| {
+                    same_joint_context_except_actor(node, candidate, alternative, enemy_id)
+                })
+                .map(|alternative| actor_utility(alternative, enemy_id))
+                .max()
+                .unwrap_or(current);
+            let regret = best.saturating_sub(current).max(0);
+            (worst.max(regret), total.saturating_add(regret))
+        })
+}
+
+fn same_joint_context_except_actor(
+    node: &SearchNode,
+    left: &EvaluatedLine,
+    right: &EvaluatedLine,
+    deviating_actor: &str,
+) -> bool {
+    let (Some(left_action), Some(right_action)) = (
+        left.steps.first().map(|step| &step.joint_action),
+        right.steps.first().map(|step| &step.joint_action),
+    ) else {
+        return false;
+    };
+
+    node.state
+        .snakes
+        .iter()
+        .filter(|snake| snake.alive && snake.id != deviating_actor)
+        .all(|snake| {
+            left_action.direction_for(&snake.id) == right_action.direction_for(&snake.id)
+        })
+}
+
 fn actor_utility(line: &EvaluatedLine, actor_id: &str) -> i64 {
     line.actor_utility_totals
         .get(actor_id)
         .copied()
         .unwrap_or(0)
-}
-
-fn opponent_regret(
-    line: &EvaluatedLine,
-    enemies: &[&str],
-    maxima: &HashMap<&str, i64>,
-) -> (i64, i64) {
-    enemies
-        .iter()
-        .fold((0_i64, 0_i64), |(worst, total), enemy_id| {
-            let best = maxima.get(*enemy_id).copied().unwrap_or(0);
-            let regret = best.saturating_sub(actor_utility(line, enemy_id)).max(0);
-            (worst.max(regret), total.saturating_add(regret))
-        })
 }
 
 fn rank_and_dedup_variants(lines: &mut Vec<EvaluatedLine>, limit: usize) {
@@ -774,6 +837,51 @@ mod tests {
 
         assert_eq!(chosen.opponent_utility_total, 200);
         assert_eq!(chosen.our_utility_total, -50);
+    }
+
+    fn synthetic_joint_line(
+        ours: i64,
+        enemy_a: i64,
+        enemy_b: i64,
+        enemy_a_move: Direction,
+        enemy_b_move: Direction,
+        child: NodeId,
+    ) -> EvaluatedLine {
+        let mut line = synthetic_multi_enemy_line(ours, enemy_a, enemy_b, child);
+        line.steps[0].joint_action = JointAction::new()
+            .with_move("ours", Direction::Up)
+            .with_move("enemy-a", enemy_a_move)
+            .with_move("enemy-b", enemy_b_move);
+        line
+    }
+
+    #[test]
+    fn pure_joint_best_response_is_preferred_when_it_exists() {
+        let graph = FutureGraph::new(multi_enemy_state());
+        let node = graph.node(graph.root());
+
+        let equilibrium =
+            synthetic_joint_line(0, 100, 100, Direction::Up, Direction::Up, 1);
+        let a_deviation =
+            synthetic_joint_line(0, 80, 120, Direction::Down, Direction::Up, 2);
+        let b_deviation =
+            synthetic_joint_line(0, 120, 80, Direction::Up, Direction::Down, 3);
+        let unrelated =
+            synthetic_joint_line(0, 250, 250, Direction::Down, Direction::Down, 4);
+
+        let chosen = select_selfish_opponent_response(
+            node,
+            vec![equilibrium, a_deviation, b_deviation, unrelated],
+        );
+
+        assert_eq!(
+            chosen.steps[0].joint_action.direction_for("enemy-a"),
+            Some(Direction::Up)
+        );
+        assert_eq!(
+            chosen.steps[0].joint_action.direction_for("enemy-b"),
+            Some(Direction::Up)
+        );
     }
 
     #[test]
