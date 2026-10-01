@@ -55,6 +55,10 @@ impl StateKey {
             aggression_milli: aggression_bucket(state.aggression.value),
         }
     }
+
+    pub(crate) fn food(&self) -> &[Coord] {
+        &self.food
+    }
 }
 
 fn aggression_bucket(value: f32) -> u16 {
