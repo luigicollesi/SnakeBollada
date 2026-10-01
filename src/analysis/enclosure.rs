@@ -49,22 +49,21 @@ impl EnclosureAnalysis {
         territory: &TerritoryAnalysis,
         tactical: &TacticalStateAnalysis,
     ) -> Self {
-        Self::from_parts_with_scope(state, territory, tactical, None, false)
+        Self::from_parts_with_scope(state, territory, Some(tactical), None, false)
     }
 
     pub(crate) fn from_parts_actor_relative(
         state: &SimulatedGameState,
         territory: &TerritoryAnalysis,
-        tactical: &TacticalStateAnalysis,
         mobility: &MobilityAnalysis,
     ) -> Self {
-        Self::from_parts_with_scope(state, territory, tactical, Some(mobility), true)
+        Self::from_parts_with_scope(state, territory, None, Some(mobility), true)
     }
 
     fn from_parts_with_scope(
         state: &SimulatedGameState,
         territory: &TerritoryAnalysis,
-        tactical: &TacticalStateAnalysis,
+        tactical: Option<&TacticalStateAnalysis>,
         mobility: Option<&MobilityAnalysis>,
         all_legal_enemy_moves: bool,
     ) -> Self {
@@ -77,11 +76,12 @@ impl EnclosureAnalysis {
 
                 let moves = if let Some(mobility) = mobility {
                     mobility.deterministic_moves_for(state, &snake.id).len()
-                } else if snake.id == state.our_snake_id {
-                    tactical.ours.safe_moves.len()
-                } else {
-                    tactical
-                        .enemies
+                } else if let Some(tactical) = tactical {
+                    if snake.id == state.our_snake_id {
+                        tactical.ours.safe_moves.len()
+                    } else {
+                        tactical
+                            .enemies
                         .get(&snake.id)
                         .map(|enemy| {
                             if all_legal_enemy_moves || enemy.plausible_moves.is_empty() {
@@ -90,7 +90,10 @@ impl EnclosureAnalysis {
                                 enemy.plausible_moves.len()
                             }
                         })
-                        .unwrap_or(0)
+                            .unwrap_or(0)
+                    }
+                } else {
+                    0
                 };
 
                 let ratio = territory_snapshot.space_to_length_milli(snake.length());
