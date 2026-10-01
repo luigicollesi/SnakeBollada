@@ -299,12 +299,3 @@ fn root_relevance(graph: &FutureGraph, evaluations: &[DirectionEvaluation]) -> [
     relevance
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn forcing_prefers_small_branching_factor() {
-        assert!(1000_u32 / 1 > 1000_u32 / 9);
-    }
-}
