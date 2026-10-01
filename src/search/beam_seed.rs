@@ -271,6 +271,32 @@ mod tests {
     }
 
     #[test]
+    fn single_viable_root_direction_returns_after_depth_one() {
+        let mut initial = state();
+        initial.snakes[0].body = vec![
+            Coord { x: 0, y: 0 },
+            Coord { x: 1, y: 0 },
+            Coord { x: 1, y: 1 },
+        ];
+
+        let mut graph = FutureGraph::new(initial);
+        graph.use_beam_lean_analysis();
+        let budget = SearchBudget::for_duration(Duration::from_secs(10));
+
+        let result = build_seed_checkpoint(&mut graph, &budget)
+            .unwrap()
+            .expect("single-direction seed must complete");
+
+        assert_eq!(result.stats.completed_depth, 1);
+        assert_eq!(result.checkpoint.lines.len(), 1);
+        assert_eq!(result.checkpoint.lines[0].depth, 1);
+        assert_eq!(
+            result.checkpoint.lines[0].root_direction,
+            crate::direction::Direction::Up
+        );
+    }
+
+    #[test]
     fn exhausted_budget_never_claims_a_seed_checkpoint() {
         let mut graph = FutureGraph::new(state());
         let budget = SearchBudget::for_duration(Duration::ZERO);
