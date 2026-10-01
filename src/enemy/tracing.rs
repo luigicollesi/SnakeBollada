@@ -230,7 +230,7 @@ fn food_policy_moves(
         state,
         analysis,
         &enemy.id,
-        ForecastCertainty::Plausible,
+        ForecastCertainty::FoodProvisional,
     );
     let candidates = MoveMask::from_iter(
         output
