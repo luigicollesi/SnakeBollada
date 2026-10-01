@@ -74,8 +74,12 @@ impl SnakeTerritorySnapshot {
 
 #[derive(Debug, Clone, Default)]
 pub(crate) struct TerritoryAnalysis {
+    width: u16,
+    height: u16,
     snakes: HashMap<String, SnakeTerritorySnapshot>,
     competitive: HashMap<String, CompetitiveTerritorySnapshot>,
+    competitive_ids: Vec<String>,
+    competitive_claims: Vec<CompetitiveClaim>,
 }
 
 impl TerritoryAnalysis {
@@ -162,7 +166,8 @@ impl TerritoryAnalysis {
             }
         }
 
-        let competitive = competitive_snapshots(state, width, height, &open, &living, &distances);
+        let (competitive, competitive_claims, competitive_ids) =
+            competitive_snapshots(state, width, height, &open, &living, &distances);
 
         let mut snapshots = HashMap::new();
         for (snake, head) in living {
@@ -215,8 +220,12 @@ impl TerritoryAnalysis {
         }
 
         Self {
+            width,
+            height,
             snakes: snapshots,
             competitive,
+            competitive_ids,
+            competitive_claims,
         }
     }
 
@@ -229,6 +238,27 @@ impl TerritoryAnalysis {
         snake_id: &str,
     ) -> Option<&CompetitiveTerritorySnapshot> {
         self.competitive.get(snake_id)
+    }
+
+    pub(crate) fn competitive_owner_at(&self, coord: Coord) -> Option<&str> {
+        let index = index_of(self.width, self.height, coord)?;
+        match self.competitive_claims.get(index)? {
+            CompetitiveClaim::Owned(owner) => self
+                .competitive_ids
+                .get(*owner)
+                .map(String::as_str),
+            CompetitiveClaim::Unclaimed | CompetitiveClaim::Contested(_) => None,
+        }
+    }
+
+    pub(crate) fn competitive_is_contested_at(&self, coord: Coord) -> bool {
+        let Some(index) = index_of(self.width, self.height, coord) else {
+            return false;
+        };
+        matches!(
+            self.competitive_claims.get(index),
+            Some(CompetitiveClaim::Contested(_))
+        )
     }
 }
 
@@ -261,7 +291,11 @@ fn competitive_snapshots(
     open: &[bool],
     living: &[(&crate::simulation::state::SimulatedSnake, Coord)],
     distances: &HashMap<String, Vec<u16>>,
-) -> HashMap<String, CompetitiveTerritorySnapshot> {
+) -> (
+    HashMap<String, CompetitiveTerritorySnapshot>,
+    Vec<CompetitiveClaim>,
+    Vec<String>,
+) {
     let cells = open.len();
     let mut claims = vec![CompetitiveClaim::Unclaimed; cells];
     let mut dominance_owner = vec![None; cells];
@@ -409,7 +443,7 @@ fn competitive_snapshots(
         }
     }
 
-    living
+    let snapshots = living
         .iter()
         .enumerate()
         .map(|(index, (snake, _))| {
@@ -445,7 +479,13 @@ fn competitive_snapshots(
                 },
             )
         })
-        .collect()
+        .collect::<HashMap<_, _>>();
+    let ids = living
+        .iter()
+        .map(|(snake, _)| snake.id.clone())
+        .collect::<Vec<_>>();
+
+    (snapshots, claims, ids)
 }
 
 fn control_weight(state: &SimulatedGameState, coord: Coord) -> u32 {
@@ -728,6 +768,26 @@ mod tests {
         assert!(ours.controlled_weight > enemy.controlled_weight);
         assert!(ours.control_ratio_milli > enemy.control_ratio_milli);
         assert!(ours.dominance_claim_cells > 0);
+    }
+
+    #[test]
+    fn competitive_owner_lookup_uses_length_tiebreak() {
+        let state = state(
+            7,
+            7,
+            vec![
+                snake("ours", &[(1, 3), (1, 2), (1, 1), (0, 1)]),
+                snake("enemy", &[(5, 3), (5, 2), (5, 1)]),
+            ],
+        );
+
+        let territory = TerritoryAnalysis::from_state(&state);
+
+        assert_eq!(
+            territory.competitive_owner_at(Coord { x: 3, y: 3 }),
+            Some("ours")
+        );
+        assert!(!territory.competitive_is_contested_at(Coord { x: 3, y: 3 }));
     }
 
     #[test]
