@@ -350,4 +350,40 @@ mod tests {
             0
         );
     }
+    #[test]
+    fn transition_parts_match_turn_resolution_wrapper() {
+        let state = state(vec![
+            snake("ours", &[(0, 0)]),
+            snake("enemy", &[(2, 0)]),
+        ]);
+        let before_tracing = tracing(
+            "enemy",
+            MoveMask::from_iter([Direction::Up, Direction::Left]),
+            MoveMask::from_iter([Direction::Up, Direction::Left]),
+        );
+        let after_tracing = tracing(
+            "enemy",
+            MoveMask::single(Direction::Left),
+            MoveMask::single(Direction::Left),
+        );
+        let before = TacticalStateAnalysis::from_state(&state, &before_tracing);
+        let after = TacticalStateAnalysis::from_state(&state, &after_tracing);
+        let resolution = TurnResolution {
+            state: state.clone(),
+            events: vec![],
+            forecast_delta: ForecastDelta::None,
+        };
+
+        let wrapped = analyze_transition(&before, &resolution, &after);
+        let parts = analyze_transition_parts(
+            &before,
+            &resolution.state,
+            &resolution.events,
+            &after,
+        );
+
+        assert_eq!(wrapped, parts);
+    }
+
+
 }
