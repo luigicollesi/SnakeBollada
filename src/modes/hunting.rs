@@ -351,14 +351,7 @@ mod tests {
         let territory = TerritoryAnalysis::from_state(state);
         let enclosure = EnclosureAnalysis::from_parts(state, &territory, &tactical);
         let posture = StrategicPosture::from_state(state);
-        analyze(
-            state,
-            &tactical,
-            &tracing,
-            &territory,
-            &enclosure,
-            &posture,
-        )
+        analyze(state, &tactical, &tracing, &territory, &enclosure, &posture)
     }
 
     #[test]
