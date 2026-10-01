@@ -24,14 +24,8 @@ pub(crate) struct BorderFobicAnalysis {
 }
 
 impl BorderFobicAnalysis {
-    pub(crate) fn from_parts(
-        state: &SimulatedGameState,
-        tactical: &TacticalStateAnalysis,
-    ) -> Self {
-        let Some(ours) = state
-            .snake(&state.our_snake_id)
-            .filter(|snake| snake.alive)
-        else {
+    pub(crate) fn from_parts(state: &SimulatedGameState, tactical: &TacticalStateAnalysis) -> Self {
+        let Some(ours) = state.snake(&state.our_snake_id).filter(|snake| snake.alive) else {
             return Self::default();
         };
         let Some(head) = ours.head() else {
@@ -65,9 +59,7 @@ impl BorderFobicAnalysis {
             .ours
             .safe_moves
             .iter()
-            .filter(|direction| {
-                edge_distance(state, direction.apply(head)) > head_edge_distance
-            })
+            .filter(|direction| edge_distance(state, direction.apply(head)) > head_edge_distance)
             .count()
             .try_into()
             .unwrap_or(u8::MAX);
@@ -185,10 +177,7 @@ fn scale_by_fear(base: u32, fear_milli: u16) -> u16 {
 }
 
 fn edge_distance(state: &SimulatedGameState, coord: Coord) -> u16 {
-    if coord.x < 0
-        || coord.y < 0
-        || coord.x >= state.width as i32
-        || coord.y >= state.height as i32
+    if coord.x < 0 || coord.y < 0 || coord.x >= state.width as i32 || coord.y >= state.height as i32
     {
         return 0;
     }
@@ -272,8 +261,7 @@ mod tests {
         ]);
 
         assert!(
-            analyze(&long).ours().unwrap().fear_milli
-                > analyze(&short).ours().unwrap().fear_milli
+            analyze(&long).ours().unwrap().fear_milli > analyze(&short).ours().unwrap().fear_milli
         );
     }
 
