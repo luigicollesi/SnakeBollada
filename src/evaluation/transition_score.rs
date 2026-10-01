@@ -52,7 +52,6 @@ pub(crate) struct ActorTransitionScore {
 pub(crate) struct TransitionScore {
     pub(crate) instant_benefit: i64,
     pub(crate) instant_harm: i64,
-    pub(crate) structural_delta: i64,
     pub(crate) net: i64,
     pub(crate) opponent_net_total: i64,
     pub(crate) actors: ActorTable<ActorTransitionScore>,
@@ -95,7 +94,6 @@ impl TransitionScore {
         Self {
             instant_benefit: ours.benefit_total,
             instant_harm: ours.harm_total,
-            structural_delta: 0,
             net: ours.net,
             opponent_net_total,
             actors,
