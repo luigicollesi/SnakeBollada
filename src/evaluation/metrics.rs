@@ -1,6 +1,7 @@
 use crate::analysis::{
-    BorderFobicAnalysis, EnclosureAnalysis, StateAnalysis, TacticalStateAnalysis, TerritoryAnalysis,
+    BorderFobicAnalysis, EnclosureAnalysis, StateAnalysis, TerritoryAnalysis,
 };
+use crate::simulation::mobility::MobilityAnalysis;
 use crate::simulation::state::SimulatedGameState;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -17,13 +18,13 @@ impl ActorUtilityMetrics {
         state: &SimulatedGameState,
         actor_id: &str,
         state_analysis: &StateAnalysis,
-        tactical: &TacticalStateAnalysis,
+        mobility: &MobilityAnalysis,
         territory: &TerritoryAnalysis,
         enclosure: &EnclosureAnalysis,
         border: &BorderFobicAnalysis,
     ) -> Option<Self> {
         state.snake(actor_id).filter(|snake| snake.alive)?;
-        let safe_moves = actor_utility_mobility(state, tactical, actor_id);
+        let safe_moves = mobility.deterministic_moves_for(state, actor_id).len();
         let territory_snapshot = territory.for_snake(actor_id)?;
         let enclosure_snapshot = enclosure.for_snake(actor_id)?;
         let border_snapshot = border.for_snake(actor_id);
@@ -41,21 +42,6 @@ impl ActorUtilityMetrics {
             best_food_distance: nearest_food_distance(state, state_analysis, actor_id),
         })
     }
-}
-
-fn actor_utility_mobility(
-    state: &SimulatedGameState,
-    tactical: &TacticalStateAnalysis,
-    actor_id: &str,
-) -> u8 {
-    if actor_id == state.our_snake_id {
-        return tactical.ours.safe_moves.len();
-    }
-
-    tactical
-        .enemies
-        .get(actor_id)
-        .map_or(0, |enemy| enemy.legal_moves.len())
 }
 
 fn nearest_food_distance(
