@@ -56,6 +56,18 @@ pub(crate) struct DepthExpansion {
     pub(crate) frontier_nodes: u32,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct SubtreeExpansion {
+    pub(crate) start_node: NodeId,
+    pub(crate) requested_depth: u8,
+    pub(crate) completed: bool,
+    pub(crate) expanded_nodes: u32,
+    pub(crate) new_nodes: u32,
+    pub(crate) new_edges: u32,
+    pub(crate) transposition_hits: u32,
+    pub(crate) elapsed_us: u64,
+}
+
 #[derive(Debug, Clone)]
 pub(crate) struct SearchEdge {
     pub(crate) joint_action: JointAction,
@@ -334,6 +346,95 @@ impl FutureGraph {
         Ok(DepthExpansion {
             completed: true,
             frontier_nodes,
+        })
+    }
+
+    pub(crate) fn expand_subtree(
+        &mut self,
+        start_node: NodeId,
+        additional_depth: u8,
+        budget: &SearchBudget,
+    ) -> Result<SubtreeExpansion, SearchError> {
+        let nodes_before = self.nodes.len();
+        let edges_before = self.edge_count;
+        let transpositions_before = self.transposition_hits;
+        let started = std::time::Instant::now();
+        let mut queue = VecDeque::from([(start_node, 0_u8)]);
+        let mut visited = HashSet::new();
+        let mut expanded_nodes = 0_u32;
+
+        while let Some((node_id, depth)) = queue.pop_front() {
+            if depth >= additional_depth || !visited.insert(node_id) {
+                continue;
+            }
+
+            if budget.expired() {
+                return Ok(SubtreeExpansion {
+                    start_node,
+                    requested_depth: additional_depth,
+                    completed: false,
+                    expanded_nodes,
+                    new_nodes: self
+                        .nodes
+                        .len()
+                        .saturating_sub(nodes_before)
+                        .try_into()
+                        .unwrap_or(u32::MAX),
+                    new_edges: self.edge_count.saturating_sub(edges_before),
+                    transposition_hits: self
+                        .transposition_hits
+                        .saturating_sub(transpositions_before),
+                    elapsed_us: started.elapsed().as_micros().try_into().unwrap_or(u64::MAX),
+                });
+            }
+
+            if !self.expand_node_budgeted(node_id, Some(budget))? {
+                return Ok(SubtreeExpansion {
+                    start_node,
+                    requested_depth: additional_depth,
+                    completed: false,
+                    expanded_nodes,
+                    new_nodes: self
+                        .nodes
+                        .len()
+                        .saturating_sub(nodes_before)
+                        .try_into()
+                        .unwrap_or(u32::MAX),
+                    new_edges: self.edge_count.saturating_sub(edges_before),
+                    transposition_hits: self
+                        .transposition_hits
+                        .saturating_sub(transpositions_before),
+                    elapsed_us: started.elapsed().as_micros().try_into().unwrap_or(u64::MAX),
+                });
+            }
+
+            expanded_nodes = expanded_nodes.saturating_add(1);
+            let children = self.nodes[node_id]
+                .children
+                .iter()
+                .map(|edge| edge.child)
+                .collect::<Vec<_>>();
+            for child in children {
+                queue.push_back((child, depth.saturating_add(1)));
+            }
+        }
+
+        Ok(SubtreeExpansion {
+            start_node,
+            requested_depth: additional_depth,
+            completed: true,
+            expanded_nodes,
+            new_nodes: self
+                .nodes
+                .len()
+                .saturating_sub(nodes_before)
+                .try_into()
+                .unwrap_or(u32::MAX),
+            new_edges: self.edge_count.saturating_sub(edges_before),
+            transposition_hits: self
+                .transposition_hits
+                .saturating_sub(transpositions_before),
+            elapsed_us: started.elapsed().as_micros().try_into().unwrap_or(u64::MAX),
         })
     }
 
@@ -849,6 +950,25 @@ mod tests {
 
         assert_eq!(graph.node_count(), node_count);
         assert_eq!(graph.opponent_profiles["enemy"].hunting_bias_milli, 1200);
+    }
+
+    #[test]
+    fn subtree_expansion_only_deepens_from_requested_tip() {
+        let mut graph = FutureGraph::new(state());
+        graph.expand_to_depth(1).unwrap();
+
+        let root = graph.root();
+        let tip = graph.node(root).children[0].child;
+        let root_children_before = graph.node(root).children.len();
+        let budget = SearchBudget::for_duration(Duration::from_secs(5));
+
+        let expansion = graph.expand_subtree(tip, 2, &budget).unwrap();
+
+        assert!(expansion.completed);
+        assert_eq!(expansion.start_node, tip);
+        assert_eq!(expansion.requested_depth, 2);
+        assert_eq!(graph.node(root).children.len(), root_children_before);
+        assert!(graph.node(tip).expansion_complete());
     }
 
     #[test]
