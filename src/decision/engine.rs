@@ -420,6 +420,11 @@ fn survival_compare(left: &DirectionEvaluation, right: &DirectionEvaluation) -> 
                 .cmp(&right.survival.has_constrained_response())
         })
         .then_with(|| {
+            left.survival
+                .max_self_enclosure_risk
+                .cmp(&right.survival.max_self_enclosure_risk)
+        })
+        .then_with(|| {
             right
                 .survival
                 .min_future_mobility
@@ -625,6 +630,7 @@ mod tests {
                 dead_end_routes: 0,
                 forced_routes: 0,
                 constrained_routes: 0,
+                max_self_enclosure_risk: 0,
                 min_future_mobility: 2,
                 min_reachable_space: 10,
                 min_second_order_mobility: 2,
@@ -680,6 +686,7 @@ mod tests {
                 dead_end_routes: 0,
                 forced_routes: 0,
                 constrained_routes: 0,
+                max_self_enclosure_risk: 0,
                 min_future_mobility: 3,
                 min_reachable_space: space,
                 min_second_order_mobility: 3,
@@ -734,6 +741,7 @@ mod tests {
                 dead_end_routes: 0,
                 forced_routes: 0,
                 constrained_routes: 0,
+                max_self_enclosure_risk: 0,
                 min_future_mobility: 3,
                 min_reachable_space: 20,
                 min_second_order_mobility: 3,
@@ -782,6 +790,7 @@ mod tests {
                 dead_end_routes: 0,
                 forced_routes: 0,
                 constrained_routes: 0,
+                max_self_enclosure_risk: 0,
                 min_future_mobility: 2,
                 min_reachable_space: 12,
                 min_second_order_mobility: 2,
@@ -828,6 +837,7 @@ mod tests {
                 dead_end_routes: 0,
                 forced_routes: 0,
                 constrained_routes: 0,
+                max_self_enclosure_risk: 0,
                 min_future_mobility: 3,
                 min_reachable_space: 20,
                 min_second_order_mobility: 3,
@@ -865,6 +875,7 @@ mod tests {
                 dead_end_routes: 0,
                 forced_routes: 0,
                 constrained_routes: 0,
+                max_self_enclosure_risk: 0,
                 min_future_mobility: 2,
                 min_reachable_space: 10,
                 min_second_order_mobility: 2,
@@ -913,6 +924,7 @@ mod tests {
                 dead_end_routes: 0,
                 forced_routes: 0,
                 constrained_routes: 0,
+                max_self_enclosure_risk: 0,
                 min_future_mobility: 2,
                 min_reachable_space: 10,
                 min_second_order_mobility: 2,
@@ -935,6 +947,7 @@ mod tests {
                 dead_end_routes: 0,
                 forced_routes: 0,
                 constrained_routes: 0,
+                max_self_enclosure_risk: 0,
                 min_future_mobility: 4,
                 min_reachable_space: 30,
                 min_second_order_mobility: 4,
