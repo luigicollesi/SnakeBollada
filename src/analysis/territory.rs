@@ -2,6 +2,8 @@
 
 use std::collections::{HashMap, HashSet, VecDeque};
 
+use rayon::prelude::*;
+
 use crate::direction::Direction;
 use crate::simulation::state::SimulatedGameState;
 use crate::spatial::SpatialOccupancy;
@@ -118,13 +120,15 @@ impl TerritoryCore {
             .filter_map(|snake| snake.head().map(|head| (snake, head)))
             .collect::<Vec<_>>();
 
-        let mut distances = HashMap::new();
-        for (snake, head) in &living {
-            distances.insert(
-                snake.id.clone(),
-                bfs_distances(width, height, &open, *head, None),
-            );
-        }
+        let distances = living
+            .par_iter()
+            .map(|(snake, head)| {
+                (
+                    snake.id.clone(),
+                    bfs_distances(width, height, &open, *head, None),
+                )
+            })
+            .collect::<HashMap<_, _>>();
 
         let mut ownership = HashMap::<String, (u32, u32, u32)>::new();
         for (snake, _) in &living {
