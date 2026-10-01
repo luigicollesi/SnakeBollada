@@ -251,11 +251,15 @@ impl TerritoryStructural {
                             return None;
                         }
 
-                        let trapped_space =
-                            reachable_count(core.width, core.height, &core.open, head, Some(*coord));
+                        let trapped_space = reachable_count(
+                            core.width,
+                            core.height,
+                            &core.open,
+                            head,
+                            Some(*coord),
+                        );
                         let cut_gain = snapshot.reachable_space.saturating_sub(trapped_space);
-                        let minimum_gain =
-                            u32::try_from(snake.length()).unwrap_or(u32::MAX).max(4);
+                        let minimum_gain = u32::try_from(snake.length()).unwrap_or(u32::MAX).max(4);
                         (cut_gain >= minimum_gain).then_some(ChokePoint {
                             coord: *coord,
                             distance,
