@@ -35,6 +35,8 @@ pub(crate) struct DirectionSurvivalSummary {
     pub(crate) forced_routes: u64,
     pub(crate) constrained_routes: u64,
     pub(crate) max_self_enclosure_risk: u8,
+    pub(crate) max_border_structural_risk_milli: u16,
+    pub(crate) max_border_preference_milli: u16,
     pub(crate) min_future_mobility: u8,
     pub(crate) min_reachable_space: u32,
     pub(crate) min_second_order_mobility: u32,
@@ -54,6 +56,14 @@ impl DirectionSurvivalSummary {
                 .ours(&node.state)
                 .map_or(0, |snapshot| snapshot.risk.rank())
         });
+        let (border_structural, border_preference) = node.active_analysis().map_or(
+            (0, 0),
+            |analysis| {
+                analysis.border.ours().map_or((0, 0), |snapshot| {
+                    (snapshot.structural_risk_milli, snapshot.preference_milli)
+                })
+            },
+        );
 
         Self {
             total_routes: 1,
@@ -62,6 +72,8 @@ impl DirectionSurvivalSummary {
             forced_routes: u64::from(terminal != TerminalAssessment::Lost && safe_moves == 1),
             constrained_routes: u64::from(terminal != TerminalAssessment::Lost && safe_moves == 2),
             max_self_enclosure_risk: enclosure_risk,
+            max_border_structural_risk_milli: border_structural,
+            max_border_preference_milli: border_preference,
             min_future_mobility: safe_moves,
             min_reachable_space: reachable_space,
             min_second_order_mobility: u32::from(safe_moves),
@@ -77,7 +89,15 @@ impl DirectionSurvivalSummary {
             .enclosure
             .ours(&parent.state)
             .map_or(0, |snapshot| snapshot.risk.rank());
+        let (border_structural, border_preference) = analysis.border.ours().map_or((0, 0), |snapshot| {
+            (snapshot.structural_risk_milli, snapshot.preference_milli)
+        });
         self.max_self_enclosure_risk = self.max_self_enclosure_risk.max(enclosure_risk);
+        self.max_border_structural_risk_milli = self
+            .max_border_structural_risk_milli
+            .max(border_structural);
+        self.max_border_preference_milli =
+            self.max_border_preference_milli.max(border_preference);
         self.min_future_mobility = self.min_future_mobility.min(safe_moves);
         self.min_reachable_space = self
             .min_reachable_space
@@ -497,8 +517,20 @@ fn apply_edge(
             .ours(&child_node.state)
             .map_or(0, |snapshot| snapshot.risk.rank())
     });
+    let (child_border_structural, child_border_preference) =
+        child_node.active_analysis().map_or((0, 0), |analysis| {
+            analysis.border.ours().map_or((0, 0), |snapshot| {
+                (snapshot.structural_risk_milli, snapshot.preference_milli)
+            })
+        });
     let mut survival = child.survival;
     survival.max_self_enclosure_risk = survival.max_self_enclosure_risk.max(child_enclosure_risk);
+    survival.max_border_structural_risk_milli = survival
+        .max_border_structural_risk_milli
+        .max(child_border_structural);
+    survival.max_border_preference_milli = survival
+        .max_border_preference_milli
+        .max(child_border_preference);
     if death_now {
         survival.death_routes = route_count;
     }
@@ -581,6 +613,28 @@ fn aggregate_direction(
                     .active_analysis()
                     .and_then(|analysis| analysis.enclosure.ours(&parent.state))
                     .map_or(0, |snapshot| snapshot.risk.rank()),
+            ),
+        max_border_structural_risk_milli: outcomes
+            .iter()
+            .map(|outcome| outcome.survival.max_border_structural_risk_milli)
+            .max()
+            .unwrap_or(0)
+            .max(
+                parent
+                    .active_analysis()
+                    .and_then(|analysis| analysis.border.ours())
+                    .map_or(0, |snapshot| snapshot.structural_risk_milli),
+            ),
+        max_border_preference_milli: outcomes
+            .iter()
+            .map(|outcome| outcome.survival.max_border_preference_milli)
+            .max()
+            .unwrap_or(0)
+            .max(
+                parent
+                    .active_analysis()
+                    .and_then(|analysis| analysis.border.ours())
+                    .map_or(0, |snapshot| snapshot.preference_milli),
             ),
         min_future_mobility: outcomes
             .iter()
@@ -758,14 +812,62 @@ fn enemy_pressure_level(node: &SearchNode, enemy_id: &str) -> f32 {
 }
 
 fn territorial_setup_delta(parent: &SearchNode, child: &SearchNode) -> f32 {
-    let before = parent
+    let plan_before = parent
         .active_analysis()
         .map_or(0.0, |analysis| analysis.hunting.best_plan_score());
-    let after = child
+    let plan_after = child
         .active_analysis()
         .map_or(0.0, |analysis| analysis.hunting.best_plan_score());
+    let plan_delta = ((plan_after - plan_before) * 0.20).clamp(-0.20, 0.20);
+    let competitive_delta = competitive_territory_delta(parent, child);
 
-    ((after - before) * 0.35).clamp(-0.35, 0.35)
+    (plan_delta + competitive_delta * 0.80).clamp(-0.55, 0.55)
+}
+
+fn competitive_territory_delta(parent: &SearchNode, child: &SearchNode) -> f32 {
+    let Some(parent_analysis) = parent.active_analysis() else {
+        return 0.0;
+    };
+    let Some(child_analysis) = child.active_analysis() else {
+        return 0.0;
+    };
+
+    let our_id = &parent.state.our_snake_id;
+    let Some(ours_before) = parent_analysis.territory.competitive_for_snake(our_id) else {
+        return 0.0;
+    };
+    let Some(ours_after) = child_analysis.territory.competitive_for_snake(our_id) else {
+        return 0.0;
+    };
+
+    let our_gain = (f32::from(ours_after.control_ratio_milli)
+        - f32::from(ours_before.control_ratio_milli))
+        / 1000.0;
+
+    let enemy_denial = parent
+        .state
+        .snakes
+        .iter()
+        .filter(|snake| snake.alive && snake.id != *our_id)
+        .filter_map(|snake| {
+            let before = parent_analysis.territory.competitive_for_snake(&snake.id)?;
+            let after = child_analysis.territory.competitive_for_snake(&snake.id)?;
+            Some(
+                (f32::from(before.control_ratio_milli)
+                    - f32::from(after.control_ratio_milli))
+                    / 1000.0,
+            )
+        })
+        .reduce(f32::max)
+        .unwrap_or(0.0);
+
+    let frontier_before =
+        i32::from(ours_before.winning_frontier) - i32::from(ours_before.losing_frontier);
+    let frontier_after =
+        i32::from(ours_after.winning_frontier) - i32::from(ours_after.losing_frontier);
+    let frontier_delta = (frontier_after - frontier_before) as f32 / 10.0;
+
+    (our_gain * 0.40 + enemy_denial * 0.50 + frontier_delta * 0.10).clamp(-0.60, 0.60)
 }
 
 fn edge_enemy_kills(edge: &SearchEdge) -> u16 {
@@ -904,8 +1006,22 @@ fn hunting_leaf_potential(node: &SearchNode) -> f32 {
         .reduce(f32::max)
         .unwrap_or(0.0);
 
+    let competitive_control = analysis
+        .territory
+        .competitive_for_snake(&node.state.our_snake_id)
+        .map_or(0.0, |snapshot| {
+            let frontier = f32::from(
+                snapshot
+                    .winning_frontier
+                    .saturating_sub(snapshot.losing_frontier)
+                    .min(8),
+            ) / 8.0;
+            f32::from(snapshot.control_ratio_milli) / 1000.0 * 0.45 + frontier * 0.10
+        });
+
     tactical_pressure
         .max(analysis.hunting.best_plan_score())
+        .max(competitive_control)
         .min(1.0)
 }
 
@@ -946,8 +1062,16 @@ pub(crate) fn compare_direction(
                 .cmp(&right.survival.max_self_enclosure_risk)
         })
         .then_with(|| {
+            left.survival
+                .max_border_structural_risk_milli
+                .cmp(&right.survival.max_border_structural_risk_milli)
+        })
+        .then_with(|| {
             effective_reserved_penalty(policy, state, left)
                 .total_cmp(&effective_reserved_penalty(policy, state, right))
+        })
+        .then_with(|| {
+            effective_border_preference(left).cmp(&effective_border_preference(right))
         })
         .then_with(|| {
             right
@@ -1016,6 +1140,14 @@ fn effective_reserved_penalty(
     }
 }
 
+fn effective_border_preference(evaluation: &DirectionEvaluation) -> u16 {
+    if evaluation.reserved_override || reserved_move_has_supported_purpose(evaluation) {
+        0
+    } else {
+        evaluation.survival.max_border_preference_milli
+    }
+}
+
 fn reserved_move_has_supported_purpose(evaluation: &DirectionEvaluation) -> bool {
     if evaluation.survival.is_forced_death()
         || evaluation.survival.is_forced_dead_end()
@@ -1078,6 +1210,8 @@ mod tests {
             forced_routes: 0,
             constrained_routes: 0,
             max_self_enclosure_risk: 0,
+            max_border_structural_risk_milli: 0,
+            max_border_preference_milli: 0,
             min_future_mobility: mobility,
             min_reachable_space: 20,
             min_second_order_mobility: u32::from(mobility),
@@ -1175,6 +1309,36 @@ mod tests {
             policy.penalty(&state, Direction::Left)
         );
         assert!(effective_reserved_penalty(policy, &state, &evaluation) > 0.0);
+    }
+
+    #[test]
+    fn structural_border_risk_beats_offensive_utility() {
+        let safe = evaluation(Direction::Up, summary(10, 0, 2));
+        let mut edge_trap = evaluation(Direction::Right, summary(10, 0, 4));
+        edge_trap.survival.max_border_structural_risk_milli = 800;
+        edge_trap.average_strategic_utility = 100.0;
+
+        assert_eq!(
+            compare_direction(
+                &safe,
+                &edge_trap,
+                &state(vec![]),
+                ReservedCellPolicy::default(),
+            ),
+            Ordering::Less
+        );
+    }
+
+    #[test]
+    fn supported_hunting_can_override_border_preference_but_not_structural_risk() {
+        let mut evaluation = evaluation(Direction::Left, summary(4, 0, 3));
+        evaluation.survival.max_border_preference_milli = 900;
+        evaluation.average_hunting_value = 0.5;
+
+        assert_eq!(effective_border_preference(&evaluation), 0);
+
+        evaluation.survival.max_border_structural_risk_milli = 700;
+        assert_eq!(evaluation.survival.max_border_structural_risk_milli, 700);
     }
 
     #[test]
