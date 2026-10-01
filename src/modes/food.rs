@@ -72,6 +72,33 @@ pub(crate) fn candidates(
     }
 }
 
+pub(crate) fn candidates_for_target(
+    state: &SimulatedGameState,
+    analysis: &StateAnalysis,
+    target_food: Coord,
+    certainty: ForecastCertainty,
+) -> Vec<FoodCandidate> {
+    let Some(route) = analysis.route_for(&state.our_snake_id, target_food) else {
+        return Vec::new();
+    };
+    if !route.reachable {
+        return Vec::new();
+    }
+
+    let Some(distance) = route.distance else {
+        return Vec::new();
+    };
+    let claim = analysis.claim_for(target_food);
+
+    let mut candidates = route
+        .first_moves
+        .iter()
+        .map(|first_move| candidate_from_route(route, claim, first_move, distance, certainty))
+        .collect::<Vec<_>>();
+    candidates.sort_by_key(candidate_rank);
+    candidates
+}
+
 fn candidate_from_route(
     route: &FoodRouteInfo,
     claim: Option<&FoodClaimInfo>,
@@ -178,6 +205,27 @@ mod tests {
         assert_eq!(output.candidates[0].target_food, food);
         assert_eq!(output.candidates[0].first_move, Direction::Right);
         assert_eq!(output.candidates[0].distance, 2);
+    }
+
+    #[test]
+    fn target_candidates_keep_all_shortest_first_moves_for_committed_food() {
+        let ours = snake("ours", vec![Coord { x: 1, y: 1 }]);
+        let target = Coord { x: 2, y: 2 };
+        let state = state(ours, vec![], vec![target]);
+        let simulated = SimulatedGameState::from(&state);
+        let analysis = analyze(&state);
+
+        let candidates = candidates_for_target(
+            &simulated,
+            &analysis,
+            target,
+            ForecastCertainty::Deterministic,
+        );
+
+        assert_eq!(candidates.len(), 2);
+        assert!(candidates.iter().all(|candidate| candidate.target_food == target));
+        assert!(candidates.iter().any(|candidate| candidate.first_move == Direction::Up));
+        assert!(candidates.iter().any(|candidate| candidate.first_move == Direction::Right));
     }
 
     #[test]
