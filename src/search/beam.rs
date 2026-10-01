@@ -10,8 +10,7 @@ use super::graph::NodeId;
 pub(crate) const SEED_DEPTH: u8 = 3;
 pub(crate) const BEAM_WIDTH: usize = 3;
 pub(crate) const ROUND_DEPTH: u8 = 2;
-pub(crate) const MIN_ROOT_DIVERSITY: usize = 2;
-
+ 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub(crate) struct LineId(pub(crate) u32);
 
@@ -37,6 +36,8 @@ pub(crate) struct BeamLine {
     pub(crate) depth: u8,
     pub(crate) benefit_total: i64,
     pub(crate) harm_total: i64,
+    pub(crate) our_utility_total: i64,
+    pub(crate) opponent_utility_total: i64,
     pub(crate) value: i64,
     pub(crate) terminal: LineTerminal,
     pub(crate) bound: ValueBound,
@@ -59,6 +60,8 @@ impl BeamLine {
             depth,
             benefit_total,
             harm_total,
+            our_utility_total: value,
+            opponent_utility_total: 0,
             value,
             terminal,
             bound: ValueBound::exact(value),
@@ -124,10 +127,6 @@ pub(crate) fn select_seed_beam(candidates: &[BeamLine]) -> Vec<BeamLine> {
             .then_with(|| left.id.cmp(&right.id))
     });
 
-    if ranked.len() <= BEAM_WIDTH {
-        return ranked;
-    }
-
     let viable = ranked
         .iter()
         .filter(|line| line.is_viable())
@@ -136,42 +135,20 @@ pub(crate) fn select_seed_beam(candidates: &[BeamLine]) -> Vec<BeamLine> {
     let pool = if viable.is_empty() { &ranked } else { &viable };
 
     let mut selected = Vec::with_capacity(BEAM_WIDTH);
-    if let Some(best) = pool.first() {
-        selected.push(best.clone());
-    }
-
-    if selected.len() < MIN_ROOT_DIVERSITY {
-        if let Some(diverse) = pool
+    for direction in Direction::ALL {
+        let Some(best_for_direction) = pool
             .iter()
-            .find(|line| {
-                selected
-                    .iter()
-                    .all(|chosen| chosen.root_direction != line.root_direction)
+            .filter(|line| line.root_direction == direction)
+            .max_by(|left, right| {
+                left.value
+                    .cmp(&right.value)
+                    .then_with(|| right.id.cmp(&left.id))
             })
             .cloned()
-        {
-            selected.push(diverse);
-        }
-    }
-
-    for candidate in pool {
-        if selected.len() == BEAM_WIDTH {
-            break;
-        }
-        if selected.iter().any(|chosen| chosen.id == candidate.id) {
+        else {
             continue;
-        }
-        selected.push(candidate.clone());
-    }
-
-    for candidate in &ranked {
-        if selected.len() == BEAM_WIDTH {
-            break;
-        }
-        if selected.iter().any(|chosen| chosen.id == candidate.id) {
-            continue;
-        }
-        selected.push(candidate.clone());
+        };
+        selected.push(best_for_direction);
     }
 
     selected.sort_by(|left, right| {
@@ -181,6 +158,7 @@ pub(crate) fn select_seed_beam(candidates: &[BeamLine]) -> Vec<BeamLine> {
             .then_with(|| left.root_direction.rank().cmp(&right.root_direction.rank()))
             .then_with(|| left.id.cmp(&right.id))
     });
+    selected.truncate(BEAM_WIDTH);
     selected
 }
 
@@ -200,7 +178,7 @@ mod tests {
     }
 
     #[test]
-    fn seed_beam_keeps_three_independent_lines() {
+    fn seed_beam_keeps_at_most_one_line_per_root_direction() {
         let candidates = vec![
             line(1, Direction::Right, 920),
             line(2, Direction::Right, 900),
@@ -213,8 +191,9 @@ mod tests {
 
         assert_eq!(beam.len(), BEAM_WIDTH);
         assert!(beam.iter().any(|line| line.id == LineId(1)));
-        assert!(beam.iter().any(|line| line.id == LineId(2)));
+        assert!(!beam.iter().any(|line| line.id == LineId(2)));
         assert!(beam.iter().any(|line| line.root_direction == Direction::Up));
+        assert!(beam.iter().any(|line| line.root_direction == Direction::Left));
     }
 
     #[test]
@@ -246,6 +225,7 @@ mod tests {
 
         let beam = select_seed_beam(&candidates);
 
+        assert_eq!(beam.len(), 1);
         assert!(beam
             .iter()
             .all(|line| line.root_direction == Direction::Right));
