@@ -125,7 +125,6 @@ pub(crate) struct NodeAnalysis {
     pub(crate) actor_snapshots: ActorTable<ActorSnapshot>,
 }
 
-#[derive(Debug, Clone)]
 impl NodeAnalysis {
     pub(crate) fn actor_snapshot(&self, actor_id: &str) -> Option<&ActorSnapshot> {
         self.actor_snapshots.get(actor_id)
