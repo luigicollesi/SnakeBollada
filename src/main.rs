@@ -3,6 +3,7 @@ extern crate rocket;
 
 use std::collections::HashMap;
 use std::env;
+use std::thread;
 
 use log::info;
 use rocket::fairing::AdHoc;
@@ -144,6 +145,25 @@ async fn handle_end(end_req: Json<GameState>, runtime: &State<GameRuntime>) -> S
     Status::Ok
 }
 
+fn init_search_parallelism() -> usize {
+    let available = thread::available_parallelism()
+        .map(|parallelism| parallelism.get())
+        .unwrap_or(1)
+        .max(1);
+    let configured = env::var("SNAKE_SEARCH_THREADS")
+        .ok()
+        .and_then(|value| value.parse::<usize>().ok())
+        .filter(|threads| *threads > 0);
+    let threads = configured.unwrap_or(available);
+
+    let _ = rayon::ThreadPoolBuilder::new()
+        .num_threads(threads)
+        .thread_name(|index| format!("snake-search-{index}"))
+        .build_global();
+
+    rayon::current_num_threads()
+}
+
 #[launch]
 fn rocket() -> _ {
     if let Ok(port) = env::var("PORT") {
@@ -155,7 +175,11 @@ fn rocket() -> _ {
     }
 
     env_logger::init();
-    info!("Starting SnakeBollada Battlesnake server...");
+    let search_threads = init_search_parallelism();
+    info!(
+        "Starting SnakeBollada Battlesnake server with {} search threads...",
+        search_threads
+    );
 
     let runtime = GameRuntime::new();
 
