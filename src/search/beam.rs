@@ -1,9 +1,7 @@
 #![allow(dead_code)]
 
-use std::collections::HashMap;
-
 use crate::direction::Direction;
-use crate::evaluation::TransitionScore;
+use crate::evaluation::{ActorTable, TransitionScore};
 use crate::simulation::joint_action::JointAction;
 
 use super::bounds::ValueBound;
@@ -41,7 +39,7 @@ pub(crate) struct BeamLine {
     pub(crate) harm_total: i64,
     pub(crate) our_utility_total: i64,
     pub(crate) opponent_utility_total: i64,
-    pub(crate) actor_utility_totals: HashMap<String, i64>,
+    pub(crate) actor_utility_totals: ActorTable<i64>,
     pub(crate) value: i64,
     pub(crate) terminal: LineTerminal,
     pub(crate) bound: ValueBound,
@@ -66,7 +64,7 @@ impl BeamLine {
             harm_total,
             our_utility_total: value,
             opponent_utility_total: 0,
-            actor_utility_totals: HashMap::new(),
+            actor_utility_totals: ActorTable::new(),
             value,
             terminal,
             bound: ValueBound::exact(value),
