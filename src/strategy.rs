@@ -110,6 +110,19 @@ impl DepthSearchStats {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub(crate) struct BeamShadowMetadata {
+    pub(crate) enabled: bool,
+    pub(crate) completed: bool,
+    pub(crate) direction: Option<Direction>,
+    pub(crate) agreed_with_legacy: bool,
+    pub(crate) completed_depth: u8,
+    pub(crate) attempted_depth: u8,
+    pub(crate) line_count: u8,
+    pub(crate) best_value: i64,
+    pub(crate) elapsed_us: u64,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct SearchMetadata {
     pub(crate) completed_depth: u8,
@@ -147,6 +160,7 @@ pub(crate) struct SearchMetadata {
     pub(crate) food_mutation_invalidations: u32,
     pub(crate) depth_stats: [DepthSearchStats; 6],
     pub(crate) direction_outcomes: [DirectionOutcomeSummary; 4],
+    pub(crate) beam_shadow: BeamShadowMetadata,
 }
 
 impl Default for SearchMetadata {
@@ -199,6 +213,7 @@ impl Default for SearchMetadata {
                 DirectionOutcomeSummary::empty(Direction::Down),
                 DirectionOutcomeSummary::empty(Direction::Left),
             ],
+            beam_shadow: BeamShadowMetadata::default(),
         }
     }
 }
