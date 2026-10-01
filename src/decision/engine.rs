@@ -190,7 +190,16 @@ impl DecisionEngine {
             })
             .unwrap_or_default();
 
-        let opening_food_choice = prioritize_food
+        let guaranteed_kill_choice = prioritize_food.then(|| {
+            choose_guaranteed_kill(
+                &evaluations,
+                &root.state,
+                robust_safe_moves,
+                policy,
+            )
+        }).flatten();
+
+        let opening_food_choice = (prioritize_food && guaranteed_kill_choice.is_none())
             .then(|| {
                 choose_food_opening(
                     &evaluations,
@@ -203,9 +212,8 @@ impl DecisionEngine {
             })
             .flatten();
 
-        let Some(best) = opening_food_choice
-            .as_ref()
-            .map(|(evaluation, _)| *evaluation)
+        let Some(best) = guaranteed_kill_choice
+            .or_else(|| opening_food_choice.as_ref().map(|(evaluation, _)| *evaluation))
             .or_else(|| {
                 choose_best_direction(&evaluations, &root.state, robust_safe_moves, policy)
             })
@@ -213,15 +221,19 @@ impl DecisionEngine {
             return baseline_fallback(state);
         };
 
-        let food_target = opening_food_choice
-            .as_ref()
-            .map(|(_, candidate)| candidate)
-            .or_else(|| {
-                food_candidates
-                    .candidates
-                    .iter()
-                    .find(|candidate| candidate.first_move == best.direction)
-            });
+        let food_target = if guaranteed_kill_choice.is_some() {
+            None
+        } else {
+            opening_food_choice
+                .as_ref()
+                .map(|(_, candidate)| candidate)
+                .or_else(|| {
+                    food_candidates
+                        .candidates
+                        .iter()
+                        .find(|candidate| candidate.first_move == best.direction)
+                })
+        };
 
         let reachable_cells = root
             .active_analysis()
@@ -229,7 +241,9 @@ impl DecisionEngine {
             .mobility
             .reachable_space(&root.state, &root.state.our_snake_id, best.direction);
 
-        let reason = if opening_food_choice.is_some() {
+        let reason = if guaranteed_kill_choice.is_some() {
+            DecisionReason::HuntingTactical
+        } else if opening_food_choice.is_some() {
             DecisionReason::FoodStrategic
         } else {
             classify_decision_reason(best, &evaluations, &root.state, robust_safe_moves, policy)
@@ -271,6 +285,27 @@ impl DecisionEngine {
             },
         }
     }
+}
+
+fn choose_guaranteed_kill<'a>(
+    evaluations: &'a [DirectionEvaluation],
+    state: &SimulatedGameState,
+    robust_safe_moves: crate::direction::MoveMask,
+    policy: ReservedCellPolicy,
+) -> Option<&'a DirectionEvaluation> {
+    evaluations
+        .iter()
+        .filter(|evaluation| {
+            evaluation.guaranteed_enemy_kills > 0
+                && (robust_safe_moves.is_empty()
+                    || robust_safe_moves.contains(evaluation.direction))
+                && !evaluation.survival.has_death_response()
+                && !evaluation.survival.has_dead_end_response()
+                && !evaluation.survival.has_forced_response()
+        })
+        .min_by(|left, right| {
+            crate::decision::evaluation::compare_direction(left, right, state, policy)
+        })
 }
 
 fn choose_food_opening<'a>(
@@ -601,6 +636,7 @@ mod tests {
             average_hunting_value: 0.0,
             average_leaf_food_potential: 0.0,
             average_leaf_hunting_potential: 0.0,
+            guaranteed_enemy_kills: 0,
             reserved_override: false,
         };
         let threatened = DirectionEvaluation {
@@ -613,6 +649,7 @@ mod tests {
             average_hunting_value: 0.0,
             average_leaf_food_potential: 0.0,
             average_leaf_hunting_potential: 0.0,
+            guaranteed_enemy_kills: 0,
             reserved_override: false,
         };
         let evaluations = vec![threatened, safe];
@@ -654,6 +691,7 @@ mod tests {
             average_hunting_value: 0.0,
             average_leaf_food_potential: 0.0,
             average_leaf_hunting_potential: 0.0,
+            guaranteed_enemy_kills: 0,
             reserved_override: false,
         };
         let evaluations = vec![
@@ -707,6 +745,7 @@ mod tests {
             average_hunting_value: 0.0,
             average_leaf_food_potential: 0.0,
             average_leaf_hunting_potential: 0.0,
+            guaranteed_enemy_kills: 0,
             reserved_override: false,
         };
         let committed = food::FoodCandidate {
@@ -722,6 +761,89 @@ mod tests {
             &[dangerous],
             &[],
             &[committed],
+            &normalized,
+            MoveMask::all(),
+            ReservedCellPolicy::default(),
+        )
+        .is_none());
+    }
+
+    #[test]
+    fn guaranteed_kill_overrides_food_opening() {
+        use crate::decision::evaluation::DirectionSurvivalSummary;
+        use crate::direction::{Direction, MoveMask};
+
+        let normalized = SimulatedGameState::from(&state("standard"));
+        let kill = DirectionEvaluation {
+            direction: Direction::Up,
+            terminal: TerminalAssessment::Running,
+            survival: DirectionSurvivalSummary {
+                total_routes: 4,
+                death_routes: 0,
+                dead_end_routes: 0,
+                forced_routes: 0,
+                constrained_routes: 0,
+                min_future_mobility: 2,
+                min_reachable_space: 12,
+                min_second_order_mobility: 2,
+            },
+            worst_strategic_utility: 0.0,
+            average_strategic_utility: 0.0,
+            average_food_value: 0.0,
+            average_hunting_value: 1.0,
+            average_leaf_food_potential: 0.0,
+            average_leaf_hunting_potential: 0.0,
+            guaranteed_enemy_kills: 1,
+            reserved_override: false,
+        };
+        let food = DirectionEvaluation {
+            direction: Direction::Right,
+            guaranteed_enemy_kills: 0,
+            ..kill.clone()
+        };
+
+        let chosen = choose_guaranteed_kill(
+            &[food, kill],
+            &normalized,
+            MoveMask::all(),
+            ReservedCellPolicy::default(),
+        )
+        .unwrap();
+
+        assert_eq!(chosen.direction, Direction::Up);
+    }
+
+    #[test]
+    fn escapable_hunt_does_not_override_food_opening() {
+        use crate::decision::evaluation::DirectionSurvivalSummary;
+        use crate::direction::{Direction, MoveMask};
+
+        let normalized = SimulatedGameState::from(&state("standard"));
+        let hunt = DirectionEvaluation {
+            direction: Direction::Up,
+            terminal: TerminalAssessment::Running,
+            survival: DirectionSurvivalSummary {
+                total_routes: 4,
+                death_routes: 0,
+                dead_end_routes: 0,
+                forced_routes: 0,
+                constrained_routes: 0,
+                min_future_mobility: 3,
+                min_reachable_space: 20,
+                min_second_order_mobility: 3,
+            },
+            worst_strategic_utility: 5.0,
+            average_strategic_utility: 5.0,
+            average_food_value: 0.0,
+            average_hunting_value: 1.0,
+            average_leaf_food_potential: 0.0,
+            average_leaf_hunting_potential: 0.5,
+            guaranteed_enemy_kills: 0,
+            reserved_override: false,
+        };
+
+        assert!(choose_guaranteed_kill(
+            &[hunt],
             &normalized,
             MoveMask::all(),
             ReservedCellPolicy::default(),
@@ -753,6 +875,7 @@ mod tests {
             average_hunting_value: 0.0,
             average_leaf_food_potential: 0.0,
             average_leaf_hunting_potential: 0.0,
+            guaranteed_enemy_kills: 0,
             reserved_override: true,
         };
 
@@ -800,6 +923,7 @@ mod tests {
             average_hunting_value: 0.0,
             average_leaf_food_potential: 0.0,
             average_leaf_hunting_potential: 0.0,
+            guaranteed_enemy_kills: 0,
             reserved_override: false,
         };
         let dangerous = DirectionEvaluation {
@@ -821,6 +945,7 @@ mod tests {
             average_hunting_value: 0.0,
             average_leaf_food_potential: 0.0,
             average_leaf_hunting_potential: 0.0,
+            guaranteed_enemy_kills: 0,
             reserved_override: false,
         };
 
