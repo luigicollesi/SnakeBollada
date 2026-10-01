@@ -1,6 +1,53 @@
 use super::context::{enemy_pressure_milli, ActorContext};
+use super::metrics::ActorMetrics;
 
 const MAX_WEIGHT: u32 = 2000;
+const STRATEGIC_BUDGET: u16 = 1000;
+const MIN_CATEGORY_WEIGHT: u16 = 100;
+const MAX_CATEGORY_WEIGHT: u16 = 900;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct StrategicWeights {
+    pub(crate) food: u16,
+    pub(crate) hunting: u16,
+    pub(crate) survival: u16,
+}
+
+impl StrategicWeights {
+    pub(crate) fn from_actor(context: &ActorContext, metrics: &ActorMetrics) -> Self {
+        let survival = STRATEGIC_BUDGET
+            .saturating_sub(metrics.territory_share_milli)
+            .clamp(MIN_CATEGORY_WEIGHT, MAX_CATEGORY_WEIGHT);
+        let offensive_budget = STRATEGIC_BUDGET.saturating_sub(survival);
+
+        let food_share = 500_i32
+            .saturating_add(i32::from(context.size_disadvantage_milli) / 2)
+            .saturating_sub(i32::from(context.size_advantage_milli) / 2)
+            .clamp(
+                i32::from(MIN_CATEGORY_WEIGHT),
+                i32::from(MAX_CATEGORY_WEIGHT),
+            ) as u16;
+
+        let food = u32::from(offensive_budget)
+            .saturating_mul(u32::from(food_share))
+            .saturating_div(u32::from(STRATEGIC_BUDGET))
+            .try_into()
+            .unwrap_or(offensive_budget);
+        let hunting = offensive_budget.saturating_sub(food);
+
+        Self {
+            food,
+            hunting,
+            survival,
+        }
+    }
+
+    pub(crate) const fn total(self) -> u16 {
+        self.food
+            .saturating_add(self.hunting)
+            .saturating_add(self.survival)
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct NeedWeights {
@@ -181,6 +228,7 @@ fn damp(weight: u16, factor_milli: u16) -> u16 {
 #[cfg(test)]
 mod tests {
     use crate::evaluation::context::ActorContext;
+    use crate::evaluation::metrics::ActorMetrics;
 
     use super::*;
 
@@ -208,6 +256,86 @@ mod tests {
             size_advantage_milli: 0,
             size_disadvantage_milli: 0,
         }
+    }
+
+    fn metrics(territory_share_milli: u16) -> ActorMetrics {
+        ActorMetrics {
+            health_milli: 900,
+            safe_moves: 3,
+            safe_non_reverse_moves: 3,
+            reachable_space: 40,
+            space_to_length_milli: 4000,
+            escape_frontier: 3,
+            enclosure_risk: 0,
+            useful_chokes: 0,
+            boundary_support: 0,
+            edge_distance: 3,
+            body_on_edge: 0,
+            body_near_edge: 0,
+            leading_edge_chain: 0,
+            inward_safe_moves: 2,
+            corner_contact: false,
+            border_preference_milli: 0,
+            border_structural_risk_milli: 0,
+            inward_control_milli: 900,
+            enemy_pin_risk_milli: 0,
+            reachable_territory: 40,
+            exclusive_space: 30,
+            contested_space: 5,
+            control_ratio_milli: 700,
+            territory_share_milli,
+            controlled_food: 1,
+            contested_food: 0,
+            winning_frontier: 2,
+            losing_frontier: 1,
+            dominance_claim_cells: 2,
+            dominance_frontier_cells: 1,
+            favorable_head_frontier: 1,
+            best_food_distance: Some(3),
+            best_food_claim_margin: Some(1),
+            best_food_contested: false,
+            hunting_opportunity_milli: 300,
+            pressure_opportunity_milli: 300,
+        }
+    }
+
+    #[test]
+    fn strategic_weights_always_consume_the_whole_budget() {
+        let weights = StrategicWeights::from_actor(&context(), &metrics(400));
+
+        assert_eq!(weights.total(), STRATEGIC_BUDGET);
+    }
+
+    #[test]
+    fn less_territory_increases_survival_and_suppresses_offense() {
+        let ctx = context();
+        let comfortable = StrategicWeights::from_actor(&ctx, &metrics(700));
+        let constrained = StrategicWeights::from_actor(&ctx, &metrics(150));
+
+        assert!(constrained.survival > comfortable.survival);
+        assert!(
+            constrained.food.saturating_add(constrained.hunting)
+                < comfortable.food.saturating_add(comfortable.hunting)
+        );
+    }
+
+    #[test]
+    fn size_disadvantage_shifts_offense_from_hunting_to_food() {
+        let mut smaller = context();
+        smaller.size_disadvantage_milli = 800;
+        smaller.size_advantage_milli = 0;
+
+        let mut larger = context();
+        larger.size_disadvantage_milli = 0;
+        larger.size_advantage_milli = 800;
+
+        let smaller = StrategicWeights::from_actor(&smaller, &metrics(600));
+        let larger = StrategicWeights::from_actor(&larger, &metrics(600));
+
+        assert!(smaller.food > smaller.hunting);
+        assert!(larger.hunting > larger.food);
+        assert!(smaller.food > larger.food);
+        assert!(larger.hunting > smaller.hunting);
     }
 
     #[test]
