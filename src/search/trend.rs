@@ -55,9 +55,7 @@ impl SearchTrend {
             .iter()
             .filter(|snake| snake.alive && snake.id != our_id)
             .filter_map(|snake| {
-                let before = parent_analysis
-                    .territory
-                    .competitive_for_snake(&snake.id)?;
+                let before = parent_analysis.territory.competitive_for_snake(&snake.id)?;
                 let after = child_analysis.territory.competitive_for_snake(&snake.id)?;
                 Some(signed_delta(
                     before.control_ratio_milli,
@@ -81,10 +79,7 @@ impl SearchTrend {
         let (border_risk_delta_milli, border_chain_delta) =
             match (parent_analysis.border.ours(), child_analysis.border.ours()) {
                 (Some(before), Some(after)) => (
-                    signed_delta(
-                        after.structural_risk_milli,
-                        before.structural_risk_milli,
-                    ),
+                    signed_delta(after.structural_risk_milli, before.structural_risk_milli),
                     signed_delta(after.leading_edge_chain, before.leading_edge_chain),
                 ),
                 _ => (0, 0),
