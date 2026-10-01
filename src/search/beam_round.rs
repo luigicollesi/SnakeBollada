@@ -226,7 +226,15 @@ pub(crate) fn append_continuation(
         .saturating_sub(line.opponent_utility_total);
 
     let mut steps = line.steps.clone();
-    steps.extend(continuation.steps);
+    steps.extend(continuation.steps.clone());
+
+    let mut actor_utility_totals = line.actor_utility_totals.clone();
+    for (actor_id, utility) in continuation.actor_utility_totals {
+        actor_utility_totals
+            .entry(actor_id)
+            .and_modify(|total| *total = total.saturating_add(utility))
+            .or_insert(utility);
+    }
 
     let (our_utility_total, opponent_utility_total, value, bound) =
         if continuation.terminal == LineTerminal::Running {
@@ -261,6 +269,7 @@ pub(crate) fn append_continuation(
         harm_total: line.harm_total.saturating_add(continuation.harm_total),
         our_utility_total,
         opponent_utility_total,
+        actor_utility_totals,
         value,
         terminal: continuation.terminal,
         bound,
@@ -443,6 +452,10 @@ mod tests {
             harm_total: 300,
             our_utility_total: 900,
             opponent_utility_total: 300,
+            actor_utility_totals: std::collections::HashMap::from([
+                ("ours".to_string(), 900),
+                ("enemy".to_string(), 300),
+            ]),
             value: 600,
             terminal: LineTerminal::Running,
             bound: ValueBound::Exact(600),
