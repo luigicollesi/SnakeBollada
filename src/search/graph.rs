@@ -561,12 +561,7 @@ fn build_node_with_key(state: SimulatedGameState, key: StateKey) -> SearchNode {
         let enclosure = Arc::new(EnclosureAnalysis::from_parts(&state, &territory, &tactical));
         let survival = Arc::new(survival::analyze_with_border(&state, &tactical, &border));
         let hunting = Arc::new(hunting::analyze(
-            &state,
-            &tactical,
-            &tracing,
-            &territory,
-            &enclosure,
-            &posture,
+            &state, &tactical, &tracing, &territory, &enclosure, &posture,
         ));
         Some(Arc::new(NodeAnalysis {
             state: state_analysis,
@@ -851,5 +846,4 @@ mod tests {
         assert!(report.completed);
         assert_eq!(report.frontier_nodes, 1);
     }
-
 }
