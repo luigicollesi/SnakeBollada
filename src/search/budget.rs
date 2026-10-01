@@ -68,10 +68,6 @@ impl SearchBudget {
         Instant::now() >= self.hard_deadline
     }
 
-    pub(crate) fn remaining(&self) -> Duration {
-        self.remaining_hard()
-    }
-
     pub(crate) fn remaining_soft(&self) -> Duration {
         self.soft_deadline.saturating_duration_since(Instant::now())
     }
@@ -145,7 +141,7 @@ mod tests {
         let budget = SearchBudget::from_state_with_extra_reserve(&state(500, "10"), 0);
 
         assert!(budget.safety_reserve() >= Duration::from_millis(25));
-        assert!(budget.remaining() < Duration::from_millis(500));
+        assert!(budget.remaining_hard() < Duration::from_millis(500));
     }
 
     #[test]

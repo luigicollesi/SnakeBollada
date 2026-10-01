@@ -31,6 +31,15 @@ struct FrontierEntry {
     priority: FrontierPriority,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct EnqueueContext {
+    node_id: NodeId,
+    root_direction: Direction,
+    depth: u8,
+    base_depth: u8,
+    root_relevance: u16,
+}
+
 impl Ord for FrontierEntry {
     fn cmp(&self, other: &Self) -> Ordering {
         self.priority.cmp(&other.priority)
@@ -67,11 +76,13 @@ impl SelectiveSearchScheduler {
                 graph,
                 &mut frontier,
                 &mut enqueued,
-                node_id,
-                root_direction,
-                depth,
-                base_depth,
-                relevance[usize::from(root_direction.rank())],
+                EnqueueContext {
+                    node_id,
+                    root_direction,
+                    depth,
+                    base_depth,
+                    root_relevance: relevance[usize::from(root_direction.rank())],
+                },
             );
         }
 
@@ -116,11 +127,13 @@ impl SelectiveSearchScheduler {
                     graph,
                     &mut frontier,
                     &mut enqueued,
-                    child,
-                    entry.root_direction,
-                    next_depth,
-                    base_depth,
-                    root_relevance,
+                    EnqueueContext {
+                        node_id: child,
+                        root_direction: entry.root_direction,
+                        depth: next_depth,
+                        base_depth,
+                        root_relevance,
+                    },
                 );
             }
 
@@ -171,32 +184,37 @@ fn enqueue(
     graph: &FutureGraph,
     frontier: &mut BinaryHeap<FrontierEntry>,
     enqueued: &mut HashSet<(NodeId, u8, u8)>,
-    node_id: NodeId,
-    root_direction: Direction,
-    depth: u8,
-    base_depth: u8,
-    root_relevance: u16,
+    context: EnqueueContext,
 ) {
-    if graph.node(node_id).is_terminal() {
+    if graph.node(context.node_id).is_terminal() {
         return;
     }
 
-    let key = (node_id, root_direction.rank(), depth);
+    let key = (
+        context.node_id,
+        context.root_direction.rank(),
+        context.depth,
+    );
     if !enqueued.insert(key) {
         return;
     }
 
     let signals = priority_signals(
         graph,
-        node_id,
-        root_relevance,
-        depth.saturating_sub(base_depth),
+        context.node_id,
+        context.root_relevance,
+        context.depth.saturating_sub(context.base_depth),
     );
     frontier.push(FrontierEntry {
-        node_id,
-        root_direction,
-        depth,
-        priority: FrontierPriority::new(signals, root_direction, depth, node_id),
+        node_id: context.node_id,
+        root_direction: context.root_direction,
+        depth: context.depth,
+        priority: FrontierPriority::new(
+            signals,
+            context.root_direction,
+            context.depth,
+            context.node_id,
+        ),
     });
 }
 
