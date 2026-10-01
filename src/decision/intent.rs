@@ -2,6 +2,7 @@ use crate::modes::hunting::{HuntingPlanCandidate, HuntingPlanKind};
 use crate::Coord;
 
 pub(crate) const HUNT_INTENT_LOCK_TURNS: i32 = 4;
+pub(crate) const HEAD_PRESSURE_LOCK_TURNS: i32 = 2;
 pub(crate) const HUNT_INTENT_STALE_LIMIT: u8 = 2;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -57,7 +58,10 @@ impl HuntIntent {
             target: plan.target.clone(),
             kind: plan.kind,
             started_turn,
-            lock_until_turn: started_turn.saturating_add(HUNT_INTENT_LOCK_TURNS),
+            lock_until_turn: started_turn.saturating_add(match plan.kind {
+                HuntingPlanKind::HeadPressure => HEAD_PRESSURE_LOCK_TURNS,
+                _ => HUNT_INTENT_LOCK_TURNS,
+            }),
             stale_turns: 0,
             last_score_milli: plan.score_milli,
         }
@@ -83,7 +87,7 @@ impl HuntIntent {
 
 pub(crate) fn committable_hunt_plan(plan: &HuntingPlanCandidate) -> bool {
     match plan.kind {
-        HuntingPlanKind::HeadPressure => false,
+        HuntingPlanKind::HeadPressure => plan.score_milli >= 300,
         HuntingPlanKind::EdgePin => plan.score_milli >= 300,
         HuntingPlanKind::ChokeCut | HuntingPlanKind::TerritorySqueeze => plan.score_milli >= 400,
         HuntingPlanKind::PartialWrap => plan.score_milli >= 460,
@@ -109,6 +113,21 @@ mod tests {
         assert!(intent.is_locked(10));
         assert!(intent.is_locked(14));
         assert!(!intent.is_locked(15));
+    }
+
+    #[test]
+    fn head_pressure_uses_shorter_lock_window() {
+        let plan = HuntingPlanCandidate {
+            target: "enemy".to_string(),
+            kind: HuntingPlanKind::HeadPressure,
+            score_milli: 360,
+            length_advantage: 2,
+        };
+        let intent = HuntIntent::new(&plan, 10);
+
+        assert!(intent.is_locked(12));
+        assert!(!intent.is_locked(13));
+        assert!(committable_hunt_plan(&plan));
     }
 
     #[test]
