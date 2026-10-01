@@ -284,9 +284,7 @@ fn root_relevance(graph: &FutureGraph, evaluations: &[DirectionEvaluation]) -> [
     let policy = ReservedCellPolicy::default();
 
     let mut ranked = evaluations.iter().collect::<Vec<_>>();
-    ranked.sort_by(|left, right| {
-        compare_direction(left, right, &root.state, policy)
-    });
+    ranked.sort_by(|left, right| compare_direction(left, right, &root.state, policy));
 
     let mut relevance = [0_u16; 4];
     let rank_values = [1000_u16, 825, 600, 350];
@@ -298,4 +296,3 @@ fn root_relevance(graph: &FutureGraph, evaluations: &[DirectionEvaluation]) -> [
 
     relevance
 }
-
