@@ -90,8 +90,10 @@ async fn handle_move(move_req: Json<GameState>, runtime: &State<GameRuntime>) ->
     let decision = runtime.decide(&move_req).await;
 
     let chosen_outcome = decision.search.direction_outcomes[usize::from(decision.direction.rank())];
+    let beam_shadow = decision.search.beam_shadow;
+    let beam_direction = beam_shadow.direction.map_or("-", |direction| direction.as_str());
     info!(
-        "MOVE {}: {} ({:?}) completed_depth={} analyzed_depth={} nodes={} edges={} phase={:?} hunt={} food={} dom={} control={} border={} pin={} escape={} escape_selected={} edge_ticks={} edge_cost={}",
+        "MOVE {}: {} ({:?}) completed_depth={} analyzed_depth={} nodes={} edges={} phase={:?} hunt={} food={} dom={} control={} border={} pin={} escape={} escape_selected={} edge_ticks={} edge_cost={} beam_shadow={} beam_move={} beam_depth={} beam_attempted={} beam_agree={} beam_value={} beam_us={}",
         move_req.turn,
         decision.direction.as_str(),
         decision.reason,
@@ -110,6 +112,13 @@ async fn handle_move(move_req: Json<GameState>, runtime: &State<GameRuntime>) ->
         decision.search.escape_selected,
         chosen_outcome.average_border_ticks_milli,
         chosen_outcome.average_border_cost_milli,
+        beam_shadow.enabled,
+        beam_direction,
+        beam_shadow.completed_depth,
+        beam_shadow.attempted_depth,
+        beam_shadow.agreed_with_legacy,
+        beam_shadow.best_value,
+        beam_shadow.elapsed_us,
     );
 
     Json(json!({
