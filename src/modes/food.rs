@@ -117,13 +117,7 @@ pub(crate) fn candidates_for_target_actor(
         .first_moves
         .iter()
         .map(|first_move| {
-            candidate_from_route(
-                route,
-                claim.as_ref(),
-                first_move,
-                distance,
-                certainty,
-            )
+            candidate_from_route(route, claim.as_ref(), first_move, distance, certainty)
         })
         .collect::<Vec<_>>();
     candidates.sort_by_key(candidate_rank);
