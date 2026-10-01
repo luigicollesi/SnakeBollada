@@ -16,9 +16,7 @@ use crate::decision::state_key::StateKey;
 use crate::direction::MoveMask;
 use crate::enemy::profile::OpponentProfiles;
 use crate::enemy::tracing::{trace_with_mobility, EnemyTracingOutput};
-use crate::evaluation::{
-    ActorContext, ActorSnapshot, ActorUtilityMetrics, TransitionScore,
-};
+use crate::evaluation::{ActorContext, ActorSnapshot, ActorUtilityMetrics, TransitionScore};
 use crate::modes::hunting::{self, HuntingModeOutput};
 use crate::modes::survival::{self, SurvivalModeOutput};
 use crate::simulation::joint_action::JointAction;
