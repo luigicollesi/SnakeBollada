@@ -422,8 +422,8 @@ fn apply_edge(
             )
         })
         .count() as f32;
-    let realized_hunting =
-        edge_hunting_delta(parent, edge) + territorial_setup_delta(parent, child_node);
+    let realized_hunting = edge_hunting_delta(parent, edge);
+    let territorial_delta = territorial_setup_delta(parent, child_node);
     let guaranteed_enemy_kills = child
         .guaranteed_enemy_kills
         .saturating_add(edge_enemy_kills(edge));
@@ -431,7 +431,7 @@ fn apply_edge(
     let (food_discount, hunting_discount) = certainty_discounts(certainty);
     let aggression = child_node.state.aggression.value.clamp(0.0, 1.0);
     let local_utility = realized_food * food_discount * (1.0 - aggression)
-        + realized_hunting * hunting_discount * aggression;
+        + (realized_hunting + territorial_delta) * hunting_discount * aggression;
 
     let death_now = edge
         .events
@@ -718,7 +718,7 @@ fn territorial_setup_delta(parent: &SearchNode, child: &SearchNode) -> f32 {
         .active_analysis()
         .map_or(0.0, |analysis| analysis.hunting.best_plan_score());
 
-    (after - before).max(0.0) * 0.35
+    ((after - before) * 0.35).clamp(-0.35, 0.35)
 }
 
 fn edge_enemy_kills(edge: &SearchEdge) -> u16 {
