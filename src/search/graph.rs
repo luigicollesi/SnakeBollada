@@ -97,6 +97,10 @@ impl SearchNode {
     pub(crate) fn is_terminal(&self) -> bool {
         is_terminal_state(&self.state)
     }
+
+    pub(crate) fn expansion_complete(&self) -> bool {
+        self.expansion_complete
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
