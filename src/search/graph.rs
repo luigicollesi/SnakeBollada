@@ -182,7 +182,15 @@ impl FutureGraph {
         root_state: SimulatedGameState,
         opponent_profiles: OpponentProfiles,
     ) -> Self {
-        let root_node = build_node(root_state, AnalysisProfile::Full);
+        Self::new_with_profile(root_state, opponent_profiles, AnalysisProfile::Full)
+    }
+
+    fn new_with_profile(
+        root_state: SimulatedGameState,
+        opponent_profiles: OpponentProfiles,
+        analysis_profile: AnalysisProfile,
+    ) -> Self {
+        let root_node = build_node(root_state, analysis_profile);
         let root_key = root_node.key.clone();
 
         Self {
@@ -192,10 +200,18 @@ impl FutureGraph {
             transposition_hits: 0,
             edge_count: 0,
             opponent_profiles,
-            analysis_profile: AnalysisProfile::Full,
+            analysis_profile,
             action_batch_estimate: INITIAL_BATCH_ESTIMATE,
             perf_stats: GraphPerfStats::default(),
         }
+    }
+
+    pub(crate) fn independent_beam_graph(&self) -> Self {
+        Self::new_with_profile(
+            self.nodes[self.root].state.clone(),
+            self.opponent_profiles.clone(),
+            AnalysisProfile::BeamLean,
+        )
     }
 
     pub(crate) fn set_opponent_profiles(&mut self, opponent_profiles: OpponentProfiles) {
