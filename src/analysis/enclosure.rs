@@ -2,6 +2,8 @@
 
 use std::collections::HashMap;
 
+use rayon::prelude::*;
+
 use crate::analysis::{TacticalStateAnalysis, TerritoryAnalysis};
 use crate::simulation::state::SimulatedGameState;
 
@@ -63,59 +65,60 @@ impl EnclosureAnalysis {
         tactical: &TacticalStateAnalysis,
         all_legal_enemy_moves: bool,
     ) -> Self {
-        let mut snakes = HashMap::new();
+        let snakes = state
+            .snakes
+            .par_iter()
+            .filter(|snake| snake.alive)
+            .filter_map(|snake| {
+                let territory_snapshot = territory.for_snake(&snake.id)?;
 
-        for snake in state.snakes.iter().filter(|snake| snake.alive) {
-            let Some(territory_snapshot) = territory.for_snake(&snake.id) else {
-                continue;
-            };
+                let moves = if snake.id == state.our_snake_id {
+                    tactical.ours.safe_moves.len()
+                } else {
+                    tactical
+                        .enemies
+                        .get(&snake.id)
+                        .map(|enemy| {
+                            if all_legal_enemy_moves || enemy.plausible_moves.is_empty() {
+                                enemy.legal_moves.len()
+                            } else {
+                                enemy.plausible_moves.len()
+                            }
+                        })
+                        .unwrap_or(0)
+                };
 
-            let moves = if snake.id == state.our_snake_id {
-                tactical.ours.safe_moves.len()
-            } else {
-                tactical
-                    .enemies
-                    .get(&snake.id)
-                    .map(|enemy| {
-                        if all_legal_enemy_moves || enemy.plausible_moves.is_empty() {
-                            enemy.legal_moves.len()
-                        } else {
-                            enemy.plausible_moves.len()
-                        }
-                    })
-                    .unwrap_or(0)
-            };
+                let ratio = territory_snapshot.space_to_length_milli(snake.length());
+                let useful_chokes = territory_snapshot
+                    .useful_chokes
+                    .len()
+                    .try_into()
+                    .unwrap_or(u8::MAX);
 
-            let ratio = territory_snapshot.space_to_length_milli(snake.length());
-            let useful_chokes = territory_snapshot
-                .useful_chokes
-                .len()
-                .try_into()
-                .unwrap_or(u8::MAX);
-
-            let risk = classify_risk(
-                territory_snapshot.reachable_space,
-                snake.length(),
-                ratio,
-                moves,
-                territory_snapshot.escape_frontier,
-                territory_snapshot.edge_distance,
-                useful_chokes,
-            );
-
-            snakes.insert(
-                snake.id.clone(),
-                EnclosureSnapshot {
-                    snake_id: snake.id.clone(),
-                    risk,
-                    space_to_length_milli: ratio,
-                    escape_frontier: territory_snapshot.escape_frontier,
-                    edge_distance: territory_snapshot.edge_distance,
+                let risk = classify_risk(
+                    territory_snapshot.reachable_space,
+                    snake.length(),
+                    ratio,
+                    moves,
+                    territory_snapshot.escape_frontier,
+                    territory_snapshot.edge_distance,
                     useful_chokes,
-                    boundary_support: territory_snapshot.boundary_support(),
-                },
-            );
-        }
+                );
+
+                Some((
+                    snake.id.clone(),
+                    EnclosureSnapshot {
+                        snake_id: snake.id.clone(),
+                        risk,
+                        space_to_length_milli: ratio,
+                        escape_frontier: territory_snapshot.escape_frontier,
+                        edge_distance: territory_snapshot.edge_distance,
+                        useful_chokes,
+                        boundary_support: territory_snapshot.boundary_support(),
+                    },
+                ))
+            })
+            .collect::<HashMap<_, _>>();
 
         Self { snakes }
     }
