@@ -516,8 +516,12 @@ fn hunting_focus_cells(
 
 fn inward_edge_cells(state: &SimulatedGameState, head: crate::Coord) -> Vec<crate::Coord> {
     let mut cells = Vec::new();
-    let max_x = i32::try_from(state.width).unwrap_or(i32::MAX).saturating_sub(1);
-    let max_y = i32::try_from(state.height).unwrap_or(i32::MAX).saturating_sub(1);
+    let max_x = i32::try_from(state.width)
+        .unwrap_or(i32::MAX)
+        .saturating_sub(1);
+    let max_y = i32::try_from(state.height)
+        .unwrap_or(i32::MAX)
+        .saturating_sub(1);
 
     if head.x <= 1 && head.x < max_x {
         cells.push(crate::Coord {
@@ -563,7 +567,9 @@ fn adjacent_in_bounds(state: &SimulatedGameState, head: crate::Coord) -> Vec<cra
 }
 
 fn manhattan(left: crate::Coord, right: crate::Coord) -> u32 {
-    left.x.abs_diff(right.x).saturating_add(left.y.abs_diff(right.y))
+    left.x
+        .abs_diff(right.x)
+        .saturating_add(left.y.abs_diff(right.y))
 }
 
 fn head_threat_moves(
