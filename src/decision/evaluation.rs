@@ -610,17 +610,13 @@ fn apply_edge(
         survival.constrained_routes = route_count;
     }
     if border_tick {
-        survival.border_exposure_ticks = survival
-            .border_exposure_ticks
-            .saturating_add(route_count);
+        survival.border_exposure_ticks = survival.border_exposure_ticks.saturating_add(route_count);
         survival.cumulative_border_cost_milli = survival
             .cumulative_border_cost_milli
             .saturating_add(u64::from(border_cost_milli).saturating_mul(route_count));
     }
     if corner_tick {
-        survival.corner_exposure_ticks = survival
-            .corner_exposure_ticks
-            .saturating_add(route_count);
+        survival.corner_exposure_ticks = survival.corner_exposure_ticks.saturating_add(route_count);
     }
     survival.min_future_mobility = survival.min_future_mobility.min(child_safe_moves);
     survival.min_reachable_space = survival.min_reachable_space.min(
@@ -866,10 +862,7 @@ fn certainty_discounts(certainty: ForecastCertainty) -> (f32, f32) {
 
 fn border_exposure_cost(events: &[InstantEvent]) -> (bool, bool, u16) {
     let Some((fear_milli, corner)) = events.iter().find_map(|event| match event {
-        InstantEvent::SelfBorderExposure {
-            fear_milli,
-            corner,
-        } => Some((*fear_milli, *corner)),
+        InstantEvent::SelfBorderExposure { fear_milli, corner } => Some((*fear_milli, *corner)),
         _ => None,
     }) else {
         return (false, false, 0);
