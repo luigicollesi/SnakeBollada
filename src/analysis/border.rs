@@ -2,6 +2,8 @@
 
 use std::collections::HashMap;
 
+use rayon::prelude::*;
+
 use crate::analysis::{TacticalStateAnalysis, TerritoryAnalysis};
 use crate::direction::{Direction, MoveMask};
 use crate::simulation::state::SimulatedGameState;
@@ -56,122 +58,124 @@ impl BorderFobicAnalysis {
         territory: &TerritoryAnalysis,
         all_legal_enemy_moves: bool,
     ) -> Self {
-        let mut snakes = HashMap::new();
-
-        for snake in state.snakes.iter().filter(|snake| snake.alive) {
-            let Some(head) = snake.head() else {
-                continue;
-            };
-            let safe_moves =
-                actor_safe_moves(state, tactical, &snake.id, all_legal_enemy_moves);
-            let fear_milli = length_fear_milli(state, snake.length());
-            let head_edge_distance = edge_distance(state, head);
-            let body_on_edge = snake
-                .body
-                .iter()
-                .filter(|segment| edge_distance(state, **segment) == 0)
-                .count()
-                .try_into()
-                .unwrap_or(u16::MAX);
-            let body_near_edge = snake
-                .body
-                .iter()
-                .filter(|segment| edge_distance(state, **segment) <= 1)
-                .count()
-                .try_into()
-                .unwrap_or(u16::MAX);
-            let leading_edge_chain = snake
-                .body
-                .iter()
-                .take_while(|segment| edge_distance(state, **segment) == 0)
-                .count()
-                .try_into()
-                .unwrap_or(u16::MAX);
-            let inward_safe_moves = safe_moves
-                .iter()
-                .filter(|direction| {
-                    edge_distance(state, direction.apply(head)) > head_edge_distance
-                })
-                .count()
-                .try_into()
-                .unwrap_or(u8::MAX);
-            let corner_contact = is_corner(state, head);
-
-            let preference_base = match head_edge_distance {
-                0 => 1000_u32,
-                1 => 350,
-                _ => 0,
-            };
-            let preference_milli = scale_by_fear(preference_base, fear_milli);
-
-            let length = u32::try_from(snake.length()).unwrap_or(u32::MAX).max(1);
-            let edge_ratio = u32::from(body_on_edge)
-                .saturating_mul(1000)
-                .saturating_div(length);
-            let chain_ratio = u32::from(leading_edge_chain)
-                .saturating_mul(1000)
-                .saturating_div(length);
-            let exit_penalty = if head_edge_distance == 0 {
-                match inward_safe_moves {
-                    0 => 450,
-                    1 => 180,
-                    _ => 0,
-                }
-            } else {
-                0
-            };
-            let corner_penalty = if corner_contact { 180 } else { 0 };
-
-            let structural_base = edge_ratio
-                .saturating_mul(30)
-                .saturating_div(100)
-                .saturating_add(chain_ratio.saturating_mul(40).saturating_div(100))
-                .saturating_add(exit_penalty)
-                .saturating_add(corner_penalty)
-                .min(1000);
-            let structural_risk_milli = scale_by_fear(structural_base, fear_milli);
-            let inward_control_milli = inward_control_milli(
-                state,
-                territory,
-                &snake.id,
-                safe_moves,
-                head,
-                head_edge_distance,
-            );
-            let enemy_pin_risk_milli = if head_edge_distance > 1 {
-                0
-            } else {
-                let proximity = if head_edge_distance == 0 {
-                    1000_u32
-                } else {
-                    500
-                };
-                1000_u32
-                    .saturating_sub(u32::from(inward_control_milli))
-                    .saturating_mul(proximity)
-                    .saturating_div(1000)
-                    .min(1000)
+        let snakes = state
+            .snakes
+            .par_iter()
+            .filter(|snake| snake.alive)
+            .filter_map(|snake| {
+                    let head = snake.head()?;
+                let safe_moves =
+                    actor_safe_moves(state, tactical, &snake.id, all_legal_enemy_moves);
+                let fear_milli = length_fear_milli(state, snake.length());
+                let head_edge_distance = edge_distance(state, head);
+                let body_on_edge = snake
+                    .body
+                    .iter()
+                    .filter(|segment| edge_distance(state, **segment) == 0)
+                    .count()
                     .try_into()
-                    .unwrap_or(1000)
-            };
+                    .unwrap_or(u16::MAX);
+                let body_near_edge = snake
+                    .body
+                    .iter()
+                    .filter(|segment| edge_distance(state, **segment) <= 1)
+                    .count()
+                    .try_into()
+                    .unwrap_or(u16::MAX);
+                let leading_edge_chain = snake
+                    .body
+                    .iter()
+                    .take_while(|segment| edge_distance(state, **segment) == 0)
+                    .count()
+                    .try_into()
+                    .unwrap_or(u16::MAX);
+                let inward_safe_moves = safe_moves
+                    .iter()
+                    .filter(|direction| {
+                        edge_distance(state, direction.apply(head)) > head_edge_distance
+                    })
+                    .count()
+                    .try_into()
+                    .unwrap_or(u8::MAX);
+                let corner_contact = is_corner(state, head);
 
-            snakes.insert(
-                snake.id.clone(),
-                BorderFobicSnapshot {
-                    fear_milli,
+                let preference_base = match head_edge_distance {
+                    0 => 1000_u32,
+                    1 => 350,
+                    _ => 0,
+                };
+                let preference_milli = scale_by_fear(preference_base, fear_milli);
+
+                let length = u32::try_from(snake.length()).unwrap_or(u32::MAX).max(1);
+                let edge_ratio = u32::from(body_on_edge)
+                    .saturating_mul(1000)
+                    .saturating_div(length);
+                let chain_ratio = u32::from(leading_edge_chain)
+                    .saturating_mul(1000)
+                    .saturating_div(length);
+                let exit_penalty = if head_edge_distance == 0 {
+                    match inward_safe_moves {
+                        0 => 450,
+                        1 => 180,
+                        _ => 0,
+                    }
+                } else {
+                    0
+                };
+                let corner_penalty = if corner_contact { 180 } else { 0 };
+
+                let structural_base = edge_ratio
+                    .saturating_mul(30)
+                    .saturating_div(100)
+                    .saturating_add(chain_ratio.saturating_mul(40).saturating_div(100))
+                    .saturating_add(exit_penalty)
+                    .saturating_add(corner_penalty)
+                    .min(1000);
+                let structural_risk_milli = scale_by_fear(structural_base, fear_milli);
+                let inward_control_milli = inward_control_milli(
+                    state,
+                    territory,
+                    &snake.id,
+                    safe_moves,
+                    head,
                     head_edge_distance,
-                    body_on_edge,
-                    body_near_edge,
-                    leading_edge_chain,
-                    inward_safe_moves,
-                    corner_contact,
-                    preference_milli,
-                    structural_risk_milli,
-                    inward_control_milli,
-                    enemy_pin_risk_milli,
-                },
-            );
-        }
+                );
+                let enemy_pin_risk_milli = if head_edge_distance > 1 {
+                    0
+                } else {
+                    let proximity = if head_edge_distance == 0 {
+                        1000_u32
+                    } else {
+                        500
+                    };
+                    1000_u32
+                        .saturating_sub(u32::from(inward_control_milli))
+                        .saturating_mul(proximity)
+                        .saturating_div(1000)
+                        .min(1000)
+                        .try_into()
+                        .unwrap_or(1000)
+                };
+
+
+                Some((
+                    snake.id.clone(),
+                    BorderFobicSnapshot {
+                            fear_milli,
+                            head_edge_distance,
+                            body_on_edge,
+                            body_near_edge,
+                            leading_edge_chain,
+                            inward_safe_moves,
+                            corner_contact,
+                            preference_milli,
+                            structural_risk_milli,
+                            inward_control_milli,
+                            enemy_pin_risk_milli,
+                        },
+                ))
+            })
+            .collect::<HashMap<_, _>>();
 
         Self {
             our_id: state.our_snake_id.clone(),
