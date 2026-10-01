@@ -705,10 +705,13 @@ impl FutureGraph {
         let before_tactical = (self.analysis_profile == AnalysisProfile::Full)
             .then(|| Arc::clone(&parent_analysis.tactical));
 
-        let our_moves = if before_tactical.ours.deterministic_moves.is_empty() {
+        let deterministic_moves = parent_analysis
+            .mobility
+            .deterministic_moves_for(&state, &state.our_snake_id);
+        let our_moves = if deterministic_moves.is_empty() {
             MoveMask::all()
         } else {
-            before_tactical.ours.deterministic_moves
+            deterministic_moves
         };
 
         let analysis_profile = self.analysis_profile;
