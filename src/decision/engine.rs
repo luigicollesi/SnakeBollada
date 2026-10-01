@@ -187,7 +187,11 @@ impl DecisionEngine {
             best,
             &evaluations,
             &root.state,
-            root.active_analysis().expect("active root must have analysis").tactical.ours.safe_moves,
+            root.active_analysis()
+                .expect("active root must have analysis")
+                .tactical
+                .ours
+                .safe_moves,
             ReservedCellPolicy::default(),
         );
 
