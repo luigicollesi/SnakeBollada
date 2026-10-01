@@ -10,7 +10,7 @@ use super::graph::NodeId;
 pub(crate) const SEED_DEPTH: u8 = 3;
 pub(crate) const BEAM_WIDTH: usize = 3;
 pub(crate) const ROUND_DEPTH: u8 = 2;
- 
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub(crate) struct LineId(pub(crate) u32);
 
@@ -193,7 +193,9 @@ mod tests {
         assert!(beam.iter().any(|line| line.id == LineId(1)));
         assert!(!beam.iter().any(|line| line.id == LineId(2)));
         assert!(beam.iter().any(|line| line.root_direction == Direction::Up));
-        assert!(beam.iter().any(|line| line.root_direction == Direction::Left));
+        assert!(beam
+            .iter()
+            .any(|line| line.root_direction == Direction::Left));
     }
 
     #[test]
