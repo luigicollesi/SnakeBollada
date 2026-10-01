@@ -635,9 +635,7 @@ mod tests {
         let root = graph.root();
         let expired = SearchBudget::for_duration(Duration::ZERO);
 
-        let completed = graph
-            .expand_node_budgeted(root, Some(&expired))
-            .unwrap();
+        let completed = graph.expand_node_budgeted(root, Some(&expired)).unwrap();
 
         assert!(!completed);
         assert!(graph.nodes[root].pending_actions.is_some());
