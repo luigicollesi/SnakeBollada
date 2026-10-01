@@ -50,7 +50,9 @@ impl OpponentProfile {
         self.survival_bias_milli = update_bias(
             self.survival_bias_milli,
             hypothesis.support.survival,
-            alternatives.clone().any(|candidate| candidate.support.survival),
+            alternatives
+                .clone()
+                .any(|candidate| candidate.support.survival),
             SUPPORTED_REWARD,
         );
         self.food_bias_milli = update_bias(
@@ -62,7 +64,9 @@ impl OpponentProfile {
         self.hunting_bias_milli = update_bias(
             self.hunting_bias_milli,
             hypothesis.support.hunting,
-            alternatives.clone().any(|candidate| candidate.support.hunting),
+            alternatives
+                .clone()
+                .any(|candidate| candidate.support.hunting),
             SUPPORTED_REWARD,
         );
         self.head_threat_bias_milli = update_bias(
@@ -112,7 +116,9 @@ fn update_bias(current: u16, selected: bool, available: bool, reward: u16) -> u1
     if selected {
         current.saturating_add(reward).min(MAX_BIAS_MILLI)
     } else if available {
-        current.saturating_sub(UNSUPPORTED_DECAY).max(MIN_BIAS_MILLI)
+        current
+            .saturating_sub(UNSUPPORTED_DECAY)
+            .max(MIN_BIAS_MILLI)
     } else {
         current
     }
