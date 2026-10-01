@@ -1262,8 +1262,8 @@ mod tests {
         };
 
         assert!(choose_food_opening(
-            &[safe.clone()],
-            &[candidate.clone()],
+            std::slice::from_ref(&safe),
+            std::slice::from_ref(&candidate),
             &[],
             &normalized,
             MoveMask::all(),
