@@ -872,4 +872,60 @@ mod tests {
         let territory = TerritoryAnalysis::from_state(&state);
         assert_eq!(territory.for_snake("ours").unwrap().edge_distance, 0);
     }
+
+    #[test]
+    fn core_and_structural_parts_recompose_public_analysis() {
+        let state = state(
+            7,
+            7,
+            vec![
+                snake("ours", &[(6, 6), (6, 5), (6, 4), (5, 4), (4, 4), (3, 4)]),
+                snake("enemy", &[(1, 2), (1, 1), (1, 0)]),
+                snake(
+                    "wall",
+                    &[
+                        (4, 6),
+                        (2, 6),
+                        (2, 5),
+                        (2, 4),
+                        (2, 3),
+                        (2, 1),
+                        (2, 0),
+                        (4, 5),
+                    ],
+                ),
+            ],
+        );
+
+        let public = TerritoryAnalysis::from_state(&state);
+        let core = TerritoryCore::from_state(&state);
+        let structural = TerritoryStructural::from_core(&state, &core);
+        let recomposed = TerritoryAnalysis::from_parts(core, structural);
+
+        for snake_id in ["ours", "enemy", "wall"] {
+            assert_eq!(
+                public.for_snake(snake_id),
+                recomposed.for_snake(snake_id)
+            );
+            assert_eq!(
+                public.competitive_for_snake(snake_id),
+                recomposed.competitive_for_snake(snake_id)
+            );
+        }
+
+        for y in 0..7 {
+            for x in 0..7 {
+                let coord = Coord { x, y };
+                assert_eq!(
+                    public.competitive_owner_at(coord),
+                    recomposed.competitive_owner_at(coord)
+                );
+                assert_eq!(
+                    public.competitive_is_contested_at(coord),
+                    recomposed.competitive_is_contested_at(coord)
+                );
+            }
+        }
+    }
+
 }
