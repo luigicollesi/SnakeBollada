@@ -42,21 +42,20 @@ impl BorderFobicAnalysis {
         tactical: &TacticalStateAnalysis,
         territory: &TerritoryAnalysis,
     ) -> Self {
-        Self::from_parts_with_territory_scope(state, tactical, None, territory, false)
+        Self::from_parts_with_territory_scope(state, Some(tactical), None, territory, false)
     }
 
     pub(crate) fn from_parts_with_territory_actor_relative(
         state: &SimulatedGameState,
-        tactical: &TacticalStateAnalysis,
         mobility: &MobilityAnalysis,
         territory: &TerritoryAnalysis,
     ) -> Self {
-        Self::from_parts_with_territory_scope(state, tactical, Some(mobility), territory, true)
+        Self::from_parts_with_territory_scope(state, None, Some(mobility), territory, true)
     }
 
     fn from_parts_with_territory_scope(
         state: &SimulatedGameState,
-        tactical: &TacticalStateAnalysis,
+        tactical: Option<&TacticalStateAnalysis>,
         mobility: Option<&MobilityAnalysis>,
         territory: &TerritoryAnalysis,
         all_legal_enemy_moves: bool,
@@ -234,7 +233,7 @@ impl BorderFobicAnalysis {
 
 fn actor_safe_moves(
     state: &SimulatedGameState,
-    tactical: &TacticalStateAnalysis,
+    tactical: Option<&TacticalStateAnalysis>,
     mobility: Option<&MobilityAnalysis>,
     actor_id: &str,
     all_legal_enemy_moves: bool,
@@ -242,6 +241,10 @@ fn actor_safe_moves(
     if let Some(mobility) = mobility {
         return mobility.deterministic_moves_for(state, actor_id);
     }
+
+    let Some(tactical) = tactical else {
+        return MoveMask::empty();
+    };
 
     if actor_id == state.our_snake_id {
         return tactical.ours.safe_moves;
