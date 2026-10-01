@@ -80,7 +80,7 @@ impl DecisionState {
             None => FutureGraph::new(normalized),
         };
 
-        let mut decision = DecisionEngine::stateless().decide_with_graph_with_reserve(
+        let decision = DecisionEngine::stateless().decide_with_graph_with_reserve(
             state,
             &mut graph,
             runtime_jitter_reserve_ms,
