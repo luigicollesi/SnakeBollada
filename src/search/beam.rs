@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use crate::direction::Direction;
 
 use super::bounds::ValueBound;
