@@ -110,8 +110,7 @@ impl ActorMetrics {
             contested_food: competitive.map_or(0, |snapshot| snapshot.contested_food),
             winning_frontier: competitive.map_or(0, |snapshot| snapshot.winning_frontier),
             losing_frontier: competitive.map_or(0, |snapshot| snapshot.losing_frontier),
-            dominance_claim_cells: competitive
-                .map_or(0, |snapshot| snapshot.dominance_claim_cells),
+            dominance_claim_cells: competitive.map_or(0, |snapshot| snapshot.dominance_claim_cells),
             dominance_frontier_cells: competitive
                 .map_or(0, |snapshot| snapshot.dominance_frontier_cells),
             favorable_head_frontier: competitive
@@ -208,16 +207,19 @@ fn offensive_opportunity(
             ratio_milli(length_advantage as u32, target.length().max(1) as u32)
         };
         let target_moves = actor_mobility(state, tactical, &target.id).0;
-        let mobility_pressure = 1000_u16.saturating_sub(
-            u16::from(target_moves.min(4)).saturating_mul(250),
-        );
+        let mobility_pressure =
+            1000_u16.saturating_sub(u16::from(target_moves.min(4)).saturating_mul(250));
         let target_enclosure = enclosure
             .for_snake(&target.id)
-            .map_or(0, |snapshot| u16::from(snapshot.risk.rank()).saturating_mul(333))
+            .map_or(0, |snapshot| {
+                u16::from(snapshot.risk.rank()).saturating_mul(333)
+            })
             .min(1000);
         let target_control_denial = territory
             .competitive_for_snake(&target.id)
-            .map_or(0, |snapshot| 1000_u16.saturating_sub(snapshot.control_ratio_milli));
+            .map_or(0, |snapshot| {
+                1000_u16.saturating_sub(snapshot.control_ratio_milli)
+            });
 
         let pressure = weighted_milli(&[
             (mobility_pressure, 350),
