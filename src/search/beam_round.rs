@@ -72,7 +72,7 @@ pub(crate) fn deepen_checkpoint_once(
             ));
         };
 
-        let expansion = graph.expand_subtree(tip, ROUND_DEPTH, budget)?;
+        let expansion = graph.expand_prioritized_subtree(tip, ROUND_DEPTH, budget)?;
         if !expansion.completed {
             return Ok(incomplete_outcome(
                 checkpoint,
