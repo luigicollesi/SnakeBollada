@@ -290,3 +290,30 @@ O modo também fornece funções de avaliação de rota utilizadas pelo Decision
 - [ ] eventos de diferentes branches nunca são combinados;
 - [ ] bordas/quinas não pertencem ao modo;
 - [ ] Decision consegue identificar crescimento futuro do risco antes do aprisionamento.
+
+## Atualização V2 — BorderFobic e EnemyPinRisk
+
+Survival agora recebe análise dinâmica de borda por estado.
+
+`BorderFobicSnapshot` inclui:
+
+- medo escalado por comprimento;
+- distância da cabeça até a borda;
+- segmentos do corpo na borda/próximos dela;
+- cadeia inicial do corpo na parede;
+- saídas seguras para o interior;
+- `structural_risk_milli`;
+- `inward_control_milli`;
+- `enemy_pin_risk_milli`.
+
+`BorderPreference` é uma preferência flexível e pode ser superada por Food/Hunting suportado. `BorderStructuralRisk` e `EnemyPinRisk` são riscos de Survival e não desaparecem apenas porque há recompensa estratégica.
+
+EnemyPinRisk reutiliza Competitive Territory para avaliar as primeiras células de retorno ao interior, incluindo um segundo anel barato. Rotas em que o adversário controla a saída recebem risco alto antes de o aprisionamento se tornar um dead end literal.
+
+`DirectionSurvivalSummary` propaga:
+
+- máximo BorderStructuralRisk;
+- máximo EnemyPinRisk;
+- mínimo inward control.
+
+O selective search aprofunda linhas cujo border/pin risk cresce entre parent e child.
