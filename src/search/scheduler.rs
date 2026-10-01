@@ -374,6 +374,27 @@ fn intent_focus(node: &crate::search::graph::SearchNode, intent: Option<&Decisio
                 .max(competitive)
                 .min(1000)
         }
+        DecisionIntent::Escape(escape) => {
+            let current = analysis.enclosure.ours(&node.state);
+            let enclosure = current.map_or(0, |snapshot| {
+                u16::from(snapshot.risk.rank()).saturating_mul(250)
+            });
+            let mobility = match analysis.tactical.ours.safe_moves.len() {
+                0 => 1000,
+                1 => 850,
+                2 => 450,
+                _ => 0,
+            };
+            let pin = analysis
+                .border
+                .ours()
+                .map_or(0, |snapshot| snapshot.enemy_pin_risk_milli);
+            enclosure
+                .max(mobility)
+                .max(pin)
+                .max(escape.last_pressure_milli)
+                .min(1000)
+        }
     }
 }
 
