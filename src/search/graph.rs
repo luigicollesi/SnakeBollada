@@ -22,6 +22,7 @@ use crate::simulation::resolver::{
     resolve_turn, ForecastDelta, InstantEvent, ResolveError, TurnResolution,
 };
 use crate::simulation::state::SimulatedGameState;
+use crate::spatial::SpatialOccupancy;
 
 use super::budget::SearchBudget;
 
@@ -560,12 +561,13 @@ fn build_node_with_key(state: SimulatedGameState, key: StateKey) -> SearchNode {
         None
     } else {
         let state_analysis = Arc::new(StateAnalysis::from_simulated(&state));
-        let mobility = Arc::new(MobilityAnalysis::from_state(&state));
+        let spatial = Arc::new(SpatialOccupancy::from_state(&state));
+        let mobility = Arc::new(MobilityAnalysis::from_spatial(Arc::clone(&spatial)));
         let tracing = Arc::new(trace_with_mobility(&state, &state_analysis, &mobility));
         let tactical = Arc::new(TacticalStateAnalysis::from_parts(
             &state, &tracing, &mobility,
         ));
-        let territory = Arc::new(TerritoryAnalysis::from_state(&state));
+        let territory = Arc::new(TerritoryAnalysis::from_spatial(&state, &spatial));
         let border = Arc::new(BorderFobicAnalysis::from_parts_with_territory(
             &state, &tactical, &territory,
         ));
