@@ -369,19 +369,12 @@ fn food_policy_moves(
         &enemy.id,
         ForecastCertainty::FoodProvisional,
     );
-    let mut candidates = MoveMask::from_iter(
+    let candidates = MoveMask::from_iter(
         output
             .candidates
             .iter()
             .map(|candidate| candidate.first_move),
     );
-    candidates.union_with(project_hunting_plan_moves(
-        &perspective,
-        &enemy.id,
-        current,
-        &territory,
-        &output,
-    ));
 
     current.intersection(candidates)
 }
@@ -411,12 +404,19 @@ fn hunting_policy_moves(
         &enclosure,
     );
 
-    let candidates = MoveMask::from_iter(
+    let mut candidates = MoveMask::from_iter(
         output
             .candidates
             .iter()
             .map(|candidate| candidate.first_move),
     );
+    candidates.union_with(project_hunting_plan_moves(
+        &perspective,
+        &enemy.id,
+        current,
+        &territory,
+        &output,
+    ));
 
     current.intersection(candidates)
 }
