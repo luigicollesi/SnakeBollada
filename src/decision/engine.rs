@@ -1628,4 +1628,14 @@ mod tests {
             Ordering::Less
         );
     }
+    #[test]
+    fn escape_intent_does_not_override_food_after_pressure_is_released() {
+        let intent = DecisionIntent::Escape(EscapeIntent::new(10, 800));
+
+        assert!(!escape_should_override(Some(&intent), 250));
+        assert!(escape_should_override(Some(&intent), 450));
+        assert!(escape_should_override(None, ESCAPE_ACTIVATION_THRESHOLD_MILLI));
+    }
+
+
 }
