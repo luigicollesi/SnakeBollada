@@ -125,12 +125,9 @@ impl TransitionFacts {
                     ate_food.insert(snake.clone());
                 }
                 InstantEvent::EnemyKilled {
-                    enemy,
-                    attribution,
-                    ..
+                    enemy, attribution, ..
                 } => {
-                    if let Some(killer) =
-                        attributed_actor(attribution, &parent.state.our_snake_id)
+                    if let Some(killer) = attributed_actor(attribution, &parent.state.our_snake_id)
                     {
                         if killer != enemy {
                             kill_benefits
@@ -146,7 +143,12 @@ impl TransitionFacts {
             }
         }
 
-        let living_after = child.state.snakes.iter().filter(|snake| snake.alive).count();
+        let living_after = child
+            .state
+            .snakes
+            .iter()
+            .filter(|snake| snake.alive)
+            .count();
         let mut actors = HashMap::new();
 
         for actor in parent.state.snakes.iter().filter(|snake| snake.alive) {
@@ -173,10 +175,9 @@ impl TransitionFacts {
                 }),
                 border_risk_improvement_milli: after.map_or(0, |snapshot| {
                     signed_i16(
-                        i32::from(before.metrics.border_structural_risk_milli)
-                            .saturating_sub(i32::from(
-                                snapshot.metrics.border_structural_risk_milli,
-                            )),
+                        i32::from(before.metrics.border_structural_risk_milli).saturating_sub(
+                            i32::from(snapshot.metrics.border_structural_risk_milli),
+                        ),
                     )
                 }),
                 enclosure_improvement: after.map_or(0, |snapshot| {
@@ -185,10 +186,7 @@ impl TransitionFacts {
                             .saturating_sub(i16::from(snapshot.metrics.enclosure_risk)),
                     )
                 }),
-                hunting_territory_benefit: hunting_transfers
-                    .get(&actor.id)
-                    .copied()
-                    .unwrap_or(0),
+                hunting_territory_benefit: hunting_transfers.get(&actor.id).copied().unwrap_or(0),
                 kill_benefit: kill_benefits.get(&actor.id).copied().unwrap_or(0),
                 died: after.is_none(),
                 sole_survivor: after.is_some() && living_after == 1,
@@ -359,14 +357,22 @@ fn signed_i16(value: i32) -> i16 {
     value
         .clamp(i32::from(i16::MIN), i32::from(i16::MAX))
         .try_into()
-        .unwrap_or(if value.is_negative() { i16::MIN } else { i16::MAX })
+        .unwrap_or(if value.is_negative() {
+            i16::MIN
+        } else {
+            i16::MAX
+        })
 }
 
 fn signed_i8(value: i16) -> i8 {
     value
         .clamp(i16::from(i8::MIN), i16::from(i8::MAX))
         .try_into()
-        .unwrap_or(if value.is_negative() { i8::MIN } else { i8::MAX })
+        .unwrap_or(if value.is_negative() {
+            i8::MIN
+        } else {
+            i8::MAX
+        })
 }
 
 fn add_signed_delta(value: i64, benefit: &mut i64, harm: &mut i64) {
