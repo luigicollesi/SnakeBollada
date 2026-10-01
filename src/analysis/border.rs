@@ -6,6 +6,7 @@ use rayon::prelude::*;
 
 use crate::analysis::{TacticalStateAnalysis, TerritoryAnalysis};
 use crate::direction::{Direction, MoveMask};
+use crate::simulation::mobility::MobilityAnalysis;
 use crate::simulation::state::SimulatedGameState;
 use crate::Coord;
 
@@ -41,20 +42,22 @@ impl BorderFobicAnalysis {
         tactical: &TacticalStateAnalysis,
         territory: &TerritoryAnalysis,
     ) -> Self {
-        Self::from_parts_with_territory_scope(state, tactical, territory, false)
+        Self::from_parts_with_territory_scope(state, tactical, None, territory, false)
     }
 
     pub(crate) fn from_parts_with_territory_actor_relative(
         state: &SimulatedGameState,
         tactical: &TacticalStateAnalysis,
+        mobility: &MobilityAnalysis,
         territory: &TerritoryAnalysis,
     ) -> Self {
-        Self::from_parts_with_territory_scope(state, tactical, territory, true)
+        Self::from_parts_with_territory_scope(state, tactical, Some(mobility), territory, true)
     }
 
     fn from_parts_with_territory_scope(
         state: &SimulatedGameState,
         tactical: &TacticalStateAnalysis,
+        mobility: Option<&MobilityAnalysis>,
         territory: &TerritoryAnalysis,
         all_legal_enemy_moves: bool,
     ) -> Self {
@@ -64,8 +67,13 @@ impl BorderFobicAnalysis {
             .filter(|snake| snake.alive)
             .filter_map(|snake| {
                 let head = snake.head()?;
-                let safe_moves =
-                    actor_safe_moves(state, tactical, &snake.id, all_legal_enemy_moves);
+                let safe_moves = actor_safe_moves(
+                    state,
+                    tactical,
+                    mobility,
+                    &snake.id,
+                    all_legal_enemy_moves,
+                );
                 let fear_milli = length_fear_milli(state, snake.length());
                 let head_edge_distance = edge_distance(state, head);
                 let body_on_edge = snake
@@ -232,9 +240,14 @@ impl BorderFobicAnalysis {
 fn actor_safe_moves(
     state: &SimulatedGameState,
     tactical: &TacticalStateAnalysis,
+    mobility: Option<&MobilityAnalysis>,
     actor_id: &str,
     all_legal_enemy_moves: bool,
 ) -> MoveMask {
+    if let Some(mobility) = mobility {
+        return mobility.deterministic_moves_for(state, actor_id);
+    }
+
     if actor_id == state.our_snake_id {
         return tactical.ours.safe_moves;
     }
