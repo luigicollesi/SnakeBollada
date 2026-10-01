@@ -2,6 +2,8 @@
 
 use std::collections::HashMap;
 
+use rayon::prelude::*;
+
 use crate::analysis::StateAnalysis;
 use crate::direction::{Direction, MoveMask};
 use crate::enemy::profile::OpponentProfile;
@@ -184,18 +186,17 @@ pub(crate) fn trace_with_mobility(
     analysis: &StateAnalysis,
     mobility: &MobilityAnalysis,
 ) -> EnemyTracingOutput {
-    let mut enemies = HashMap::new();
-
-    for enemy in state
+    let enemies = state
         .snakes
-        .iter()
+        .par_iter()
         .filter(|snake| snake.alive && snake.id != state.our_snake_id)
-    {
-        enemies.insert(
-            enemy.id.clone(),
-            trace_enemy(state, analysis, mobility, enemy),
-        );
-    }
+        .map(|enemy| {
+            (
+                enemy.id.clone(),
+                trace_enemy(state, analysis, mobility, enemy),
+            )
+        })
+        .collect::<HashMap<_, _>>();
 
     EnemyTracingOutput { enemies }
 }
