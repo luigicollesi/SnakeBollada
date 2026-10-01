@@ -101,6 +101,7 @@ pub(crate) fn analyze(
         let length_advantage = ours.length() as i32 - enemy.length() as i32;
 
         if length_advantage > 0 {
+            let candidates_before = candidates.len();
             collect_head_candidates(
                 &mut candidates,
                 &enemy.id,
@@ -110,13 +111,30 @@ pub(crate) fn analyze(
                 move_set,
                 tactical,
             );
-
-            plans.push(HuntingPlanCandidate {
-                target: enemy.id.clone(),
-                kind: HuntingPlanKind::HeadPressure,
-                score_milli: (160 + length_advantage.max(0) as u16 * 35).min(320),
-                length_advantage,
-            });
+            let new_head_candidates = candidates.len().saturating_sub(candidates_before);
+            if new_head_candidates > 0 {
+                let dominance_bonus = our_competitive.map_or(0, |snapshot| {
+                    snapshot
+                        .favorable_head_frontier
+                        .min(3)
+                        .saturating_mul(60)
+                        .saturating_add(
+                            snapshot
+                                .dominance_frontier_cells
+                                .min(4)
+                                .saturating_mul(25),
+                        )
+                });
+                plans.push(HuntingPlanCandidate {
+                    target: enemy.id.clone(),
+                    kind: HuntingPlanKind::HeadPressure,
+                    score_milli: (220
+                        + length_advantage.max(0) as u16 * 35
+                        + dominance_bonus)
+                        .min(520),
+                    length_advantage,
+                });
+            }
         }
 
         if ours.length() >= EDGE_PIN_MIN_LENGTH
