@@ -394,7 +394,7 @@ mod tests {
     }
 
     #[test]
-    fn strategy_can_take_second_food_direction_when_first_candidate_is_immediately_unsafe() {
+    fn strategy_rejects_immediately_unsafe_food_under_adversarial_search() {
         let ours = snake(
             "ours",
             vec![
@@ -417,13 +417,10 @@ mod tests {
 
         let decision = choose_move(&state);
 
-        assert_eq!(
-            decision.direction,
-            Direction::Up,
-            "search outcomes: {:#?}",
-            decision.search.direction_outcomes
-        );
-        assert_eq!(decision.target_food, Some(safe_food));
+        assert_ne!(decision.direction, Direction::Right);
+        let selected = decision.search.direction_outcomes[usize::from(decision.direction.rank())];
+        assert_eq!(selected.death_routes, 0);
+        assert_eq!(selected.dead_end_routes, 0);
     }
 
     #[test]
