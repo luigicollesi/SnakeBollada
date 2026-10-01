@@ -1,10 +1,12 @@
 use std::cmp::Ordering;
 
+use crate::analysis::StrategicPosture;
+
 use crate::decision::evaluation::{
     choose_best_direction, evaluate_graph_budgeted, DagEvaluationStats, DirectionEvaluation,
     TerminalAssessment,
 };
-use crate::decision::intent::{DecisionIntent, HuntIntent};
+use crate::decision::intent::{committable_hunt_plan, DecisionIntent, HuntIntent};
 use crate::decision::policy::ReservedCellPolicy;
 use crate::forecast::ForecastCertainty;
 use crate::modes::{food, hunting::HuntingPlanKind};
@@ -187,11 +189,57 @@ impl DecisionEngine {
             })
             .unwrap_or_default();
 
+        let posture = *root_analysis.posture;
         let guaranteed_kill_choice =
             choose_guaranteed_kill(&evaluations, &root.state, robust_safe_moves, policy);
 
-        let committed_food_choice = (!preferred_candidates.is_empty()
+        let critical_food_choice = (posture.food_is_critical()
             && guaranteed_kill_choice.is_none())
+        .then(|| {
+            choose_food_opening(
+                &evaluations,
+                &food_candidates.candidates,
+                &preferred_candidates,
+                &root.state,
+                robust_safe_moves,
+                policy,
+            )
+        })
+        .flatten();
+
+        let dominant_hunt_plan = (posture.favors_dominant_hunt()
+            && guaranteed_kill_choice.is_none()
+            && critical_food_choice.is_none())
+        .then(|| {
+            root_analysis
+                .hunting
+                .plans
+                .iter()
+                .find(|plan| committable_hunt_plan(plan) && plan.score_milli >= 400)
+        })
+        .flatten();
+        let dominant_hunt_intent = dominant_hunt_plan
+            .map(|plan| HuntIntent::new(plan, root.state.turn));
+        let dominant_hunt_choice = dominant_hunt_intent.as_ref().and_then(|hunt| {
+            choose_hunt_intent(&evaluations, graph, hunt, robust_safe_moves, policy)
+        });
+
+        let hunt_intent_choice = intent
+            .and_then(DecisionIntent::hunt)
+            .filter(|_| {
+                guaranteed_kill_choice.is_none()
+                    && critical_food_choice.is_none()
+                    && dominant_hunt_choice.is_none()
+            })
+            .and_then(|hunt| {
+                choose_hunt_intent(&evaluations, graph, hunt, robust_safe_moves, policy)
+            });
+
+        let committed_food_choice = (!preferred_candidates.is_empty()
+            && guaranteed_kill_choice.is_none()
+            && critical_food_choice.is_none()
+            && dominant_hunt_choice.is_none()
+            && hunt_intent_choice.is_none())
         .then(|| {
             choose_food_opening(
                 &evaluations,
@@ -204,16 +252,12 @@ impl DecisionEngine {
         })
         .flatten();
 
-        let hunt_intent_choice = intent
-            .and_then(DecisionIntent::hunt)
-            .filter(|_| committed_food_choice.is_none() && guaranteed_kill_choice.is_none())
-            .and_then(|hunt| {
-                choose_hunt_intent(&evaluations, graph, hunt, robust_safe_moves, policy)
-            });
-
         let opening_food_choice = (prioritize_food
+            && !posture.favors_dominant_hunt()
             && committed_food_choice.is_none()
             && hunt_intent_choice.is_none()
+            && dominant_hunt_choice.is_none()
+            && critical_food_choice.is_none()
             && guaranteed_kill_choice.is_none())
         .then(|| {
             choose_food_opening(
@@ -229,11 +273,17 @@ impl DecisionEngine {
 
         let Some(best) = guaranteed_kill_choice
             .or_else(|| {
+                critical_food_choice
+                    .as_ref()
+                    .map(|(evaluation, _)| *evaluation)
+            })
+            .or(dominant_hunt_choice)
+            .or(hunt_intent_choice)
+            .or_else(|| {
                 committed_food_choice
                     .as_ref()
                     .map(|(evaluation, _)| *evaluation)
             })
-            .or(hunt_intent_choice)
             .or_else(|| {
                 opening_food_choice
                     .as_ref()
@@ -246,10 +296,14 @@ impl DecisionEngine {
             return baseline_fallback(state);
         };
 
-        let selected_food_choice = committed_food_choice
+        let selected_food_choice = critical_food_choice
             .as_ref()
+            .or(committed_food_choice.as_ref())
             .or(opening_food_choice.as_ref());
-        let food_target = if guaranteed_kill_choice.is_some() || hunt_intent_choice.is_some() {
+        let food_target = if guaranteed_kill_choice.is_some()
+            || dominant_hunt_choice.is_some()
+            || hunt_intent_choice.is_some()
+        {
             None
         } else {
             selected_food_choice
@@ -268,9 +322,15 @@ impl DecisionEngine {
             .mobility
             .reachable_space(&root.state, &root.state.our_snake_id, best.direction);
 
-        let reason = if guaranteed_kill_choice.is_some() || hunt_intent_choice.is_some() {
+        let reason = if guaranteed_kill_choice.is_some()
+            || dominant_hunt_choice.is_some()
+            || hunt_intent_choice.is_some()
+        {
             DecisionReason::HuntingTactical
-        } else if committed_food_choice.is_some() || opening_food_choice.is_some() {
+        } else if critical_food_choice.is_some()
+            || committed_food_choice.is_some()
+            || opening_food_choice.is_some()
+        {
             DecisionReason::FoodStrategic
         } else {
             classify_decision_reason(best, &evaluations, &root.state, robust_safe_moves, policy)
@@ -620,9 +680,11 @@ fn classify_decision_reason(
 
     let average_food = best.average_food_value;
     let average_hunting = best.average_hunting_value;
-    let aggression = state.aggression.value.clamp(0.0, 1.0);
-    let food_contribution = average_food * (1.0 - aggression);
-    let hunting_contribution = average_hunting * aggression;
+    let posture = StrategicPosture::from_state(state);
+    let food_contribution =
+        average_food * (f32::from(posture.food_drive_milli()) / 1000.0);
+    let hunting_contribution =
+        average_hunting * (f32::from(posture.hunt_drive_milli) / 1000.0);
 
     if hunting_contribution > food_contribution && hunting_contribution > 0.0 {
         DecisionReason::HuntingTactical
