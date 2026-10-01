@@ -999,6 +999,49 @@ mod tests {
     }
 
     #[test]
+    fn actor_relative_territory_preserves_core_ownership() {
+        let state = state(
+            7,
+            7,
+            vec![
+                snake("ours", &[(1, 3), (1, 2), (1, 1)]),
+                snake("enemy", &[(5, 3), (5, 2), (5, 1)]),
+            ],
+        );
+        let spatial = SpatialOccupancy::from_state(&state);
+        let full = TerritoryAnalysis::from_spatial(&state, &spatial);
+        let lean = TerritoryAnalysis::from_spatial_actor_relative(&state, &spatial);
+
+        for snake_id in ["ours", "enemy"] {
+            let full_snapshot = full.for_snake(snake_id).unwrap();
+            let lean_snapshot = lean.for_snake(snake_id).unwrap();
+
+            assert_eq!(lean_snapshot.reachable_space, full_snapshot.reachable_space);
+            assert_eq!(lean_snapshot.exclusive_space, full_snapshot.exclusive_space);
+            assert_eq!(lean_snapshot.contested_space, full_snapshot.contested_space);
+            assert_eq!(lean_snapshot.escape_frontier, full_snapshot.escape_frontier);
+            assert_eq!(lean_snapshot.edge_distance, full_snapshot.edge_distance);
+        }
+
+        for y in 0..state.height {
+            for x in 0..state.width {
+                let coord = Coord {
+                    x: i32::try_from(x).unwrap(),
+                    y: i32::try_from(y).unwrap(),
+                };
+                assert_eq!(
+                    lean.competitive_owner_at(coord),
+                    full.competitive_owner_at(coord)
+                );
+                assert_eq!(
+                    lean.competitive_is_contested_at(coord),
+                    full.competitive_is_contested_at(coord)
+                );
+            }
+        }
+    }
+
+    #[test]
     fn wall_creates_useful_single_cell_choke() {
         let state = state(
             7,
