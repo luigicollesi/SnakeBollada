@@ -532,23 +532,20 @@ fn run_beam_shadow(
             metadata.agreed_with_legacy = best.root_direction == legacy_direction;
             metadata.best_value = best.value;
 
-            let our_id = shadow_graph.node(shadow_graph.root()).state.our_snake_id.as_str();
+            let our_id = shadow_graph
+                .node(shadow_graph.root())
+                .state
+                .our_snake_id
+                .as_str();
             for step in &best.steps {
                 for (actor_id, score) in step.transition.actors.iter() {
                     let food = score.food_benefit.saturating_sub(score.food_harm);
-                    let hunting = score
-                        .hunting_benefit
-                        .saturating_sub(score.hunting_harm);
-                    let survival = score
-                        .survival_benefit
-                        .saturating_sub(score.survival_harm);
-                    let terminal = score
-                        .terminal_benefit
-                        .saturating_sub(score.terminal_harm);
+                    let hunting = score.hunting_benefit.saturating_sub(score.hunting_harm);
+                    let survival = score.survival_benefit.saturating_sub(score.survival_harm);
+                    let terminal = score.terminal_benefit.saturating_sub(score.terminal_harm);
 
                     if actor_id == our_id {
-                        metadata.our_food_utility =
-                            metadata.our_food_utility.saturating_add(food);
+                        metadata.our_food_utility = metadata.our_food_utility.saturating_add(food);
                         metadata.our_hunting_utility =
                             metadata.our_hunting_utility.saturating_add(hunting);
                         metadata.our_survival_utility =
@@ -558,15 +555,12 @@ fn run_beam_shadow(
                     } else {
                         metadata.opponent_food_utility =
                             metadata.opponent_food_utility.saturating_add(food);
-                        metadata.opponent_hunting_utility = metadata
-                            .opponent_hunting_utility
-                            .saturating_add(hunting);
-                        metadata.opponent_survival_utility = metadata
-                            .opponent_survival_utility
-                            .saturating_add(survival);
-                        metadata.opponent_terminal_utility = metadata
-                            .opponent_terminal_utility
-                            .saturating_add(terminal);
+                        metadata.opponent_hunting_utility =
+                            metadata.opponent_hunting_utility.saturating_add(hunting);
+                        metadata.opponent_survival_utility =
+                            metadata.opponent_survival_utility.saturating_add(survival);
+                        metadata.opponent_terminal_utility =
+                            metadata.opponent_terminal_utility.saturating_add(terminal);
                     }
                 }
             }
