@@ -50,11 +50,7 @@ pub(crate) fn edge_priority(
     let our_id = parent.state.our_snake_id.as_str();
     let our_before = actor_net(parent, our_id).unwrap_or(0);
     let our_after = actor_net(child, our_id).unwrap_or_else(|| {
-        if child
-            .state
-            .snake(our_id)
-            .is_some_and(|snake| !snake.alive)
-        {
+        if child.state.snake(our_id).is_some_and(|snake| !snake.alive) {
             -1_000_000_000
         } else {
             0
@@ -99,10 +95,7 @@ pub(crate) fn edge_priority(
     }
 }
 
-pub(crate) fn ordered_child_ids_for_search(
-    graph: &FutureGraph,
-    node_id: NodeId,
-) -> Vec<NodeId> {
+pub(crate) fn ordered_child_ids_for_search(graph: &FutureGraph, node_id: NodeId) -> Vec<NodeId> {
     let node = graph.node(node_id);
     let our_id = node.state.our_snake_id.as_str();
     let mut direction_scores = HashMap::<Direction, i64>::new();
@@ -128,13 +121,15 @@ pub(crate) fn ordered_child_ids_for_search(
 
     let mut ranked = ranked
         .into_iter()
-        .map(|(edge_index, direction, opponent_score, child)| RankedEdge {
-            edge_index,
-            direction,
-            direction_score: direction_scores.get(&direction).copied().unwrap_or(0),
-            opponent_score,
-            child,
-        })
+        .map(
+            |(edge_index, direction, opponent_score, child)| RankedEdge {
+                edge_index,
+                direction,
+                direction_score: direction_scores.get(&direction).copied().unwrap_or(0),
+                opponent_score,
+                child,
+            },
+        )
         .collect::<Vec<_>>();
 
     ranked.sort_by(|left, right| {
@@ -244,11 +239,7 @@ mod tests {
             .filter_map(|edge| {
                 let child = graph.node(edge.child);
                 let priority = edge_priority(root, edge, child);
-                (!child
-                    .state
-                    .snake("ours")
-                    .is_some_and(|snake| snake.alive))
-                .then_some(priority)
+                (!child.state.snake("ours").is_some_and(|snake| snake.alive)).then_some(priority)
             })
             .max_by_key(|priority| priority.opponent_search_score())
             .expect("scenario must contain a lethal response");
