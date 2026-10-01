@@ -131,10 +131,16 @@ mod tests {
         assert_eq!(result.stats.completed_depth, SEED_DEPTH);
         assert!(!result.checkpoint.lines.is_empty());
         assert!(result.checkpoint.lines.len() <= BEAM_WIDTH);
-        assert!(result.checkpoint.lines.iter().all(|line| line.bound.is_exact()));
-        assert!(result.checkpoint.lines.iter().all(|line| {
-            line.terminal != LineTerminal::Running || line.depth == SEED_DEPTH
-        }));
+        assert!(result
+            .checkpoint
+            .lines
+            .iter()
+            .all(|line| line.bound.is_exact()));
+        assert!(result
+            .checkpoint
+            .lines
+            .iter()
+            .all(|line| { line.terminal != LineTerminal::Running || line.depth == SEED_DEPTH }));
     }
 
     #[test]
@@ -142,6 +148,8 @@ mod tests {
         let mut graph = FutureGraph::new(state());
         let budget = SearchBudget::for_duration(Duration::ZERO);
 
-        assert!(build_seed_checkpoint(&mut graph, &budget).unwrap().is_none());
+        assert!(build_seed_checkpoint(&mut graph, &budget)
+            .unwrap()
+            .is_none());
     }
 }
