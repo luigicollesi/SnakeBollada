@@ -24,6 +24,22 @@ pub(crate) struct StrategicPosture {
     pub(crate) food_urgency_milli: u16,
 }
 
+impl Default for StrategicPosture {
+    fn default() -> Self {
+        Self {
+            phase: StrategicPhase::Growth,
+            our_length: 0,
+            largest_enemy_length: 0,
+            lead_over_largest_enemy: 0,
+            unique_largest: false,
+            growth_aggression_milli: 0,
+            size_dominance_milli: 0,
+            hunt_drive_milli: 0,
+            food_urgency_milli: 0,
+        }
+    }
+}
+
 impl StrategicPosture {
     pub(crate) fn from_state(state: &SimulatedGameState) -> Self {
         let Some(ours) = state.snake(&state.our_snake_id).filter(|snake| snake.alive) else {
