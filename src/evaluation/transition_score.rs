@@ -147,6 +147,10 @@ impl TransitionFacts {
                 continue;
             };
             let after = actor_evaluation(child, &actor.id);
+            let alive_after = child
+                .state
+                .snake(&actor.id)
+                .is_some_and(|snake| snake.alive);
 
             let facts = ActorTransitionFacts {
                 ate_food: ate_food.get(&actor.id).copied().unwrap_or(false),
@@ -179,8 +183,8 @@ impl TransitionFacts {
                 }),
                 hunting_territory_benefit: hunting_transfers.get(&actor.id).copied().unwrap_or(0),
                 kill_benefit: kill_benefits.get(&actor.id).copied().unwrap_or(0),
-                died: after.is_none(),
-                sole_survivor: after.is_some() && living_after == 1,
+                died: !alive_after,
+                sole_survivor: alive_after && living_after == 1,
             };
             actors.insert(actor.id.clone(), facts);
         }
@@ -517,16 +521,16 @@ mod tests {
     }
 
     #[test]
-    fn actor_death_is_terminal_and_not_scaled_by_survival_weight() {
-        let mut graph = FutureGraph::new(SimulatedGameState {
+    fn actor_death_and_sole_survivor_are_terminal_without_child_analysis() {
+        let parent_state = SimulatedGameState {
             turn: 1,
-            width: 3,
-            height: 3,
+            width: 5,
+            height: 5,
             food: vec![],
             hazards: vec![],
             snakes: vec![
                 snake("ours", 100, &[(1, 1), (1, 0)]),
-                snake("enemy", 100, &[(2, 1), (2, 0)]),
+                snake("enemy", 100, &[(3, 1), (3, 0)]),
             ],
             our_snake_id: "ours".to_string(),
             rules: RulesContext {
@@ -535,22 +539,28 @@ mod tests {
                 hazard_damage_per_turn: 0,
             },
             aggression: AggressionState::default(),
-        });
-        graph.use_beam_lean_analysis();
-        graph.expand_to_depth(1).unwrap();
+        };
+        let mut child_state = parent_state.clone();
+        child_state.turn = child_state.turn.saturating_add(1);
+        child_state.snake_mut("enemy").unwrap().alive = false;
 
-        let root = graph.node(graph.root());
-        let edge = root
-            .children
-            .iter()
-            .find(|edge| {
-                let child = graph.node(edge.child);
-                child.state.snake("enemy").is_none_or(|snake| !snake.alive)
-            })
-            .expect("expected a joint action that eliminates enemy");
-        let enemy = edge.transition.for_actor("enemy").unwrap();
+        let parent_graph = FutureGraph::new(parent_state);
+        let child_graph = FutureGraph::new(child_state);
+        let score = TransitionScore::from_parts(
+            parent_graph.node(parent_graph.root()),
+            &[],
+            child_graph.node(child_graph.root()),
+        );
+
+        let ours = score.for_actor("ours").unwrap();
+        let enemy = score.for_actor("enemy").unwrap();
+
+        assert_eq!(ours.terminal_benefit, TERMINAL_UTILITY);
+        assert_eq!(ours.terminal_harm, 0);
+        assert!(ours.net >= TERMINAL_UTILITY);
 
         assert_eq!(enemy.terminal_harm, TERMINAL_UTILITY);
+        assert_eq!(enemy.terminal_benefit, 0);
         assert!(enemy.net <= -TERMINAL_UTILITY);
     }
 
