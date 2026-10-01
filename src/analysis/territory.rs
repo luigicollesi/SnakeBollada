@@ -289,7 +289,7 @@ impl TerritoryStructural {
 fn useful_chokes_for_snake(
     snake: &crate::simulation::state::SimulatedSnake,
     core: &TerritoryCore,
-    articulation: &[Coord],
+    articulation: &HashSet<Coord>,
 ) -> Option<Vec<ChokePoint>> {
     let head = snake.head()?;
     let field = core.distances.get(&snake.id)?;
