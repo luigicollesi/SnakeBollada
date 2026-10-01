@@ -41,8 +41,12 @@ pub(crate) struct DirectionSurvivalSummary {
 
 impl DirectionSurvivalSummary {
     fn leaf(node: &SearchNode, terminal: TerminalAssessment) -> Self {
-        let safe_moves = node.active_analysis().map_or(0, |analysis| analysis.tactical.ours.safe_moves.len());
-        let reachable_space = node.active_analysis().map_or(0, |analysis| analysis.tactical.ours.best_reachable_space);
+        let safe_moves = node
+            .active_analysis()
+            .map_or(0, |analysis| analysis.tactical.ours.safe_moves.len());
+        let reachable_space = node
+            .active_analysis()
+            .map_or(0, |analysis| analysis.tactical.ours.best_reachable_space);
 
         Self {
             total_routes: 1,
@@ -235,8 +239,7 @@ impl DagEvaluator<'_> {
             let best = choose_best_direction(
                 &directions,
                 &node.state,
-                node
-                    .active_analysis()
+                node.active_analysis()
                     .expect("running search node must have analysis")
                     .tactical
                     .ours
@@ -412,7 +415,9 @@ fn apply_edge(
         .iter()
         .any(|event| matches!(event, InstantEvent::SelfConstrained { remaining_moves: 2 }));
 
-    let child_safe_moves = child_node.active_analysis().map_or(0, |analysis| analysis.tactical.ours.safe_moves.len());
+    let child_safe_moves = child_node
+        .active_analysis()
+        .map_or(0, |analysis| analysis.tactical.ours.safe_moves.len());
     let mut survival = child.survival;
     if death_now {
         survival.death_routes = route_count;
@@ -427,9 +432,11 @@ fn apply_edge(
         survival.constrained_routes = route_count;
     }
     survival.min_future_mobility = survival.min_future_mobility.min(child_safe_moves);
-    survival.min_reachable_space = survival
-        .min_reachable_space
-        .min(child_node.active_analysis().map_or(0, |analysis| analysis.tactical.ours.best_reachable_space));
+    survival.min_reachable_space = survival.min_reachable_space.min(
+        child_node
+            .active_analysis()
+            .map_or(0, |analysis| analysis.tactical.ours.best_reachable_space),
+    );
     survival.min_second_order_mobility = survival
         .min_second_order_mobility
         .min(u32::from(child_safe_moves));
