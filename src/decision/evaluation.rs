@@ -34,6 +34,7 @@ pub(crate) struct DirectionSurvivalSummary {
     pub(crate) dead_end_routes: u64,
     pub(crate) forced_routes: u64,
     pub(crate) constrained_routes: u64,
+    pub(crate) max_self_enclosure_risk: u8,
     pub(crate) min_future_mobility: u8,
     pub(crate) min_reachable_space: u32,
     pub(crate) min_second_order_mobility: u32,
@@ -47,6 +48,12 @@ impl DirectionSurvivalSummary {
         let reachable_space = node
             .active_analysis()
             .map_or(0, |analysis| analysis.tactical.ours.best_reachable_space);
+        let enclosure_risk = node.active_analysis().map_or(0, |analysis| {
+            analysis
+                .enclosure
+                .ours(&node.state)
+                .map_or(0, |snapshot| snapshot.risk.rank())
+        });
 
         Self {
             total_routes: 1,
@@ -54,6 +61,7 @@ impl DirectionSurvivalSummary {
             dead_end_routes: u64::from(terminal != TerminalAssessment::Lost && safe_moves == 0),
             forced_routes: u64::from(terminal != TerminalAssessment::Lost && safe_moves == 1),
             constrained_routes: u64::from(terminal != TerminalAssessment::Lost && safe_moves == 2),
+            max_self_enclosure_risk: enclosure_risk,
             min_future_mobility: safe_moves,
             min_reachable_space: reachable_space,
             min_second_order_mobility: u32::from(safe_moves),
@@ -65,6 +73,11 @@ impl DirectionSurvivalSummary {
             .active_analysis()
             .expect("running parent must have analysis");
         let safe_moves = analysis.tactical.ours.safe_moves.len();
+        let enclosure_risk = analysis
+            .enclosure
+            .ours(&parent.state)
+            .map_or(0, |snapshot| snapshot.risk.rank());
+        self.max_self_enclosure_risk = self.max_self_enclosure_risk.max(enclosure_risk);
         self.min_future_mobility = self.min_future_mobility.min(safe_moves);
         self.min_reachable_space = self
             .min_reachable_space
@@ -409,7 +422,8 @@ fn apply_edge(
             )
         })
         .count() as f32;
-    let realized_hunting = edge_hunting_delta(parent, edge);
+    let realized_hunting =
+        edge_hunting_delta(parent, edge) + territorial_setup_delta(parent, child_node);
     let guaranteed_enemy_kills = child
         .guaranteed_enemy_kills
         .saturating_add(edge_enemy_kills(edge));
@@ -439,7 +453,15 @@ fn apply_edge(
     let child_safe_moves = child_node
         .active_analysis()
         .map_or(0, |analysis| analysis.tactical.ours.safe_moves.len());
+    let child_enclosure_risk = child_node.active_analysis().map_or(0, |analysis| {
+        analysis
+            .enclosure
+            .ours(&child_node.state)
+            .map_or(0, |snapshot| snapshot.risk.rank())
+    });
     let mut survival = child.survival;
+    survival.max_self_enclosure_risk =
+        survival.max_self_enclosure_risk.max(child_enclosure_risk);
     if death_now {
         survival.death_routes = route_count;
     }
@@ -503,6 +525,17 @@ fn aggregate_direction(
         dead_end_routes: saturating_sum(outcomes, |outcome| outcome.survival.dead_end_routes),
         forced_routes: saturating_sum(outcomes, |outcome| outcome.survival.forced_routes),
         constrained_routes: saturating_sum(outcomes, |outcome| outcome.survival.constrained_routes),
+        max_self_enclosure_risk: outcomes
+            .iter()
+            .map(|outcome| outcome.survival.max_self_enclosure_risk)
+            .max()
+            .unwrap_or(0)
+            .max(
+                parent
+                    .active_analysis()
+                    .and_then(|analysis| analysis.enclosure.ours(&parent.state))
+                    .map_or(0, |snapshot| snapshot.risk.rank()),
+            ),
         min_future_mobility: outcomes
             .iter()
             .map(|outcome| outcome.survival.min_future_mobility)
@@ -678,6 +711,17 @@ fn enemy_pressure_level(node: &SearchNode, enemy_id: &str) -> f32 {
     }
 }
 
+fn territorial_setup_delta(parent: &SearchNode, child: &SearchNode) -> f32 {
+    let before = parent
+        .active_analysis()
+        .map_or(0.0, |analysis| analysis.hunting.best_plan_score());
+    let after = child
+        .active_analysis()
+        .map_or(0.0, |analysis| analysis.hunting.best_plan_score());
+
+    (after - before).max(0.0) * 0.35
+}
+
 fn edge_enemy_kills(edge: &SearchEdge) -> u16 {
     let mut killed = HashSet::new();
 
@@ -784,9 +828,11 @@ fn hunting_leaf_potential(node: &SearchNode) -> f32 {
     let Some(ours) = node.state.snake(&node.state.our_snake_id) else {
         return 0.0;
     };
+    let analysis = node
+        .active_analysis()
+        .expect("running leaf must have analysis");
 
-    node.active_analysis()
-        .expect("running leaf must have analysis")
+    let tactical_pressure = analysis
         .tactical
         .enemies
         .values()
@@ -810,8 +856,11 @@ fn hunting_leaf_potential(node: &SearchNode) -> f32 {
             Some((0.35 * mobility_pressure + 0.15 * space_pressure) * length_factor)
         })
         .reduce(f32::max)
-        .unwrap_or(0.0)
-        .min(0.5)
+        .unwrap_or(0.0);
+
+    tactical_pressure
+        .max(analysis.hunting.best_plan_score())
+        .min(1.0)
 }
 
 pub(crate) fn choose_best_direction<'a>(
@@ -854,6 +903,11 @@ pub(crate) fn compare_direction(
             left.survival
                 .has_constrained_response()
                 .cmp(&right.survival.has_constrained_response())
+        })
+        .then_with(|| {
+            left.survival
+                .max_self_enclosure_risk
+                .cmp(&right.survival.max_self_enclosure_risk)
         })
         .then_with(|| {
             effective_reserved_penalty(policy, state, left)
@@ -953,6 +1007,7 @@ mod tests {
             dead_end_routes: 0,
             forced_routes: 0,
             constrained_routes: 0,
+            max_self_enclosure_risk: 0,
             min_future_mobility: mobility,
             min_reachable_space: 20,
             min_second_order_mobility: u32::from(mobility),
