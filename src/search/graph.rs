@@ -126,6 +126,12 @@ pub(crate) struct NodeAnalysis {
 }
 
 #[derive(Debug, Clone)]
+impl NodeAnalysis {
+    pub(crate) fn actor_snapshot(&self, actor_id: &str) -> Option<&ActorSnapshot> {
+        self.actor_snapshots.get(actor_id)
+    }
+}
+
 pub(crate) struct SearchNode {
     pub(crate) state: SimulatedGameState,
     pub(crate) key: StateKey,
@@ -1032,11 +1038,8 @@ fn build_node_with_key(
         let actor_snapshots = state
             .snakes
             .par_iter()
-            .map(|snake| {
-                if !snake.alive {
-                    return None;
-                }
-
+            .filter(|snake| snake.alive)
+            .filter_map(|snake| {
                 let context = ActorContext::from_state(&state, &snake.id)?;
                 let metrics = ActorUtilityMetrics::from_parts(
                     &state,
@@ -1047,9 +1050,9 @@ fn build_node_with_key(
                     &enclosure,
                     &border,
                 )?;
-                Some(ActorSnapshot::new(context, metrics))
+                Some((snake.id.clone(), ActorSnapshot::new(context, metrics)))
             })
-            .collect::<Vec<_>>();
+            .collect::<ActorTable<_>>();
         Some(Arc::new(NodeAnalysis {
             state: state_analysis,
             mobility,
@@ -1122,22 +1125,15 @@ mod tests {
 
         let root = graph.node(graph.root());
         let ours = analysis
-            .actor_snapshot(&root.state, "ours")
+            .actor_snapshot("ours")
             .expect("our actor evaluation must exist");
         let enemy = analysis
-            .actor_snapshot(&root.state, "enemy")
+            .actor_snapshot("enemy")
             .expect("enemy actor evaluation must exist");
 
         assert_eq!(ours.weights.total(), 1000);
         assert_eq!(enemy.weights.total(), 1000);
-        assert_eq!(
-            analysis
-                .actor_snapshots
-                .iter()
-                .filter(|snapshot| snapshot.is_some())
-                .count(),
-            2
-        );
+        assert_eq!(analysis.actor_snapshots.len(), 2);
     }
 
     #[test]
