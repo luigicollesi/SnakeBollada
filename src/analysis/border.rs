@@ -109,17 +109,16 @@ impl BorderFobicAnalysis {
             .saturating_add(corner_penalty)
             .min(1000);
         let structural_risk_milli = scale_by_fear(structural_base, fear_milli);
-        let inward_control_milli = inward_control_milli(
-            state,
-            tactical,
-            territory,
-            head,
-            head_edge_distance,
-        );
+        let inward_control_milli =
+            inward_control_milli(state, tactical, territory, head, head_edge_distance);
         let enemy_pin_risk_milli = if head_edge_distance > 1 {
             0
         } else {
-            let proximity = if head_edge_distance == 0 { 1000_u32 } else { 500 };
+            let proximity = if head_edge_distance == 0 {
+                1000_u32
+            } else {
+                500
+            };
             1000_u32
                 .saturating_sub(u32::from(inward_control_milli))
                 .saturating_mul(proximity)
@@ -224,11 +223,7 @@ fn inward_control_milli(
         .unwrap_or(0)
 }
 
-fn control_score(
-    state: &SimulatedGameState,
-    territory: &TerritoryAnalysis,
-    coord: Coord,
-) -> u16 {
+fn control_score(state: &SimulatedGameState, territory: &TerritoryAnalysis, coord: Coord) -> u16 {
     match territory.competitive_owner_at(coord) {
         Some(owner) if owner == state.our_snake_id => 1000,
         Some(_) => 100,
@@ -386,14 +381,7 @@ mod tests {
 
     #[test]
     fn enemy_controlled_inward_cells_raise_pin_risk() {
-        let mut state = state(&[
-            (0, 3),
-            (0, 2),
-            (0, 1),
-            (0, 0),
-            (1, 0),
-            (2, 0),
-        ]);
+        let mut state = state(&[(0, 3), (0, 2), (0, 1), (0, 0), (1, 0), (2, 0)]);
         state.snakes.push(SimulatedSnake {
             id: "enemy".to_string(),
             health: 100,
