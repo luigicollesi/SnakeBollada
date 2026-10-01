@@ -1,6 +1,7 @@
 #![allow(dead_code)]
 
 use crate::direction::{Direction, MoveMask};
+use crate::enemy::profile::OpponentProfiles;
 use crate::enemy::tracing::{EnemyMoveSet, EnemyTracingOutput};
 use crate::simulation::joint_action::JointAction;
 use crate::simulation::state::SimulatedGameState;
@@ -18,6 +19,15 @@ impl JointActionGenerator {
         state: &SimulatedGameState,
         our_moves: MoveMask,
         tracing: &EnemyTracingOutput,
+    ) -> Self {
+        Self::new_with_profiles(state, our_moves, tracing, &OpponentProfiles::default())
+    }
+
+    pub(crate) fn new_with_profiles(
+        state: &SimulatedGameState,
+        our_moves: MoveMask,
+        tracing: &EnemyTracingOutput,
+        profiles: &OpponentProfiles,
     ) -> Self {
         let Some(ours) = state.snake(&state.our_snake_id).filter(|snake| snake.alive) else {
             return Self {
@@ -43,7 +53,9 @@ impl JointActionGenerator {
         for enemy in enemies {
             let moves = tracing
                 .for_enemy(&enemy.id)
-                .map(EnemyMoveSet::ordered_search_moves)
+                .map(|set| {
+                    set.ordered_search_moves_with_profile(profiles.get(&enemy.id))
+                })
                 .unwrap_or_else(|| normalized_moves(MoveMask::all()).iter().collect());
 
             options.push((enemy.id.clone(), moves));
@@ -284,6 +296,60 @@ mod tests {
             assert_eq!(action.len(), 3);
             resolve_turn(&state, &action).expect("generated joint action must be resolvable");
         }
+    }
+
+    #[test]
+    fn learned_profile_reorders_equal_threat_enemy_moves() {
+        use crate::enemy::profile::OpponentProfile;
+        use crate::enemy::tracing::{
+            OpponentMoveHypothesis, OpponentPolicySupport, ThreatClass,
+        };
+
+        let state = state(vec![snake("ours", &[(1, 1)]), snake("enemy", &[(5, 5)])]);
+        let move_set = EnemyMoveSet {
+            legal_moves: MoveMask::from_iter([Direction::Left, Direction::Down]),
+            plausible_moves: MoveMask::from_iter([Direction::Left, Direction::Down]),
+            hypotheses: vec![
+                OpponentMoveHypothesis {
+                    direction: Direction::Left,
+                    support: OpponentPolicySupport {
+                        food: true,
+                        ..OpponentPolicySupport::default()
+                    },
+                    threat: ThreatClass::None,
+                    plausibility_milli: 600,
+                },
+                OpponentMoveHypothesis {
+                    direction: Direction::Down,
+                    support: OpponentPolicySupport {
+                        hunting: true,
+                        ..OpponentPolicySupport::default()
+                    },
+                    threat: ThreatClass::None,
+                    plausibility_milli: 600,
+                },
+            ],
+            eliminations: vec![],
+        };
+        let mut profile = OpponentProfile::default();
+        for _ in 0..4 {
+            profile.observe(&move_set, Direction::Down);
+        }
+        let tracing = EnemyTracingOutput {
+            enemies: HashMap::from([("enemy".to_string(), move_set)]),
+        };
+        let profiles = OpponentProfiles::from([("enemy".to_string(), profile)]);
+
+        let first = JointActionGenerator::new_with_profiles(
+            &state,
+            MoveMask::single(Direction::Up),
+            &tracing,
+            &profiles,
+        )
+        .next()
+        .unwrap();
+
+        assert_eq!(first.direction_for("enemy"), Some(Direction::Down));
     }
 
     #[test]
