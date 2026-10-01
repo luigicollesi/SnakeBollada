@@ -392,10 +392,7 @@ fn max_our_choices(lines: Vec<EvaluatedLine>) -> EvaluatedLine {
         .expect("MAX requires at least one line")
 }
 
-fn select_selfish_opponent_response(
-    node: &SearchNode,
-    lines: Vec<EvaluatedLine>,
-) -> EvaluatedLine {
+fn select_selfish_opponent_response(node: &SearchNode, lines: Vec<EvaluatedLine>) -> EvaluatedLine {
     let lower = lines
         .iter()
         .map(|line| line.bound.lower())
@@ -443,13 +440,11 @@ fn select_selfish_opponent_response(
         pure_best_responses
             .into_iter()
             .min_by(|left, right| {
-                left.value
-                    .cmp(&right.value)
-                    .then_with(|| {
-                        right
-                            .opponent_utility_total
-                            .cmp(&left.opponent_utility_total)
-                    })
+                left.value.cmp(&right.value).then_with(|| {
+                    right
+                        .opponent_utility_total
+                        .cmp(&left.opponent_utility_total)
+                })
             })
             .expect("pure best-response set cannot be empty")
     };
@@ -522,9 +517,7 @@ fn same_joint_context_except_actor(
         .snakes
         .iter()
         .filter(|snake| snake.alive && snake.id != deviating_actor)
-        .all(|snake| {
-            left_action.direction_for(&snake.id) == right_action.direction_for(&snake.id)
-        })
+        .all(|snake| left_action.direction_for(&snake.id) == right_action.direction_for(&snake.id))
 }
 
 fn actor_utility(line: &EvaluatedLine, actor_id: &str) -> i64 {
@@ -860,14 +853,10 @@ mod tests {
         let graph = FutureGraph::new(multi_enemy_state());
         let node = graph.node(graph.root());
 
-        let equilibrium =
-            synthetic_joint_line(0, 100, 100, Direction::Up, Direction::Up, 1);
-        let a_deviation =
-            synthetic_joint_line(0, 80, 120, Direction::Down, Direction::Up, 2);
-        let b_deviation =
-            synthetic_joint_line(0, 120, 80, Direction::Up, Direction::Down, 3);
-        let unrelated =
-            synthetic_joint_line(0, 250, 250, Direction::Down, Direction::Down, 4);
+        let equilibrium = synthetic_joint_line(0, 100, 100, Direction::Up, Direction::Up, 1);
+        let a_deviation = synthetic_joint_line(0, 80, 120, Direction::Down, Direction::Up, 2);
+        let b_deviation = synthetic_joint_line(0, 120, 80, Direction::Up, Direction::Down, 3);
+        let unrelated = synthetic_joint_line(0, 250, 250, Direction::Down, Direction::Down, 4);
 
         let chosen = select_selfish_opponent_response(
             node,
