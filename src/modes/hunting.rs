@@ -151,8 +151,14 @@ pub(crate) fn analyze(
                 });
             }
 
-            let competitive_pressure =
-                enemy_competitive.is_some_and(|snapshot| snapshot.control_ratio_milli <= 400);
+            let competitive_pressure = match (our_competitive, enemy_competitive) {
+                (Some(ours), Some(enemy)) => {
+                    ours.control_ratio_milli
+                        > enemy.control_ratio_milli.saturating_add(50)
+                        || enemy.control_ratio_milli <= 450
+                }
+                _ => false,
+            };
             if enemy_enclosure.risk >= EnclosureRisk::Pressure
                 || enemy_enclosure.space_to_length_milli <= 3000
                 || competitive_pressure
@@ -165,7 +171,7 @@ pub(crate) fn analyze(
                 let control_bonus = enemy_competitive.map_or(0, |snapshot| {
                     1000_u16
                         .saturating_sub(snapshot.control_ratio_milli)
-                        .saturating_div(4)
+                        .saturating_div(3)
                 });
                 let frontier_bonus = our_competitive.map_or(0, |snapshot| {
                     snapshot
@@ -177,8 +183,8 @@ pub(crate) fn analyze(
                 plans.push(HuntingPlanCandidate {
                     target: enemy.id.clone(),
                     kind: HuntingPlanKind::TerritorySqueeze,
-                    score_milli: (240 + ratio_bonus + risk_bonus + control_bonus + frontier_bonus)
-                        .min(860),
+                    score_milli: (260 + ratio_bonus + risk_bonus + control_bonus + frontier_bonus)
+                        .min(880),
                     length_advantage,
                 });
             }
