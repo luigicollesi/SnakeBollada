@@ -138,7 +138,7 @@ impl SnakeRouteField {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub(crate) struct StateAnalysis {
     routes: HashMap<String, HashMap<Coord, FoodRouteInfo>>,
     claims: HashMap<Coord, FoodClaimInfo>,
