@@ -88,13 +88,22 @@ async fn handle_move(move_req: Json<GameState>, runtime: &State<GameRuntime>) ->
     let decision = runtime.decide(&move_req).await;
 
     info!(
-        "MOVE {}: {} ({:?})",
+        "MOVE {}: {} ({:?}) depth={}",
         move_req.turn,
         decision.direction.as_str(),
-        decision.reason
+        decision.reason,
+        decision.search.analyzed_depth
     );
 
-    Json(json!({ "move": decision.direction.as_str() }))
+    Json(json!({
+        "move": decision.direction.as_str(),
+        "shout": debug_shout(decision.search.analyzed_depth),
+    }))
+}
+
+fn debug_shout(analyzed_depth: u8) -> String {
+    let unit = if analyzed_depth == 1 { "lance" } else { "lances" };
+    format!("DEBUG: {analyzed_depth} {unit} à frente")
 }
 
 #[post("/end", format = "json", data = "<end_req>")]
@@ -129,4 +138,20 @@ fn rocket() -> _ {
             "/",
             routes![handle_index, handle_start, handle_move, handle_end],
         )
+}
+
+
+#[cfg(test)]
+mod tests {
+    use super::debug_shout;
+
+    #[test]
+    fn debug_shout_reports_single_future_ply() {
+        assert_eq!(debug_shout(1), "DEBUG: 1 lance à frente");
+    }
+
+    #[test]
+    fn debug_shout_reports_deepest_analyzed_ply() {
+        assert_eq!(debug_shout(7), "DEBUG: 7 lances à frente");
+    }
 }
