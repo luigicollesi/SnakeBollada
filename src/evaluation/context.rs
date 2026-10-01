@@ -54,11 +54,7 @@ impl ActorContext {
             sum.saturating_add(u32::try_from(snake.length()).unwrap_or(u32::MAX))
         });
         let enemy_count_u32 = u32::try_from(enemies.len()).unwrap_or(u32::MAX);
-        let average_enemy = if enemy_count_u32 == 0 {
-            0
-        } else {
-            enemy_length_sum / enemy_count_u32
-        };
+        let average_enemy = enemy_length_sum.checked_div(enemy_count_u32).unwrap_or(0);
 
         let stronger_enemies = enemies
             .iter()
