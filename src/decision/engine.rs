@@ -375,8 +375,38 @@ impl DecisionEngine {
                 dag_memo_hits: dag_stats.memo_hits,
                 dag_deterministic_evaluations: dag_stats.deterministic_evaluations,
                 dag_provisional_evaluations: dag_stats.provisional_evaluations,
-                aggression_milli: (root.state.aggression.value.clamp(0.0, 1.0) * 1000.0).round()
-                    as u16,
+                aggression_milli: root_analysis.posture.growth_aggression_milli,
+                strategic_phase: root_analysis.posture.phase,
+                growth_aggression_milli: root_analysis.posture.growth_aggression_milli,
+                size_dominance_milli: root_analysis.posture.size_dominance_milli,
+                hunt_drive_milli: root_analysis.posture.hunt_drive_milli,
+                food_urgency_milli: root_analysis.posture.food_urgency_milli,
+                our_length: root_analysis
+                    .posture
+                    .our_length
+                    .try_into()
+                    .unwrap_or(u16::MAX),
+                largest_enemy_length: root_analysis
+                    .posture
+                    .largest_enemy_length
+                    .try_into()
+                    .unwrap_or(u16::MAX),
+                control_ratio_milli: root_analysis
+                    .territory
+                    .competitive_for_snake(&root.state.our_snake_id)
+                    .map_or(0, |snapshot| snapshot.control_ratio_milli),
+                dominance_frontier_cells: root_analysis
+                    .territory
+                    .competitive_for_snake(&root.state.our_snake_id)
+                    .map_or(0, |snapshot| snapshot.dominance_frontier_cells),
+                border_risk_milli: root_analysis
+                    .border
+                    .ours()
+                    .map_or(0, |snapshot| snapshot.structural_risk_milli),
+                enemy_pin_risk_milli: root_analysis
+                    .border
+                    .ours()
+                    .map_or(0, |snapshot| snapshot.enemy_pin_risk_milli),
                 enemy_moves_observed: 0,
                 enemy_moves_legal_covered: 0,
                 enemy_moves_plausible_covered: 0,
