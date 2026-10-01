@@ -96,9 +96,10 @@ fn score_actor_transition(
     };
     let after = actor_evaluation(child, actor_id);
 
-    let ate_food = edge.events.iter().any(
-        |event| matches!(event, InstantEvent::AteFood { snake, .. } if snake == actor_id),
-    );
+    let ate_food = edge
+        .events
+        .iter()
+        .any(|event| matches!(event, InstantEvent::AteFood { snake, .. } if snake == actor_id));
 
     let (mut food_benefit, mut food_harm) = if ate_food {
         (FOOD_CONSUMED, 0)
@@ -109,14 +110,11 @@ fn score_actor_transition(
         )
     };
 
-    let (mut hunting_benefit, mut hunting_harm) =
-        opponent_territory_delta(parent, child, actor_id);
+    let (mut hunting_benefit, mut hunting_harm) = opponent_territory_delta(parent, child, actor_id);
 
     for event in &edge.events {
         if let InstantEvent::EnemyKilled {
-            enemy,
-            attribution,
-            ..
+            enemy, attribution, ..
         } = event
         {
             if enemy != actor_id
@@ -196,9 +194,7 @@ fn actor_evaluation<'a>(
     node: &'a SearchNode,
     actor_id: &str,
 ) -> Option<&'a crate::evaluation::ActorEvaluation> {
-    node.active_analysis()?
-        .actor_evaluations
-        .get(actor_id)
+    node.active_analysis()?.actor_evaluations.get(actor_id)
 }
 
 fn food_distance_delta(before: Option<u16>, after: Option<u16>) -> (i64, i64) {
@@ -217,11 +213,7 @@ fn food_distance_delta(before: Option<u16>, after: Option<u16>) -> (i64, i64) {
     }
 }
 
-fn opponent_territory_delta(
-    parent: &SearchNode,
-    child: &SearchNode,
-    actor_id: &str,
-) -> (i64, i64) {
+fn opponent_territory_delta(parent: &SearchNode, child: &SearchNode, actor_id: &str) -> (i64, i64) {
     let mut benefit = 0_i64;
     let mut harm = 0_i64;
 
