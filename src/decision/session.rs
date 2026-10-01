@@ -229,7 +229,7 @@ mod tests {
     }
 
     #[test]
-    fn food_opening_starts_non_aggressive_and_locks_until_two_fruits() {
+    fn food_opening_starts_non_aggressive_and_locks_until_four_fruits() {
         let mut decision = DecisionState::default();
 
         assert_eq!(decision.aggression.value, 0.0);
