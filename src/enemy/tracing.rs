@@ -125,8 +125,16 @@ impl EnemyMoveSet {
     }
 
     pub(crate) fn threat_class(&self, direction: Direction) -> ThreatClass {
-        self.hypothesis(direction)
-            .map_or(ThreatClass::None, |hypothesis| hypothesis.threat)
+        self.hypothesis(direction).map_or_else(
+            || {
+                if self.plausible_moves.contains(direction) {
+                    ThreatClass::Likely
+                } else {
+                    ThreatClass::None
+                }
+            },
+            |hypothesis| hypothesis.threat,
+        )
     }
 
     pub(crate) fn pruning_ratio(&self) -> f32 {
