@@ -260,12 +260,8 @@ impl DagEvaluator<'_> {
                 .map(|evaluation| evaluation.guaranteed_enemy_kills)
                 .max()
                 .unwrap_or(0);
-            let best = choose_best_direction(
-                &directions,
-                &node.state,
-                robust_safe_moves,
-                self.policy,
-            )?;
+            let best =
+                choose_best_direction(&directions, &node.state, robust_safe_moves, self.policy)?;
 
             NodeEvaluation {
                 terminal: best.terminal,
@@ -996,16 +992,8 @@ mod tests {
             reserved_override_all: false,
         };
 
-        let with_escape = aggregate_direction(
-            Direction::Up,
-            parent,
-            &[outcome(1), outcome(0)],
-        );
-        let forced = aggregate_direction(
-            Direction::Up,
-            parent,
-            &[outcome(1), outcome(1)],
-        );
+        let with_escape = aggregate_direction(Direction::Up, parent, &[outcome(1), outcome(0)]);
+        let forced = aggregate_direction(Direction::Up, parent, &[outcome(1), outcome(1)]);
 
         assert_eq!(with_escape.guaranteed_enemy_kills, 0);
         assert_eq!(forced.guaranteed_enemy_kills, 1);
