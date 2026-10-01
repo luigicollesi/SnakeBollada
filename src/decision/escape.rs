@@ -4,6 +4,7 @@ use crate::direction::MoveMask;
 use crate::simulation::state::SimulatedGameState;
 
 pub(crate) const ESCAPE_ACTIVATION_THRESHOLD_MILLI: u16 = 650;
+pub(crate) const ESCAPE_CONTINUE_THRESHOLD_MILLI: u16 = 450;
 pub(crate) const ESCAPE_RELEASE_THRESHOLD_MILLI: u16 = 300;
 
 pub(crate) fn direction_escape_pressure_milli(evaluation: &DirectionEvaluation) -> u16 {
@@ -91,7 +92,7 @@ pub(crate) fn root_escape_pressure_milli(
         pressure = pressure.saturating_add(100);
     }
     if !robust_safe_moves.is_empty() && robust_safe_moves.len() <= 1 {
-        pressure = pressure.max(650);
+        pressure = pressure.saturating_add(100);
     }
 
     pressure.min(1000).try_into().unwrap_or(1000)
@@ -171,9 +172,22 @@ mod tests {
     }
 
     #[test]
-    fn single_robust_exit_activates_escape_pressure() {
+    fn single_healthy_robust_exit_does_not_activate_persistent_escape() {
         let evaluations = [
             evaluation(Direction::Up, 0, 0, 0),
+            evaluation(Direction::Right, 8, 8, 8),
+        ];
+
+        assert!(
+            root_escape_pressure_milli(&evaluations, MoveMask::single(Direction::Up))
+                < ESCAPE_ACTIVATION_THRESHOLD_MILLI
+        );
+    }
+
+    #[test]
+    fn single_robust_exit_with_forced_dead_end_still_activates_escape() {
+        let evaluations = [
+            evaluation(Direction::Up, 0, 10, 0),
             evaluation(Direction::Right, 8, 8, 8),
         ];
 

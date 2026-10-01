@@ -80,6 +80,15 @@ impl SearchBudget {
         self.started.elapsed()
     }
 
+    pub(crate) fn limited_to_soft_deadline(&self) -> Self {
+        Self {
+            started: self.started,
+            soft_deadline: self.soft_deadline,
+            hard_deadline: self.soft_deadline,
+            safety_reserve: self.safety_reserve,
+        }
+    }
+
     pub(crate) fn safety_reserve(&self) -> Duration {
         self.safety_reserve
     }
@@ -167,5 +176,20 @@ mod tests {
         let high = SearchBudget::from_state_with_extra_reserve(&state(500, "80"), 0);
 
         assert!(high.safety_reserve() > low.safety_reserve());
+    }
+
+    #[test]
+    fn soft_limited_budget_uses_soft_deadline_as_hard_deadline() {
+        let budget = SearchBudget::from_state_with_extra_reserve(&state(500, "0"), 0);
+        let limited = budget.limited_to_soft_deadline();
+
+        let limited_hard = limited.remaining_hard();
+        let original_soft = budget.remaining_soft();
+
+        assert!(
+            limited_hard.saturating_sub(original_soft) <= Duration::from_millis(1),
+            "soft-limited hard deadline must match the original soft deadline"
+        );
+        assert!(limited_hard < budget.remaining_hard());
     }
 }
