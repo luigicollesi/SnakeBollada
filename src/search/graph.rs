@@ -919,6 +919,24 @@ mod tests {
     }
 
     #[test]
+    fn beam_lean_nodes_skip_legacy_modes_but_keep_actor_snapshots() {
+        let mut graph = FutureGraph::new(state());
+        graph.use_beam_lean_analysis();
+        graph.expand_to_depth(1).unwrap();
+
+        let child = graph.node(graph.node(graph.root()).children[0].child);
+        let analysis = child.active_analysis().expect("child must be analyzable");
+
+        assert!(analysis.survival.candidates.is_empty());
+        assert!(analysis.hunting.candidates.is_empty());
+        assert!(analysis.hunting.plans.is_empty());
+        assert_eq!(
+            analysis.actor_snapshots.len(),
+            child.state.snakes.iter().filter(|snake| snake.alive).count()
+        );
+    }
+
+    #[test]
     fn expands_simultaneous_turns_to_requested_depth() {
         let mut graph = FutureGraph::new(state());
         graph.expand_to_depth(2).unwrap();
