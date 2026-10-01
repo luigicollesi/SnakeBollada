@@ -2,8 +2,9 @@ use crate::simulation::state::SimulatedGameState;
 
 const MIN_OPPORTUNISTIC_FOOD_DRIVE: u16 = 120;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub(crate) enum StrategicPhase {
+    #[default]
     Growth,
     Balanced,
     Dominant,
