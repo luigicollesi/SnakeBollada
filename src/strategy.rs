@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use crate::analysis::StateAnalysis;
+use crate::analysis::{StateAnalysis, StrategicPhase};
 use crate::direction::Direction;
 use crate::forecast::ForecastCertainty;
 use crate::modes::food;
@@ -123,6 +123,17 @@ pub(crate) struct SearchMetadata {
     pub(crate) dag_deterministic_evaluations: u32,
     pub(crate) dag_provisional_evaluations: u32,
     pub(crate) aggression_milli: u16,
+    pub(crate) strategic_phase: StrategicPhase,
+    pub(crate) growth_aggression_milli: u16,
+    pub(crate) size_dominance_milli: u16,
+    pub(crate) hunt_drive_milli: u16,
+    pub(crate) food_urgency_milli: u16,
+    pub(crate) our_length: u16,
+    pub(crate) largest_enemy_length: u16,
+    pub(crate) control_ratio_milli: u16,
+    pub(crate) dominance_frontier_cells: u16,
+    pub(crate) border_risk_milli: u16,
+    pub(crate) enemy_pin_risk_milli: u16,
     pub(crate) enemy_moves_observed: u16,
     pub(crate) enemy_moves_legal_covered: u16,
     pub(crate) enemy_moves_plausible_covered: u16,
@@ -150,6 +161,17 @@ impl Default for SearchMetadata {
             dag_deterministic_evaluations: 0,
             dag_provisional_evaluations: 0,
             aggression_milli: 0,
+            strategic_phase: StrategicPhase::default(),
+            growth_aggression_milli: 0,
+            size_dominance_milli: 0,
+            hunt_drive_milli: 0,
+            food_urgency_milli: 0,
+            our_length: 0,
+            largest_enemy_length: 0,
+            control_ratio_milli: 0,
+            dominance_frontier_cells: 0,
+            border_risk_milli: 0,
+            enemy_pin_risk_milli: 0,
             enemy_moves_observed: 0,
             enemy_moves_legal_covered: 0,
             enemy_moves_plausible_covered: 0,
