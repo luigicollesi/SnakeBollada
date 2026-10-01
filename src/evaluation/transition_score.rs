@@ -222,18 +222,20 @@ fn food_distance_delta(before: Option<u16>, after: Option<u16>) -> (i64, i64) {
     }
 }
 
-fn territory_transfer_benefits(
-    parent: &SearchNode,
-    child: &SearchNode,
-) -> HashMap<String, i64> {
-    let Some(parent_territory) = parent.active_analysis().map(|analysis| &analysis.territory) else {
+fn territory_transfer_benefits(parent: &SearchNode, child: &SearchNode) -> HashMap<String, i64> {
+    let Some(parent_territory) = parent.active_analysis().map(|analysis| &analysis.territory)
+    else {
         return HashMap::new();
     };
     let Some(child_territory) = child.active_analysis().map(|analysis| &analysis.territory) else {
         return HashMap::new();
     };
 
-    let board_cells = parent.state.width.saturating_mul(parent.state.height).max(1);
+    let board_cells = parent
+        .state
+        .width
+        .saturating_mul(parent.state.height)
+        .max(1);
     let cell_value = HUNTING_TERRITORY_BUDGET
         .saturating_div(i64::from(board_cells))
         .max(1);
@@ -346,10 +348,7 @@ mod tests {
             .expect("expected matching edge")
     }
 
-    fn territory_state(
-        our_head: Coord,
-        enemy_head: Coord,
-    ) -> SimulatedGameState {
+    fn territory_state(our_head: Coord, enemy_head: Coord) -> SimulatedGameState {
         SimulatedGameState {
             turn: 1,
             width: 7,
@@ -383,14 +382,10 @@ mod tests {
 
     #[test]
     fn hunting_credits_only_actor_receiving_enemy_owned_cells() {
-        let parent_graph = FutureGraph::new(territory_state(
-            Coord { x: 1, y: 3 },
-            Coord { x: 5, y: 3 },
-        ));
-        let child_graph = FutureGraph::new(territory_state(
-            Coord { x: 2, y: 3 },
-            Coord { x: 5, y: 5 },
-        ));
+        let parent_graph =
+            FutureGraph::new(territory_state(Coord { x: 1, y: 3 }, Coord { x: 5, y: 3 }));
+        let child_graph =
+            FutureGraph::new(territory_state(Coord { x: 2, y: 3 }, Coord { x: 5, y: 5 }));
 
         let benefits = territory_transfer_benefits(
             parent_graph.node(parent_graph.root()),
