@@ -159,12 +159,8 @@ impl DecisionEngine {
         }
 
         if completed_depth >= TARGET_DEPTH && !budget.soft_expired() {
-            let _ = SelectiveSearchScheduler::default().run(
-                graph,
-                &evaluations,
-                &budget,
-                TARGET_DEPTH,
-            );
+            let _ =
+                SelectiveSearchScheduler::default().run(graph, &evaluations, &budget, TARGET_DEPTH);
         }
 
         let root = graph.node(graph.root());

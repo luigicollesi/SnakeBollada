@@ -281,15 +281,11 @@ fn forcing_score(node: &crate::search::graph::SearchNode) -> u16 {
 
 fn root_relevance(graph: &FutureGraph, evaluations: &[DirectionEvaluation]) -> [u16; 4] {
     let root = graph.node(graph.root());
-    let robust_safe_moves = root
-        .active_analysis()
-        .map(|analysis| analysis.tactical.ours.safe_moves)
-        .unwrap_or_default();
     let policy = ReservedCellPolicy::default();
 
     let mut ranked = evaluations.iter().collect::<Vec<_>>();
     ranked.sort_by(|left, right| {
-        compare_direction(left, right, &root.state, robust_safe_moves, policy)
+        compare_direction(left, right, &root.state, policy)
     });
 
     let mut relevance = [0_u16; 4];

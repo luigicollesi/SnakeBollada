@@ -314,11 +314,7 @@ impl FutureGraph {
             transposition_hits: self
                 .transposition_hits
                 .saturating_sub(transpositions_before),
-            elapsed_us: started
-                .elapsed()
-                .as_micros()
-                .try_into()
-                .unwrap_or(u64::MAX),
+            elapsed_us: started.elapsed().as_micros().try_into().unwrap_or(u64::MAX),
         })
     }
 

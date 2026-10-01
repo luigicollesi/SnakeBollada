@@ -119,12 +119,8 @@ mod tests {
 
     #[test]
     fn refutation_and_danger_dominate_equal_relevance() {
-        let dangerous = FrontierPriority::new(
-            signals(900, 800, 500, 100, 100, 100),
-            Direction::Up,
-            4,
-            1,
-        );
+        let dangerous =
+            FrontierPriority::new(signals(900, 800, 500, 100, 100, 100), Direction::Up, 4, 1);
         let merely_promising = FrontierPriority::new(
             signals(100, 100, 500, 900, 500, 500),
             Direction::Right,
