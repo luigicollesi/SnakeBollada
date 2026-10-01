@@ -133,6 +133,7 @@ impl NodeAnalysis {
     }
 }
 
+#[derive(Debug, Clone)]
 pub(crate) struct SearchNode {
     pub(crate) state: SimulatedGameState,
     pub(crate) key: StateKey,
@@ -1075,6 +1076,8 @@ fn build_node_with_key(
                     StrategicWeights::for_actor(&state, &snake.id, metrics.territory_share_milli)?;
                 Some((snake.id.clone(), ActorSnapshot::new(metrics, weights)))
             })
+            .collect::<Vec<_>>()
+            .into_iter()
             .collect::<ActorTable<_>>();
         Some(Arc::new(NodeAnalysis {
             state: state_analysis,
@@ -1146,7 +1149,6 @@ mod tests {
             .active_analysis()
             .expect("running root must have analysis");
 
-        let root = graph.node(graph.root());
         let ours = analysis
             .actor_snapshot("ours")
             .expect("our actor evaluation must exist");
