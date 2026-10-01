@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 
-use crate::analysis::TacticalStateAnalysis;
+use crate::analysis::{BorderFobicAnalysis, TacticalStateAnalysis};
 use crate::direction::Direction;
 use crate::simulation::mobility::MobilityAnalysis;
 use crate::simulation::state::SimulatedGameState;
@@ -11,6 +11,7 @@ pub(crate) struct SurvivalCandidate {
     pub(crate) deterministic: bool,
     pub(crate) robust_safe: bool,
     pub(crate) immediate_reachable_space: u32,
+    pub(crate) border_preference_milli: u16,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -94,6 +95,15 @@ pub(crate) fn analyze(
     state: &SimulatedGameState,
     tactical: &TacticalStateAnalysis,
 ) -> SurvivalModeOutput {
+    let border = BorderFobicAnalysis::from_parts(state, tactical);
+    analyze_with_border(state, tactical, &border)
+}
+
+pub(crate) fn analyze_with_border(
+    state: &SimulatedGameState,
+    tactical: &TacticalStateAnalysis,
+    border: &BorderFobicAnalysis,
+) -> SurvivalModeOutput {
     let mobility = MobilityAnalysis::from_state(state);
 
     let candidates = tactical
@@ -109,6 +119,7 @@ pub(crate) fn analyze(
                 &state.our_snake_id,
                 direction,
             ),
+            border_preference_milli: border.move_preference_milli(state, direction),
         })
         .collect();
 
@@ -173,6 +184,39 @@ mod tests {
 
         assert!(up.deterministic);
         assert!(!up.robust_safe);
+    }
+
+    #[test]
+    fn long_snake_prefers_inward_move_over_staying_on_border() {
+        let state = state(vec![snake(
+            "ours",
+            &[
+                (0, 3),
+                (0, 2),
+                (0, 1),
+                (0, 0),
+                (1, 0),
+                (2, 0),
+                (3, 0),
+                (4, 0),
+                (5, 0),
+                (5, 1),
+            ],
+        )]);
+        let tactical = tactical(&state);
+        let output = analyze(&state, &tactical);
+        let right = output
+            .candidates
+            .iter()
+            .find(|candidate| candidate.first_move == Direction::Right)
+            .unwrap();
+        let up = output
+            .candidates
+            .iter()
+            .find(|candidate| candidate.first_move == Direction::Up)
+            .unwrap();
+
+        assert!(right.border_preference_milli < up.border_preference_milli);
     }
 
     #[test]
