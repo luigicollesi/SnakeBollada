@@ -959,6 +959,8 @@ mod tests {
                 forced_routes: 0,
                 constrained_routes: 0,
                 max_self_enclosure_risk: 2,
+                max_border_structural_risk_milli: 0,
+                max_border_preference_milli: 0,
                 min_future_mobility: 3,
                 min_reachable_space: 20,
                 min_second_order_mobility: 3,
