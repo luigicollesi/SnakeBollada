@@ -11,6 +11,7 @@ use crate::direction::Direction;
 use crate::search::budget::SearchBudget;
 use crate::search::graph::{FutureGraph, NodeId, SearchError};
 use crate::search::priority::{FrontierPriority, PrioritySignals};
+use crate::search::trend::SearchTrend;
 
 const MAX_SELECTIVE_DEPTH: u8 = 20;
 const MIN_EXPANSION_SLICE: Duration = Duration::from_millis(1);
@@ -27,6 +28,7 @@ pub(crate) struct SelectiveSearchStats {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct FrontierEntry {
     node_id: NodeId,
+    parent_id: Option<NodeId>,
     root_direction: Direction,
     depth: u8,
     priority: FrontierPriority,
@@ -35,6 +37,7 @@ struct FrontierEntry {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct EnqueueContext {
     node_id: NodeId,
+    parent_id: Option<NodeId>,
     root_direction: Direction,
     depth: u8,
     base_depth: u8,
@@ -73,13 +76,14 @@ impl SelectiveSearchScheduler {
         let mut frontier = BinaryHeap::new();
         let mut enqueued = HashSet::new();
 
-        for (node_id, root_direction, depth) in base_frontier(graph, base_depth) {
+        for (node_id, parent_id, root_direction, depth) in base_frontier(graph, base_depth) {
             enqueue(
                 graph,
                 &mut frontier,
                 &mut enqueued,
                 EnqueueContext {
                     node_id,
+                    parent_id: Some(parent_id),
                     root_direction,
                     depth,
                     base_depth,
@@ -131,6 +135,7 @@ impl SelectiveSearchScheduler {
                     &mut enqueued,
                     EnqueueContext {
                         node_id: child,
+                        parent_id: Some(entry.node_id),
                         root_direction: entry.root_direction,
                         depth: next_depth,
                         base_depth,
@@ -149,7 +154,7 @@ impl SelectiveSearchScheduler {
     }
 }
 
-fn base_frontier(graph: &FutureGraph, base_depth: u8) -> Vec<(NodeId, Direction, u8)> {
+fn base_frontier(graph: &FutureGraph, base_depth: u8) -> Vec<(NodeId, NodeId, Direction, u8)> {
     let root = graph.root();
     let root_state = &graph.node(root).state;
     let our_id = root_state.our_snake_id.clone();
@@ -161,22 +166,27 @@ fn base_frontier(graph: &FutureGraph, base_depth: u8) -> Vec<(NodeId, Direction,
         let Some(direction) = edge.joint_action.direction_for(&our_id) else {
             continue;
         };
-        queue.push_back((edge.child, direction, 1_u8));
+        queue.push_back((edge.child, root, direction, 1_u8));
     }
 
-    while let Some((node_id, root_direction, depth)) = queue.pop_front() {
+    while let Some((node_id, parent_id, root_direction, depth)) = queue.pop_front() {
         let key = (node_id, root_direction.rank(), depth);
         if !seen.insert(key) {
             continue;
         }
 
         if depth >= base_depth {
-            frontier.push((node_id, root_direction, depth));
+            frontier.push((node_id, parent_id, root_direction, depth));
             continue;
         }
 
         for edge in &graph.node(node_id).children {
-            queue.push_back((edge.child, root_direction, depth.saturating_add(1)));
+            queue.push_back((
+                edge.child,
+                node_id,
+                root_direction,
+                depth.saturating_add(1),
+            ));
         }
     }
 
@@ -206,12 +216,14 @@ fn enqueue(
     let signals = priority_signals(
         graph,
         context.node_id,
+        context.parent_id,
         context.root_relevance,
         context.depth.saturating_sub(context.base_depth),
         intent,
     );
     frontier.push(FrontierEntry {
         node_id: context.node_id,
+        parent_id: context.parent_id,
         root_direction: context.root_direction,
         depth: context.depth,
         priority: FrontierPriority::new(
@@ -226,6 +238,7 @@ fn enqueue(
 fn priority_signals(
     graph: &FutureGraph,
     node_id: NodeId,
+    parent_id: Option<NodeId>,
     root_relevance: u16,
     depth_beyond_base: u8,
     intent: Option<&DecisionIntent>,
@@ -235,9 +248,17 @@ fn priority_signals(
         return PrioritySignals::default();
     };
 
+    let hunt_target = match intent {
+        Some(DecisionIntent::Hunt(hunt)) => Some(hunt.target.as_str()),
+        _ => None,
+    };
+    let trend = parent_id
+        .map(|parent_id| SearchTrend::between(graph.node(parent_id), node, hunt_target))
+        .unwrap_or_default();
+
     let ours = analysis.enclosure.ours(&node.state);
     let safe_moves = analysis.tactical.ours.safe_moves.len();
-    let danger = ours.map_or(0, |snapshot| {
+    let state_danger = ours.map_or(0, |snapshot| {
         let risk = u16::from(snapshot.risk.rank()).saturating_mul(300);
         let mobility = match safe_moves {
             0 => 1000,
@@ -258,18 +279,22 @@ fn priority_signals(
             .map_or(0, |snapshot| snapshot.structural_risk_milli);
         risk.max(mobility).max(space).max(border).min(1000)
     });
+    let danger = state_danger.max(trend.danger_priority_milli());
 
     let intent_focus = intent_focus(node, intent);
+    let trend_tactical = trend.tactical_priority_milli();
     let tactical = ((analysis.hunting.best_plan_score() * 1000.0)
         .round()
         .clamp(0.0, 1000.0) as u16)
-        .max(intent_focus);
+        .max(intent_focus)
+        .max(trend_tactical);
 
     let forcing = forcing_score(node);
     let relevance_penalty = u16::from(depth_beyond_base).saturating_mul(45);
     let relevance = root_relevance
         .saturating_sub(relevance_penalty)
-        .max(intent_focus.saturating_sub(relevance_penalty / 2));
+        .max(intent_focus.saturating_sub(relevance_penalty / 2))
+        .max(trend_tactical.saturating_sub(relevance_penalty / 2));
     let refutation = u32::from(danger)
         .saturating_mul(u32::from(root_relevance))
         .saturating_div(1000)
