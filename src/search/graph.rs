@@ -751,11 +751,12 @@ impl FutureGraph {
 
             let batch_started = std::time::Instant::now();
             let resolve_started = std::time::Instant::now();
+            let profile = self.analysis_profile;
             let resolved = batch_actions
                 .into_par_iter()
                 .map(|joint_action| {
                     resolve_turn(&state, &joint_action).map(|resolution| {
-                        let key = StateKey::from_state(&resolution.state);
+                        let key = state_key_for_profile(&resolution.state, profile);
                         let TurnResolution {
                             state,
                             events,
@@ -787,7 +788,6 @@ impl FutureGraph {
                 }
             }
 
-            let profile = self.analysis_profile;
             let node_build_started = std::time::Instant::now();
             let built_nodes = unique_new
                 .into_par_iter()
@@ -984,8 +984,15 @@ fn is_terminal_state(state: &SimulatedGameState) -> bool {
     !ours_alive || !living_enemies
 }
 
+fn state_key_for_profile(state: &SimulatedGameState, profile: AnalysisProfile) -> StateKey {
+    match profile {
+        AnalysisProfile::Full => StateKey::from_state(state),
+        AnalysisProfile::BeamLean => StateKey::from_beam_state(state),
+    }
+}
+
 fn build_node(state: SimulatedGameState, profile: AnalysisProfile) -> SearchNode {
-    let key = StateKey::from_state(&state);
+    let key = state_key_for_profile(&state, profile);
     build_node_with_key(state, key, profile)
 }
 
