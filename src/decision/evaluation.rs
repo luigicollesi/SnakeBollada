@@ -37,6 +37,8 @@ pub(crate) struct DirectionSurvivalSummary {
     pub(crate) max_self_enclosure_risk: u8,
     pub(crate) max_border_structural_risk_milli: u16,
     pub(crate) max_border_preference_milli: u16,
+    pub(crate) max_enemy_pin_risk_milli: u16,
+    pub(crate) min_inward_control_milli: u16,
     pub(crate) min_future_mobility: u8,
     pub(crate) min_reachable_space: u32,
     pub(crate) min_second_order_mobility: u32,
@@ -56,10 +58,15 @@ impl DirectionSurvivalSummary {
                 .ours(&node.state)
                 .map_or(0, |snapshot| snapshot.risk.rank())
         });
-        let (border_structural, border_preference) =
-            node.active_analysis().map_or((0, 0), |analysis| {
-                analysis.border.ours().map_or((0, 0), |snapshot| {
-                    (snapshot.structural_risk_milli, snapshot.preference_milli)
+        let (border_structural, border_preference, enemy_pin, inward_control) =
+            node.active_analysis().map_or((0, 0, 0, 1000), |analysis| {
+                analysis.border.ours().map_or((0, 0, 0, 1000), |snapshot| {
+                    (
+                        snapshot.structural_risk_milli,
+                        snapshot.preference_milli,
+                        snapshot.enemy_pin_risk_milli,
+                        snapshot.inward_control_milli,
+                    )
                 })
             });
 
@@ -72,6 +79,8 @@ impl DirectionSurvivalSummary {
             max_self_enclosure_risk: enclosure_risk,
             max_border_structural_risk_milli: border_structural,
             max_border_preference_milli: border_preference,
+            max_enemy_pin_risk_milli: enemy_pin,
+            min_inward_control_milli: inward_control,
             min_future_mobility: safe_moves,
             min_reachable_space: reachable_space,
             min_second_order_mobility: u32::from(safe_moves),
@@ -87,14 +96,21 @@ impl DirectionSurvivalSummary {
             .enclosure
             .ours(&parent.state)
             .map_or(0, |snapshot| snapshot.risk.rank());
-        let (border_structural, border_preference) =
-            analysis.border.ours().map_or((0, 0), |snapshot| {
-                (snapshot.structural_risk_milli, snapshot.preference_milli)
+        let (border_structural, border_preference, enemy_pin, inward_control) =
+            analysis.border.ours().map_or((0, 0, 0, 1000), |snapshot| {
+                (
+                    snapshot.structural_risk_milli,
+                    snapshot.preference_milli,
+                    snapshot.enemy_pin_risk_milli,
+                    snapshot.inward_control_milli,
+                )
             });
         self.max_self_enclosure_risk = self.max_self_enclosure_risk.max(enclosure_risk);
         self.max_border_structural_risk_milli =
             self.max_border_structural_risk_milli.max(border_structural);
         self.max_border_preference_milli = self.max_border_preference_milli.max(border_preference);
+        self.max_enemy_pin_risk_milli = self.max_enemy_pin_risk_milli.max(enemy_pin);
+        self.min_inward_control_milli = self.min_inward_control_milli.min(inward_control);
         self.min_future_mobility = self.min_future_mobility.min(safe_moves);
         self.min_reachable_space = self
             .min_reachable_space
@@ -525,10 +541,15 @@ fn apply_edge(
             .ours(&child_node.state)
             .map_or(0, |snapshot| snapshot.risk.rank())
     });
-    let (child_border_structural, child_border_preference) =
-        child_node.active_analysis().map_or((0, 0), |analysis| {
-            analysis.border.ours().map_or((0, 0), |snapshot| {
-                (snapshot.structural_risk_milli, snapshot.preference_milli)
+    let (child_border_structural, child_border_preference, child_enemy_pin, child_inward_control) =
+        child_node.active_analysis().map_or((0, 0, 0, 1000), |analysis| {
+            analysis.border.ours().map_or((0, 0, 0, 1000), |snapshot| {
+                (
+                    snapshot.structural_risk_milli,
+                    snapshot.preference_milli,
+                    snapshot.enemy_pin_risk_milli,
+                    snapshot.inward_control_milli,
+                )
             })
         });
     let mut survival = child.survival;
@@ -539,6 +560,10 @@ fn apply_edge(
     survival.max_border_preference_milli = survival
         .max_border_preference_milli
         .max(child_border_preference);
+    survival.max_enemy_pin_risk_milli =
+        survival.max_enemy_pin_risk_milli.max(child_enemy_pin);
+    survival.min_inward_control_milli =
+        survival.min_inward_control_milli.min(child_inward_control);
     if death_now {
         survival.death_routes = route_count;
     }
@@ -643,6 +668,28 @@ fn aggregate_direction(
                     .active_analysis()
                     .and_then(|analysis| analysis.border.ours())
                     .map_or(0, |snapshot| snapshot.preference_milli),
+            ),
+        max_enemy_pin_risk_milli: outcomes
+            .iter()
+            .map(|outcome| outcome.survival.max_enemy_pin_risk_milli)
+            .max()
+            .unwrap_or(0)
+            .max(
+                parent
+                    .active_analysis()
+                    .and_then(|analysis| analysis.border.ours())
+                    .map_or(0, |snapshot| snapshot.enemy_pin_risk_milli),
+            ),
+        min_inward_control_milli: outcomes
+            .iter()
+            .map(|outcome| outcome.survival.min_inward_control_milli)
+            .min()
+            .unwrap_or(1000)
+            .min(
+                parent
+                    .active_analysis()
+                    .and_then(|analysis| analysis.border.ours())
+                    .map_or(1000, |snapshot| snapshot.inward_control_milli),
             ),
         min_future_mobility: outcomes
             .iter()
@@ -1074,6 +1121,11 @@ pub(crate) fn compare_direction(
                 .cmp(&right.survival.max_border_structural_risk_milli)
         })
         .then_with(|| {
+            left.survival
+                .max_enemy_pin_risk_milli
+                .cmp(&right.survival.max_enemy_pin_risk_milli)
+        })
+        .then_with(|| {
             effective_reserved_penalty(policy, state, left)
                 .total_cmp(&effective_reserved_penalty(policy, state, right))
         })
@@ -1157,6 +1209,7 @@ fn reserved_move_has_supported_purpose(evaluation: &DirectionEvaluation) -> bool
     if evaluation.survival.is_forced_death()
         || evaluation.survival.is_forced_dead_end()
         || evaluation.survival.max_self_enclosure_risk >= 3
+        || evaluation.survival.max_enemy_pin_risk_milli >= 800
     {
         return false;
     }
@@ -1217,6 +1270,8 @@ mod tests {
             max_self_enclosure_risk: 0,
             max_border_structural_risk_milli: 0,
             max_border_preference_milli: 0,
+            max_enemy_pin_risk_milli: 0,
+            min_inward_control_milli: 1000,
             min_future_mobility: mobility,
             min_reachable_space: 20,
             min_second_order_mobility: u32::from(mobility),
@@ -1327,6 +1382,24 @@ mod tests {
             compare_direction(
                 &safe,
                 &edge_trap,
+                &state(vec![]),
+                ReservedCellPolicy::default(),
+            ),
+            Ordering::Less
+        );
+    }
+
+    #[test]
+    fn enemy_pin_risk_beats_offensive_utility() {
+        let safe = evaluation(Direction::Up, summary(10, 0, 2));
+        let mut pinned = evaluation(Direction::Right, summary(10, 0, 4));
+        pinned.survival.max_enemy_pin_risk_milli = 850;
+        pinned.average_strategic_utility = 100.0;
+
+        assert_eq!(
+            compare_direction(
+                &safe,
+                &pinned,
                 &state(vec![]),
                 ReservedCellPolicy::default(),
             ),
