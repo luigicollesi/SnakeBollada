@@ -39,13 +39,31 @@ impl BorderFobicAnalysis {
         tactical: &TacticalStateAnalysis,
         territory: &TerritoryAnalysis,
     ) -> Self {
+        Self::from_parts_with_territory_scope(state, tactical, territory, false)
+    }
+
+    pub(crate) fn from_parts_with_territory_actor_relative(
+        state: &SimulatedGameState,
+        tactical: &TacticalStateAnalysis,
+        territory: &TerritoryAnalysis,
+    ) -> Self {
+        Self::from_parts_with_territory_scope(state, tactical, territory, true)
+    }
+
+    fn from_parts_with_territory_scope(
+        state: &SimulatedGameState,
+        tactical: &TacticalStateAnalysis,
+        territory: &TerritoryAnalysis,
+        all_legal_enemy_moves: bool,
+    ) -> Self {
         let mut snakes = HashMap::new();
 
         for snake in state.snakes.iter().filter(|snake| snake.alive) {
             let Some(head) = snake.head() else {
                 continue;
             };
-            let safe_moves = actor_safe_moves(state, tactical, &snake.id);
+            let safe_moves =
+                actor_safe_moves(state, tactical, &snake.id, all_legal_enemy_moves);
             let fear_milli = length_fear_milli(state, snake.length());
             let head_edge_distance = edge_distance(state, head);
             let body_on_edge = snake
@@ -212,6 +230,7 @@ fn actor_safe_moves(
     state: &SimulatedGameState,
     tactical: &TacticalStateAnalysis,
     actor_id: &str,
+    all_legal_enemy_moves: bool,
 ) -> MoveMask {
     if actor_id == state.our_snake_id {
         return tactical.ours.safe_moves;
@@ -221,7 +240,7 @@ fn actor_safe_moves(
         .enemies
         .get(actor_id)
         .map(|enemy| {
-            if enemy.plausible_moves.is_empty() {
+            if all_legal_enemy_moves || enemy.plausible_moves.is_empty() {
                 enemy.legal_moves
             } else {
                 enemy.plausible_moves
