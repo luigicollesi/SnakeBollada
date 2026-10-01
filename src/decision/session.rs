@@ -364,6 +364,72 @@ mod tests {
     }
 
     #[test]
+    fn observed_enemy_head_pressure_updates_persistent_profile() {
+        let ours = snake(vec![Coord { x: 2, y: 1 }, Coord { x: 1, y: 1 }]);
+        let enemy = Battlesnake {
+            id: "enemy".to_string(),
+            name: "enemy".to_string(),
+            health: 100,
+            head: Coord { x: 2, y: 3 },
+            length: 3,
+            body: vec![
+                Coord { x: 2, y: 3 },
+                Coord { x: 2, y: 4 },
+                Coord { x: 1, y: 4 },
+            ],
+            latency: String::new(),
+            shout: None,
+        };
+        let previous = GameState {
+            game: Game {
+                id: "opponent-profile".to_string(),
+                ruleset: HashMap::from([("name".to_string(), json!("standard"))]),
+                timeout: 500,
+            },
+            turn: 1,
+            board: Board {
+                width: 7,
+                height: 7,
+                food: vec![Coord { x: 4, y: 3 }],
+                snakes: vec![ours.clone(), enemy.clone()],
+                hazards: vec![],
+            },
+            you: ours.clone(),
+        };
+        let graph = FutureGraph::new(SimulatedGameState::from(&previous));
+        let attack = graph
+            .node(graph.root())
+            .active_analysis()
+            .unwrap()
+            .tracing
+            .for_enemy("enemy")
+            .unwrap()
+            .hypothesis(Direction::Down)
+            .expect("head-pressure move must be predicted");
+        assert!(attack.support.head_threat);
+
+        let mut current = previous.clone();
+        current.turn = 2;
+        current.board.snakes[1].head = Coord { x: 2, y: 2 };
+        current.board.snakes[1].body = vec![
+            Coord { x: 2, y: 2 },
+            Coord { x: 2, y: 3 },
+            Coord { x: 2, y: 4 },
+        ];
+
+        let mut decision = DecisionState {
+            graph: Some(graph),
+            ..DecisionState::default()
+        };
+        decision.observe_opponents(&current);
+
+        let profile = decision.opponent_profiles.get("enemy").unwrap();
+        assert_eq!(profile.observations, 1);
+        assert!(profile.head_threat_bias_milli > 1000);
+        assert!(profile.food_bias_milli < 1000);
+    }
+
+    #[test]
     fn observed_growth_updates_persistent_aggression() {
         let mut decision = DecisionState::default();
         let first = state(1, vec![Coord { x: 2, y: 2 }, Coord { x: 2, y: 1 }]);
