@@ -513,12 +513,7 @@ fn run_beam_shadow(
         metadata.completed = true;
         metadata.completed_depth = result.completed_depth();
         metadata.attempted_depth = result.deepening.attempted_depth;
-        metadata.line_count = result
-            .checkpoint
-            .lines
-            .len()
-            .try_into()
-            .unwrap_or(u8::MAX);
+        metadata.line_count = result.checkpoint.lines.len().try_into().unwrap_or(u8::MAX);
 
         if let Some(best) = result.best_line() {
             metadata.direction = Some(best.root_direction);
