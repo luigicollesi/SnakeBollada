@@ -10,6 +10,7 @@ use crate::decision::joint_actions::JointActionGenerator;
 use crate::decision::state_key::StateKey;
 use crate::direction::MoveMask;
 use crate::enemy::tracing::{trace_with_mobility, EnemyTracingOutput};
+use crate::modes::hunting::{self, HuntingModeOutput};
 use crate::simulation::joint_action::JointAction;
 use crate::simulation::mobility::MobilityAnalysis;
 use crate::simulation::resolver::{resolve_turn, ForecastDelta, InstantEvent, ResolveError};
@@ -45,6 +46,7 @@ pub(crate) struct NodeAnalysis {
     pub(crate) tactical: Arc<TacticalStateAnalysis>,
     pub(crate) territory: Arc<TerritoryAnalysis>,
     pub(crate) enclosure: Arc<EnclosureAnalysis>,
+    pub(crate) hunting: Arc<HuntingModeOutput>,
 }
 
 #[derive(Debug, Clone)]
@@ -417,6 +419,13 @@ fn build_node(state: SimulatedGameState) -> SearchNode {
             &territory,
             &tactical,
         ));
+        let hunting = Arc::new(hunting::analyze(
+            &state,
+            &tactical,
+            &tracing,
+            &territory,
+            &enclosure,
+        ));
         Some(Arc::new(NodeAnalysis {
             state: state_analysis,
             mobility,
@@ -424,6 +433,7 @@ fn build_node(state: SimulatedGameState) -> SearchNode {
             tactical,
             territory,
             enclosure,
+            hunting,
         }))
     };
 
