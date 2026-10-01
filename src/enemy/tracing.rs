@@ -35,10 +35,54 @@ pub(crate) struct MoveElimination {
     pub(crate) reason: MoveEliminationReason,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub(crate) enum ThreatClass {
+    None,
+    Possible,
+    Likely,
+    Forced,
+}
+
+impl ThreatClass {
+    pub(crate) const fn rank(self) -> u8 {
+        match self {
+            Self::None => 0,
+            Self::Possible => 1,
+            Self::Likely => 2,
+            Self::Forced => 3,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub(crate) struct OpponentPolicySupport {
+    pub(crate) survival: bool,
+    pub(crate) food: bool,
+    pub(crate) hunting: bool,
+    pub(crate) head_threat: bool,
+}
+
+impl OpponentPolicySupport {
+    pub(crate) fn count(self) -> u8 {
+        u8::from(self.survival)
+            .saturating_add(u8::from(self.food))
+            .saturating_add(u8::from(self.hunting))
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct OpponentMoveHypothesis {
+    pub(crate) direction: Direction,
+    pub(crate) support: OpponentPolicySupport,
+    pub(crate) threat: ThreatClass,
+    pub(crate) plausibility_milli: u16,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct EnemyMoveSet {
     pub(crate) legal_moves: MoveMask,
     pub(crate) plausible_moves: MoveMask,
+    pub(crate) hypotheses: Vec<OpponentMoveHypothesis>,
     pub(crate) eliminations: Vec<MoveElimination>,
 }
 
@@ -51,6 +95,38 @@ impl EnemyMoveSet {
         } else {
             MoveMask::all()
         }
+    }
+
+    pub(crate) fn ordered_search_moves(&self) -> Vec<Direction> {
+        let search = self.search_moves();
+        let mut moves = search.iter().collect::<Vec<_>>();
+        moves.sort_by(|left, right| {
+            let left_hypothesis = self.hypothesis(*left);
+            let right_hypothesis = self.hypothesis(*right);
+
+            right_hypothesis
+                .map_or(0, |hypothesis| hypothesis.threat.rank())
+                .cmp(&left_hypothesis.map_or(0, |hypothesis| hypothesis.threat.rank()))
+                .then_with(|| {
+                    right_hypothesis
+                        .map_or(0, |hypothesis| hypothesis.plausibility_milli)
+                        .cmp(&left_hypothesis.map_or(0, |hypothesis| hypothesis.plausibility_milli))
+                })
+                .then_with(|| left.rank().cmp(&right.rank()))
+        });
+        moves
+    }
+
+    pub(crate) fn hypothesis(&self, direction: Direction) -> Option<OpponentMoveHypothesis> {
+        self.hypotheses
+            .iter()
+            .copied()
+            .find(|hypothesis| hypothesis.direction == direction)
+    }
+
+    pub(crate) fn threat_class(&self, direction: Direction) -> ThreatClass {
+        self.hypothesis(direction)
+            .map_or(ThreatClass::None, |hypothesis| hypothesis.threat)
     }
 
     pub(crate) fn pruning_ratio(&self) -> f32 {
@@ -139,11 +215,70 @@ fn trace_enemy(
 
     debug_assert!(plausible_moves.is_subset(legal_moves));
 
+    let hypotheses = build_hypotheses(
+        structural_moves,
+        plausible_moves,
+        survival_moves,
+        food_moves,
+        hunting_moves,
+        threat_moves,
+    );
+
     EnemyMoveSet {
         legal_moves,
         plausible_moves,
+        hypotheses,
         eliminations,
     }
+}
+
+fn build_hypotheses(
+    structural_moves: MoveMask,
+    plausible_moves: MoveMask,
+    survival_moves: MoveMask,
+    food_moves: MoveMask,
+    hunting_moves: MoveMask,
+    threat_moves: MoveMask,
+) -> Vec<OpponentMoveHypothesis> {
+    plausible_moves
+        .iter()
+        .map(|direction| {
+            let support = OpponentPolicySupport {
+                survival: survival_moves.contains(direction),
+                food: food_moves.contains(direction),
+                hunting: hunting_moves.contains(direction),
+                head_threat: threat_moves.contains(direction),
+            };
+            let threat = if !support.head_threat {
+                ThreatClass::None
+            } else if structural_moves.len() == 1 {
+                ThreatClass::Forced
+            } else if support.hunting || support.count() >= 2 {
+                ThreatClass::Likely
+            } else {
+                ThreatClass::Possible
+            };
+            let threat_bonus = match threat {
+                ThreatClass::None => 0,
+                ThreatClass::Possible => 140,
+                ThreatClass::Likely => 260,
+                ThreatClass::Forced => 380,
+            };
+            let plausibility_milli = 80_u16
+                .saturating_add(u16::from(support.survival) * 260)
+                .saturating_add(u16::from(support.food) * 220)
+                .saturating_add(u16::from(support.hunting) * 300)
+                .saturating_add(threat_bonus)
+                .min(1000);
+
+            OpponentMoveHypothesis {
+                direction,
+                support,
+                threat,
+                plausibility_milli,
+            }
+        })
+        .collect()
 }
 
 fn hard_reason(block: DeterministicMoveBlock) -> MoveEliminationReason {
@@ -345,6 +480,7 @@ fn structural_move_set(
     EnemyMoveSet {
         legal_moves,
         plausible_moves,
+        hypotheses: Vec::new(),
         eliminations,
     }
 }
@@ -519,6 +655,11 @@ mod tests {
             enemy.plausible_moves.contains(Direction::Down),
             "food intent must not hide a winning head-to-head move"
         );
+        let attack = enemy.hypothesis(Direction::Down).unwrap();
+        assert!(attack.support.head_threat);
+        assert!(attack.support.hunting);
+        assert!(attack.threat >= ThreatClass::Likely);
+        assert!(attack.plausibility_milli >= 600);
     }
 
     #[test]
@@ -561,6 +702,7 @@ mod tests {
         let set = EnemyMoveSet {
             legal_moves: MoveMask::all(),
             plausible_moves: MoveMask::from_iter([Direction::Up, Direction::Right]),
+            hypotheses: vec![],
             eliminations: vec![],
         };
 
