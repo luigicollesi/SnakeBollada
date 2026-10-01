@@ -247,6 +247,7 @@ impl DecisionEngine {
                 &root.state,
                 robust_safe_moves,
                 policy,
+                false,
             )
         })
         .flatten();
@@ -266,6 +267,7 @@ impl DecisionEngine {
                 &root.state,
                 robust_safe_moves,
                 policy,
+                false,
             )
         })
         .flatten();
@@ -620,19 +622,35 @@ fn choose_food_opening<'a>(
     state: &SimulatedGameState,
     robust_safe_moves: crate::direction::MoveMask,
     policy: ReservedCellPolicy,
+    critical: bool,
 ) -> Option<(&'a DirectionEvaluation, food::FoodCandidate)> {
     let viable = |candidate: &food::FoodCandidate, committed: bool| {
         evaluations
             .iter()
             .find(|evaluation| evaluation.direction == candidate.first_move)
             .filter(|evaluation| {
-                let death_limit = if committed { 750 } else { 500 };
+                let (death_limit, forced_limit, constrained_limit, border_limit) = if critical {
+                    (600, 800, 900, 850)
+                } else if committed {
+                    (350, 500, 700, 700)
+                } else {
+                    (400, 500, 700, 700)
+                };
+                let edge_food = food_is_on_edge(state, candidate.target_food);
+                let edge_route_safe = critical
+                    || !edge_food
+                    || (evaluation.survival.max_border_structural_risk_milli < 550
+                        && evaluation.survival.min_future_mobility >= 2);
+
                 (robust_safe_moves.is_empty() || robust_safe_moves.contains(evaluation.direction))
                     && !evaluation.survival.is_forced_death()
                     && !evaluation.survival.is_forced_dead_end()
                     && evaluation.survival.death_rate_milli() <= death_limit
+                    && evaluation.survival.forced_rate_milli() <= forced_limit
+                    && evaluation.survival.constrained_rate_milli() <= constrained_limit
                     && evaluation.survival.max_self_enclosure_risk < 2
-                    && evaluation.survival.max_border_structural_risk_milli < 800
+                    && evaluation.survival.max_border_structural_risk_milli < border_limit
+                    && edge_route_safe
             })
     };
 
@@ -650,6 +668,12 @@ fn choose_food_opening<'a>(
     ranked_candidates.iter().find_map(|candidate| {
         viable(candidate, false).map(|evaluation| (evaluation, candidate.clone()))
     })
+}
+
+fn food_is_on_edge(state: &SimulatedGameState, food: crate::Coord) -> bool {
+    let right = i32::try_from(state.width).unwrap_or(i32::MAX).saturating_sub(1);
+    let top = i32::try_from(state.height).unwrap_or(i32::MAX).saturating_sub(1);
+    food.x == 0 || food.y == 0 || food.x == right || food.y == top
 }
 
 fn baseline_fallback(state: &GameState) -> Decision {
