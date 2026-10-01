@@ -4,13 +4,14 @@ use std::collections::HashMap;
 
 use crate::board_mask::BoardMask;
 use crate::direction::MoveMask;
-use crate::enemy::tracing::EnemyTracingOutput;
+use crate::enemy::tracing::{EnemyTracingOutput, ThreatClass};
 use crate::simulation::mobility::MobilityAnalysis;
 use crate::simulation::state::SimulatedGameState;
 
 #[derive(Debug, Clone)]
 pub(crate) struct ThreatMap {
     lethal: BoardMask,
+    possible_lethal: BoardMask,
     favorable: BoardMask,
 }
 
@@ -19,10 +20,15 @@ impl ThreatMap {
         let width = state.width as u16;
         let height = state.height as u16;
         let mut lethal = BoardMask::new(width, height);
+        let mut possible_lethal = BoardMask::new(width, height);
         let mut favorable = BoardMask::new(width, height);
 
         let Some(ours) = state.snake(&state.our_snake_id).filter(|snake| snake.alive) else {
-            return Self { lethal, favorable };
+            return Self {
+                lethal,
+                possible_lethal,
+                favorable,
+            };
         };
 
         for enemy in state
@@ -47,18 +53,34 @@ impl ThreatMap {
             for direction in moves.iter() {
                 let target = direction.apply(head);
                 if enemy.length() >= ours.length() {
-                    lethal.set(target, true);
+                    match tracing
+                        .for_enemy(&enemy.id)
+                        .map_or(ThreatClass::Possible, |set| set.threat_class(direction))
+                    {
+                        ThreatClass::Likely | ThreatClass::Forced => lethal.set(target, true),
+                        ThreatClass::Possible | ThreatClass::None => {
+                            possible_lethal.set(target, true)
+                        }
+                    }
                 } else {
                     favorable.set(target, true);
                 }
             }
         }
 
-        Self { lethal, favorable }
+        Self {
+            lethal,
+            possible_lethal,
+            favorable,
+        }
     }
 
     pub(crate) fn is_lethal(&self, coord: crate::Coord) -> bool {
         self.lethal.contains(coord)
+    }
+
+    pub(crate) fn is_possible_lethal(&self, coord: crate::Coord) -> bool {
+        self.possible_lethal.contains(coord)
     }
 
     pub(crate) fn is_favorable(&self, coord: crate::Coord) -> bool {
