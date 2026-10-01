@@ -28,6 +28,17 @@ pub(crate) struct SeedEvaluation {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ContinuationEvaluation {
+    pub(crate) depth: u8,
+    pub(crate) benefit_total: i64,
+    pub(crate) harm_total: i64,
+    pub(crate) value: i64,
+    pub(crate) terminal: LineTerminal,
+    pub(crate) bound: ValueBound,
+    pub(crate) steps: Vec<BeamStep>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 struct EvaluatedLine {
     value: i64,
     benefit_total: i64,
@@ -132,6 +143,33 @@ pub(crate) fn evaluate_seed_beam(graph: &FutureGraph, target_depth: u8) -> SeedE
     evaluation.lines = select_seed_beam(&evaluation.lines);
     evaluation
 }
+
+pub(crate) fn evaluate_continuations(
+    graph: &FutureGraph,
+    start_node: NodeId,
+    target_depth: u8,
+) -> Vec<ContinuationEvaluation> {
+    let mut evaluator = MaximinEvaluator {
+        graph,
+        memo: HashMap::new(),
+        stats: MaximinStats::default(),
+    };
+
+    evaluator
+        .evaluate_node_variants(start_node, target_depth)
+        .into_iter()
+        .map(|line| ContinuationEvaluation {
+            depth: line.steps.len().try_into().unwrap_or(u8::MAX),
+            benefit_total: line.benefit_total,
+            harm_total: line.harm_total,
+            value: line.value,
+            terminal: line.terminal,
+            bound: line.bound,
+            steps: line.steps,
+        })
+        .collect()
+}
+
 
 impl MaximinEvaluator<'_> {
     fn evaluate_node(&mut self, node_id: NodeId, remaining_depth: u8) -> EvaluatedLine {
@@ -583,6 +621,21 @@ mod tests {
         if candidate_direction_count >= 2 {
             assert!(root_directions.len() >= 2);
         }
+    }
+
+    #[test]
+    fn continuation_evaluation_starts_at_requested_node() {
+        let mut graph = FutureGraph::new(state());
+        graph.expand_to_depth(1).unwrap();
+        let tip = graph.node(graph.root()).children[0].child;
+        graph.expand_to_depth(3).unwrap();
+
+        let continuations = evaluate_continuations(&graph, tip, 2);
+        let best = continuations.first().expect("continuation must exist");
+
+        assert!(best.terminal != LineTerminal::Running || best.depth == 2);
+        assert!(best.bound.is_exact());
+        assert!(best.steps.first().is_none_or(|step| step.node == tip));
     }
 
     #[test]
