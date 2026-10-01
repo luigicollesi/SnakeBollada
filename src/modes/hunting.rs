@@ -151,8 +151,11 @@ pub(crate) fn analyze(
                 });
             }
 
+            let competitive_pressure = enemy_competitive
+                .is_some_and(|snapshot| snapshot.control_ratio_milli <= 400);
             if enemy_enclosure.risk >= EnclosureRisk::Pressure
                 || enemy_enclosure.space_to_length_milli <= 3000
+                || competitive_pressure
             {
                 let ratio_bonus = 3000_u32
                     .saturating_sub(enemy_enclosure.space_to_length_milli)
