@@ -67,13 +67,8 @@ impl BorderFobicAnalysis {
             .filter(|snake| snake.alive)
             .filter_map(|snake| {
                 let head = snake.head()?;
-                let safe_moves = actor_safe_moves(
-                    state,
-                    tactical,
-                    mobility,
-                    &snake.id,
-                    all_legal_enemy_moves,
-                );
+                let safe_moves =
+                    actor_safe_moves(state, tactical, mobility, &snake.id, all_legal_enemy_moves);
                 let fear_milli = length_fear_milli(state, snake.length());
                 let head_edge_distance = edge_distance(state, head);
                 let body_on_edge = snake
