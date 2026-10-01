@@ -329,3 +329,35 @@ Ainda depende de `decision-making.md` / TurnResolver:
 - busca depth 3+;
 - pressão de health integrada à busca futura;
 - política de bordas/quinas.
+
+## Atualização V2 — Food Safety e arbitragem estratégica
+
+Food Mode continua produzindo candidatos; o Decision Engine agora decide se perseguir a comida ainda é estrategicamente justificável.
+
+`StrategicPosture` separa:
+
+- necessidade de alimentação por health (`food_urgency_milli`);
+- crescimento histórico;
+- dominância de tamanho e `hunt_drive_milli`.
+
+Uma cobra `Dominant/Apex`, saudável e com plano de caça forte pode liberar um FoodIntent ainda alcançável. Critical Food continua acima de Dominant Hunt.
+
+Food Safety usa limites próprios para:
+
+- death rate;
+- forced rate;
+- constrained rate;
+- self-enclosure;
+- BorderStructuralRisk;
+- EnemyPinRisk.
+
+Comida na borda exige, quando não crítica:
+
+```text
+border structural < 550
+enemy pin risk < 450
+min future mobility >= 2
+min inward control >= 500
+```
+
+Assim uma fruta acessível deixa de ser suficiente quando o retorno ao interior está sob controle adversário. Critical Food pode usar thresholds mais permissivos porque starvation é risco de Survival.
