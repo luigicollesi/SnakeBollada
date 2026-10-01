@@ -506,7 +506,7 @@ mod tests {
         let state = state(
             vec![
                 snake("ours", 100, &[(2, 1), (1, 1)]),
-                snake("enemy", 100, &[(2, 3), (3, 3), (3, 2)]),
+                snake("enemy", 100, &[(2, 3), (2, 4), (1, 4)]),
             ],
             vec![food],
         );
