@@ -915,3 +915,45 @@ Registrar:
 - [x] transpositions são memoizadas por node/certainty/profundidade restante;
 - [x] terminal nodes evitam análise pesada;
 - [x] avaliação mantém contagens de rotas sem materializar caminhos completos.
+
+## Atualização V3 — Strategic Posture e Dominance Search
+
+Agressividade por frutas não é mais o peso final de Food versus Hunting. Ela permanece como histórico de crescimento (`growth_aggression_milli`), mas cada `SearchNode` deriva uma `StrategicPosture` com:
+
+- fase `Growth / Balanced / Dominant / Apex`;
+- diferença de comprimento para o maior inimigo;
+- `unique_largest`;
+- `size_dominance_milli`;
+- `hunt_drive_milli`;
+- `food_urgency_milli`.
+
+Food e Hunting recebem drives independentes. Uma cobra dominante e saudável pode priorizar Hunting mesmo com poucas frutas comidas; saúde crítica continua podendo elevar Food acima de Hunting.
+
+A arbitragem root é:
+
+```text
+Guaranteed Kill
+Critical Food
+Dominant Hunt
+Existing HuntIntent
+Committed Food
+Opening Food
+Generic Decision
+```
+
+Um `Decision` de caça carrega `target_enemy` e `hunt_kind` quando existe plano explicitamente escolhido. A sessão só persiste HuntIntent quando esses campos identificam exatamente um plano committable; `HuntingTactical` genérico não escolhe mais o primeiro plano disponível.
+
+`SearchTrend` também inclui mudança de dominance frontier e EnemyPinRisk. O selective scheduler modula a pressão tática por `hunt_drive_milli`, evitando gastar a mesma profundidade ofensiva em Growth e Apex.
+
+A telemetria do search expõe, além do campo legado `aggression_milli`:
+
+- `strategic_phase`;
+- `growth_aggression_milli`;
+- `size_dominance_milli`;
+- `hunt_drive_milli`;
+- `food_urgency_milli`;
+- comprimentos nosso/maior inimigo;
+- `control_ratio_milli`;
+- `dominance_frontier_cells`;
+- `border_risk_milli`;
+- `enemy_pin_risk_milli`.
