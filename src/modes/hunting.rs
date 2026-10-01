@@ -153,8 +153,7 @@ pub(crate) fn analyze(
 
             let competitive_pressure = match (our_competitive, enemy_competitive) {
                 (Some(ours), Some(enemy)) => {
-                    ours.control_ratio_milli
-                        > enemy.control_ratio_milli.saturating_add(50)
+                    ours.control_ratio_milli > enemy.control_ratio_milli.saturating_add(50)
                         || enemy.control_ratio_milli <= 450
                 }
                 _ => false,
