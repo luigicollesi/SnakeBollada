@@ -1,3 +1,5 @@
+pub(crate) mod beam;
+pub(crate) mod bounds;
 pub(crate) mod budget;
 pub(crate) mod graph;
 
