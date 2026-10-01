@@ -5,6 +5,7 @@ use std::collections::HashMap;
 use rayon::prelude::*;
 
 use crate::analysis::{TacticalStateAnalysis, TerritoryAnalysis};
+use crate::simulation::mobility::MobilityAnalysis;
 use crate::simulation::state::SimulatedGameState;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -48,21 +49,23 @@ impl EnclosureAnalysis {
         territory: &TerritoryAnalysis,
         tactical: &TacticalStateAnalysis,
     ) -> Self {
-        Self::from_parts_with_scope(state, territory, tactical, false)
+        Self::from_parts_with_scope(state, territory, tactical, None, false)
     }
 
     pub(crate) fn from_parts_actor_relative(
         state: &SimulatedGameState,
         territory: &TerritoryAnalysis,
         tactical: &TacticalStateAnalysis,
+        mobility: &MobilityAnalysis,
     ) -> Self {
-        Self::from_parts_with_scope(state, territory, tactical, true)
+        Self::from_parts_with_scope(state, territory, tactical, Some(mobility), true)
     }
 
     fn from_parts_with_scope(
         state: &SimulatedGameState,
         territory: &TerritoryAnalysis,
         tactical: &TacticalStateAnalysis,
+        mobility: Option<&MobilityAnalysis>,
         all_legal_enemy_moves: bool,
     ) -> Self {
         let snakes = state
@@ -72,7 +75,9 @@ impl EnclosureAnalysis {
             .filter_map(|snake| {
                 let territory_snapshot = territory.for_snake(&snake.id)?;
 
-                let moves = if snake.id == state.our_snake_id {
+                let moves = if let Some(mobility) = mobility {
+                    mobility.deterministic_moves_for(state, &snake.id).len()
+                } else if snake.id == state.our_snake_id {
                     tactical.ours.safe_moves.len()
                 } else {
                     tactical
