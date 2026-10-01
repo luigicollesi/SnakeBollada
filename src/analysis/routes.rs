@@ -183,6 +183,35 @@ impl StateAnalysis {
         self.claims.get(&food)
     }
 
+    pub(crate) fn claim_for_actor(
+        &self,
+        snake_id: &str,
+        food: Coord,
+    ) -> Option<FoodClaimInfo> {
+        let actor_eta = self.route_for(snake_id, food)?.distance;
+        let nearest = self.nearest_competitor_for(snake_id, food);
+        let nearest_eta = nearest.as_ref().map(|competitor| competitor.eta);
+        let claim_margin = match (actor_eta, nearest_eta) {
+            (Some(actor), Some(competitor)) => {
+                let margin = i32::from(competitor) - i32::from(actor);
+                Some(margin.clamp(i32::from(i16::MIN), i32::from(i16::MAX)) as i16)
+            }
+            _ => None,
+        };
+
+        Some(FoodClaimInfo {
+            food,
+            our_eta: actor_eta,
+            nearest_enemy_eta: nearest_eta,
+            nearest_enemy: nearest.map(|competitor| competitor.snake_id),
+            claim_margin,
+            contested: matches!(
+                (actor_eta, nearest_eta),
+                (Some(actor), Some(competitor)) if actor == competitor
+            ),
+        })
+    }
+
     pub(crate) fn nearest_competitor_for(
         &self,
         snake_id: &str,
@@ -503,6 +532,22 @@ mod tests {
         assert_eq!(claim.nearest_enemy_eta, Some(2));
         assert_eq!(claim.nearest_enemy.as_deref(), Some("enemy-a"));
         assert_eq!(claim.claim_margin, Some(0));
+    }
+
+    #[test]
+    fn actor_claim_is_relative_to_requested_snake() {
+        let ours = snake("ours", vec![Coord { x: 0, y: 0 }]);
+        let enemy = snake("enemy", vec![Coord { x: 4, y: 0 }]);
+        let food = Coord { x: 3, y: 0 };
+        let analysis = StateAnalysis::from_state(&state(ours, vec![enemy], vec![food]));
+
+        let ours_claim = analysis.claim_for_actor("ours", food).unwrap();
+        let enemy_claim = analysis.claim_for_actor("enemy", food).unwrap();
+
+        assert_eq!(ours_claim.our_eta, Some(3));
+        assert_eq!(enemy_claim.our_eta, Some(1));
+        assert_eq!(ours_claim.claim_margin, Some(-2));
+        assert_eq!(enemy_claim.claim_margin, Some(2));
     }
 
     #[test]
