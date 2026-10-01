@@ -102,7 +102,11 @@ async fn handle_move(move_req: Json<GameState>, runtime: &State<GameRuntime>) ->
 }
 
 fn debug_shout(analyzed_depth: u8) -> String {
-    let unit = if analyzed_depth == 1 { "lance" } else { "lances" };
+    let unit = if analyzed_depth == 1 {
+        "lance"
+    } else {
+        "lances"
+    };
     format!("DEBUG: {analyzed_depth} {unit} à frente")
 }
 
@@ -139,7 +143,6 @@ fn rocket() -> _ {
             routes![handle_index, handle_start, handle_move, handle_end],
         )
 }
-
 
 #[cfg(test)]
 mod tests {
