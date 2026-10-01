@@ -665,10 +665,7 @@ mod tests {
         )]));
 
         assert_eq!(graph.node_count(), node_count);
-        assert_eq!(
-            graph.opponent_profiles["enemy"].hunting_bias_milli,
-            1200
-        );
+        assert_eq!(graph.opponent_profiles["enemy"].hunting_bias_milli, 1200);
     }
 
     #[test]
