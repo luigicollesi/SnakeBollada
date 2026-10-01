@@ -13,7 +13,7 @@ const HUNTING_TERRITORY_BUDGET: i64 = 2000;
 const MOBILITY_STEP: i64 = 320;
 const ENCLOSURE_STEP: i64 = 220;
 const KILL_BENEFIT: i64 = 1400;
-const DEATH_HARM: i64 = 2000;
+const TERMINAL_UTILITY: i64 = 1_000_000_000;
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub(crate) struct ActorTransitionScore {
@@ -23,6 +23,8 @@ pub(crate) struct ActorTransitionScore {
     pub(crate) hunting_harm: i64,
     pub(crate) survival_benefit: i64,
     pub(crate) survival_harm: i64,
+    pub(crate) terminal_benefit: i64,
+    pub(crate) terminal_harm: i64,
     pub(crate) benefit_total: i64,
     pub(crate) harm_total: i64,
     pub(crate) net: i64,
@@ -136,6 +138,8 @@ fn score_actor_transition(
 
     let mut survival_benefit = 0_i64;
     let mut survival_harm = 0_i64;
+    let mut terminal_benefit = 0_i64;
+    let mut terminal_harm = 0_i64;
 
     if let Some(after) = after {
         add_signed_delta(
@@ -168,8 +172,12 @@ fn score_actor_transition(
             &mut survival_benefit,
             &mut survival_harm,
         );
+        let living_after = child.state.snakes.iter().filter(|snake| snake.alive).count();
+        if living_after == 1 {
+            terminal_benefit = TERMINAL_UTILITY;
+        }
     } else {
-        survival_harm = survival_harm.saturating_add(DEATH_HARM);
+        terminal_harm = TERMINAL_UTILITY;
     }
 
     food_benefit = weighted(food_benefit, weights.food);
@@ -181,10 +189,12 @@ fn score_actor_transition(
 
     let benefit_total = food_benefit
         .saturating_add(hunting_benefit)
-        .saturating_add(survival_benefit);
+        .saturating_add(survival_benefit)
+        .saturating_add(terminal_benefit);
     let harm_total = food_harm
         .saturating_add(hunting_harm)
-        .saturating_add(survival_harm);
+        .saturating_add(survival_harm)
+        .saturating_add(terminal_harm);
 
     ActorTransitionScore {
         food_benefit,
@@ -193,6 +203,8 @@ fn score_actor_transition(
         hunting_harm,
         survival_benefit,
         survival_harm,
+        terminal_benefit,
+        terminal_harm,
         benefit_total,
         harm_total,
         net: benefit_total.saturating_sub(harm_total),
@@ -430,6 +442,44 @@ mod tests {
 
         assert!(ours.food_benefit > 0);
         assert!(ours.net > -DEATH_HARM);
+    }
+
+    #[test]
+    fn actor_death_is_terminal_and_not_scaled_by_survival_weight() {
+        let mut graph = FutureGraph::new(SimulatedGameState {
+            turn: 1,
+            width: 3,
+            height: 3,
+            food: vec![],
+            hazards: vec![],
+            snakes: vec![
+                snake("ours", 100, &[(1, 1), (1, 0)]),
+                snake("enemy", 100, &[(2, 1), (2, 0)]),
+            ],
+            our_snake_id: "ours".to_string(),
+            rules: RulesContext {
+                name: "standard".to_string(),
+                max_health: 100,
+                hazard_damage_per_turn: 0,
+            },
+            aggression: AggressionState::default(),
+        });
+        graph.use_beam_lean_analysis();
+        graph.expand_to_depth(1).unwrap();
+
+        let root = graph.node(graph.root());
+        let edge = root
+            .children
+            .iter()
+            .find(|edge| {
+                let child = graph.node(edge.child);
+                child.state.snake("enemy").is_none_or(|snake| !snake.alive)
+            })
+            .expect("expected a joint action that eliminates enemy");
+        let enemy = edge.transition.for_actor("enemy").unwrap();
+
+        assert_eq!(enemy.terminal_harm, TERMINAL_UTILITY);
+        assert!(enemy.net <= -TERMINAL_UTILITY);
     }
 
     #[test]
