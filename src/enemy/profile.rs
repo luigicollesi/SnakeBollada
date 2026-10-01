@@ -45,7 +45,7 @@ impl OpponentProfile {
             return;
         };
 
-        let alternatives = moves.hypotheses.iter().copied();
+        let mut alternatives = moves.hypotheses.iter().copied();
 
         self.survival_bias_milli = update_bias(
             self.survival_bias_milli,
