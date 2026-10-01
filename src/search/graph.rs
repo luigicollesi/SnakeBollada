@@ -165,15 +165,11 @@ impl FutureGraph {
         self.transpositions.get(key).copied()
     }
 
-    pub(crate) fn root_children_match_food(&self, actual_food: &[crate::Coord]) -> bool {
-        let mut actual = actual_food.to_vec();
-        actual.sort_unstable();
-
-        self.nodes[self.root].children.iter().any(|edge| {
-            let mut expected = self.nodes[edge.child].state.food.clone();
-            expected.sort_unstable();
-            expected == actual
-        })
+    pub(crate) fn root_children_match_food(&self, actual_key: &StateKey) -> bool {
+        self.nodes[self.root]
+            .children
+            .iter()
+            .any(|edge| self.nodes[edge.child].key.food() == actual_key.food())
     }
 
     pub(crate) fn retain_chosen_direction(&mut self, direction: crate::direction::Direction) {
@@ -851,14 +847,17 @@ mod tests {
         let mut graph = FutureGraph::new(initial);
         graph.expand_to_depth(1).unwrap();
 
-        let child_food = graph
+        let child_state = graph
             .node(graph.node(graph.root()).children[0].child)
             .state
-            .food
             .clone();
+        let child_key = StateKey::from_state(&child_state);
 
-        assert!(graph.root_children_match_food(&child_food));
-        assert!(!graph.root_children_match_food(&[Coord { x: 0, y: 0 }]));
+        assert!(graph.root_children_match_food(&child_key));
+
+        let mut unexpected = child_state;
+        unexpected.food = vec![Coord { x: 0, y: 0 }];
+        assert!(!graph.root_children_match_food(&StateKey::from_state(&unexpected)));
     }
 
     #[test]
