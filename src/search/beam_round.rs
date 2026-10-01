@@ -1,0 +1,414 @@
+#![allow(dead_code)]
+
+use std::time::{Duration, Instant};
+
+use super::beam::{BeamCheckpoint, BeamLine, LineTerminal, ROUND_DEPTH};
+use super::bounds::ValueBound;
+use super::budget::SearchBudget;
+use super::graph::{FutureGraph, NodeId, SearchError};
+use super::maximin::{evaluate_continuations, ContinuationEvaluation};
+
+const FIRST_ROUND_ESTIMATE: Duration = Duration::from_millis(5);
+const FINAL_SELECTION_RESERVE: Duration = Duration::from_millis(2);
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) struct BeamRoundStats {
+    pub(crate) target_depth: u8,
+    pub(crate) committed: bool,
+    pub(crate) lines_attempted: u8,
+    pub(crate) new_nodes: u32,
+    pub(crate) new_edges: u32,
+    pub(crate) elapsed_us: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct BeamRoundOutcome {
+    pub(crate) checkpoint: BeamCheckpoint,
+    pub(crate) stats: BeamRoundStats,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) struct BeamDeepeningStats {
+    pub(crate) rounds_completed: u8,
+    pub(crate) attempted_depth: u8,
+    pub(crate) completed_depth: u8,
+    pub(crate) elapsed_us: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct BeamDeepeningResult {
+    pub(crate) checkpoint: BeamCheckpoint,
+    pub(crate) stats: BeamDeepeningStats,
+}
+
+pub(crate) fn deepen_checkpoint_once(
+    graph: &mut FutureGraph,
+    checkpoint: &BeamCheckpoint,
+    budget: &SearchBudget,
+) -> Result<BeamRoundOutcome, SearchError> {
+    let target_depth = checkpoint.completed_depth.saturating_add(ROUND_DEPTH);
+    let nodes_before = graph.node_count();
+    let edges_before = graph.edge_count();
+    let started = Instant::now();
+    let mut candidate_lines = Vec::with_capacity(checkpoint.lines.len());
+    let mut lines_attempted = 0_u8;
+
+    for line in &checkpoint.lines {
+        if line.terminal != LineTerminal::Running {
+            candidate_lines.push(line.clone());
+            continue;
+        }
+
+        lines_attempted = lines_attempted.saturating_add(1);
+        let Some(tip) = line_tip(line) else {
+            return Ok(incomplete_outcome(
+                checkpoint,
+                target_depth,
+                lines_attempted,
+                nodes_before,
+                edges_before,
+                graph,
+                started,
+            ));
+        };
+
+        let expansion = graph.expand_subtree(tip, ROUND_DEPTH, budget)?;
+        if !expansion.completed {
+            return Ok(incomplete_outcome(
+                checkpoint,
+                target_depth,
+                lines_attempted,
+                nodes_before,
+                edges_before,
+                graph,
+                started,
+            ));
+        }
+
+        let Some(continuation) = evaluate_continuations(graph, tip, ROUND_DEPTH)
+            .into_iter()
+            .find(|continuation| continuation.bound.is_exact())
+        else {
+            return Ok(incomplete_outcome(
+                checkpoint,
+                target_depth,
+                lines_attempted,
+                nodes_before,
+                edges_before,
+                graph,
+                started,
+            ));
+        };
+
+        candidate_lines.push(append_continuation(line, continuation));
+    }
+
+    if !checkpoint.can_commit(&candidate_lines) {
+        return Ok(incomplete_outcome(
+            checkpoint,
+            target_depth,
+            lines_attempted,
+            nodes_before,
+            edges_before,
+            graph,
+            started,
+        ));
+    }
+
+    sort_lines(&mut candidate_lines);
+    let committed = BeamCheckpoint {
+        completed_depth: target_depth,
+        lines: candidate_lines,
+    };
+
+    Ok(BeamRoundOutcome {
+        checkpoint: committed,
+        stats: BeamRoundStats {
+            target_depth,
+            committed: true,
+            lines_attempted,
+            new_nodes: graph
+                .node_count()
+                .saturating_sub(nodes_before)
+                .try_into()
+                .unwrap_or(u32::MAX),
+            new_edges: graph.edge_count().saturating_sub(edges_before),
+            elapsed_us: started.elapsed().as_micros().try_into().unwrap_or(u64::MAX),
+        },
+    })
+}
+
+pub(crate) fn deepen_while_affordable(
+    graph: &mut FutureGraph,
+    initial: BeamCheckpoint,
+    budget: &SearchBudget,
+) -> Result<BeamDeepeningResult, SearchError> {
+    let started = Instant::now();
+    let soft_budget = budget.limited_to_soft_deadline();
+    let mut checkpoint = initial;
+    let mut rounds_completed = 0_u8;
+    let mut attempted_depth = checkpoint.completed_depth;
+    let mut next_estimate = FIRST_ROUND_ESTIMATE;
+
+    loop {
+        let required = next_estimate.saturating_add(FINAL_SELECTION_RESERVE);
+        if !soft_budget.can_afford_hard(required) {
+            break;
+        }
+
+        attempted_depth = checkpoint.completed_depth.saturating_add(ROUND_DEPTH);
+        let round_started = Instant::now();
+        let outcome = deepen_checkpoint_once(graph, &checkpoint, &soft_budget)?;
+        let round_elapsed = round_started.elapsed();
+
+        if !outcome.stats.committed {
+            break;
+        }
+
+        checkpoint = outcome.checkpoint;
+        rounds_completed = rounds_completed.saturating_add(1);
+        next_estimate = estimate_next_round(round_elapsed);
+    }
+
+    Ok(BeamDeepeningResult {
+        stats: BeamDeepeningStats {
+            rounds_completed,
+            attempted_depth,
+            completed_depth: checkpoint.completed_depth,
+            elapsed_us: started.elapsed().as_micros().try_into().unwrap_or(u64::MAX),
+        },
+        checkpoint,
+    })
+}
+
+fn append_continuation(line: &BeamLine, continuation: ContinuationEvaluation) -> BeamLine {
+    let prefix_benefit = line.steps.iter().fold(0_i64, |sum, step| {
+        sum.saturating_add(step.transition.instant_benefit)
+    });
+    let prefix_harm = line.steps.iter().fold(0_i64, |sum, step| {
+        sum.saturating_add(step.transition.instant_harm)
+    });
+    let prefix_net = prefix_benefit.saturating_sub(prefix_harm);
+
+    let mut steps = line.steps.clone();
+    steps.extend(continuation.steps);
+
+    let value = if continuation.terminal == LineTerminal::Running {
+        prefix_net.saturating_add(continuation.value)
+    } else {
+        continuation.value
+    };
+    let bound = if continuation.terminal == LineTerminal::Running {
+        shift_bound(continuation.bound, prefix_net)
+    } else {
+        continuation.bound
+    };
+
+    BeamLine {
+        id: line.id,
+        root_direction: line.root_direction,
+        depth: steps.len().try_into().unwrap_or(u8::MAX),
+        benefit_total: prefix_benefit.saturating_add(continuation.benefit_total),
+        harm_total: prefix_harm.saturating_add(continuation.harm_total),
+        value,
+        terminal: continuation.terminal,
+        bound,
+        steps,
+    }
+}
+
+fn line_tip(line: &BeamLine) -> Option<NodeId> {
+    line.steps.last().map(|step| step.child)
+}
+
+fn incomplete_outcome(
+    checkpoint: &BeamCheckpoint,
+    target_depth: u8,
+    lines_attempted: u8,
+    nodes_before: usize,
+    edges_before: u32,
+    graph: &FutureGraph,
+    started: Instant,
+) -> BeamRoundOutcome {
+    BeamRoundOutcome {
+        checkpoint: checkpoint.clone(),
+        stats: BeamRoundStats {
+            target_depth,
+            committed: false,
+            lines_attempted,
+            new_nodes: graph
+                .node_count()
+                .saturating_sub(nodes_before)
+                .try_into()
+                .unwrap_or(u32::MAX),
+            new_edges: graph.edge_count().saturating_sub(edges_before),
+            elapsed_us: started.elapsed().as_micros().try_into().unwrap_or(u64::MAX),
+        },
+    }
+}
+
+fn shift_bound(bound: ValueBound, delta: i64) -> ValueBound {
+    match bound {
+        ValueBound::Exact(value) => ValueBound::Exact(value.saturating_add(delta)),
+        ValueBound::LowerBound(value) => ValueBound::LowerBound(value.saturating_add(delta)),
+        ValueBound::UpperBound(value) => ValueBound::UpperBound(value.saturating_add(delta)),
+        ValueBound::Interval { lower, upper } => ValueBound::Interval {
+            lower: lower.saturating_add(delta),
+            upper: upper.saturating_add(delta),
+        },
+    }
+}
+
+fn estimate_next_round(previous: Duration) -> Duration {
+    let micros = previous.as_micros();
+    let scaled = micros
+        .saturating_mul(5)
+        .saturating_div(4)
+        .saturating_add(2_000)
+        .min(u128::from(u64::MAX));
+    Duration::from_micros(scaled.try_into().unwrap_or(u64::MAX))
+}
+
+fn sort_lines(lines: &mut [BeamLine]) {
+    lines.sort_by(|left, right| {
+        right
+            .bound
+            .lower()
+            .cmp(&left.bound.lower())
+            .then_with(|| right.value.cmp(&left.value))
+            .then_with(|| left.root_direction.rank().cmp(&right.root_direction.rank()))
+            .then_with(|| left.id.cmp(&right.id))
+    });
+}
+
+#[cfg(test)]
+mod tests {
+    use std::time::Duration;
+
+    use crate::search::beam::{select_seed_beam, BEAM_WIDTH, SEED_DEPTH};
+    use crate::search::maximin::evaluate_seed_lines;
+    use crate::simulation::state::{
+        AggressionState, RulesContext, SimulatedGameState, SimulatedSnake,
+    };
+    use crate::Coord;
+
+    use super::*;
+
+    fn snake(id: &str, body: &[(i32, i32)]) -> SimulatedSnake {
+        SimulatedSnake {
+            id: id.to_string(),
+            health: 100,
+            body: body.iter().map(|(x, y)| Coord { x: *x, y: *y }).collect(),
+            alive: true,
+        }
+    }
+
+    fn state() -> SimulatedGameState {
+        SimulatedGameState {
+            turn: 1,
+            width: 7,
+            height: 7,
+            food: vec![Coord { x: 2, y: 5 }],
+            hazards: vec![],
+            snakes: vec![
+                snake("ours", &[(2, 2), (2, 1)]),
+                snake("enemy", &[(5, 2), (5, 1)]),
+            ],
+            our_snake_id: "ours".to_string(),
+            rules: RulesContext {
+                name: "standard".to_string(),
+                max_health: 100,
+                hazard_damage_per_turn: 0,
+            },
+            aggression: AggressionState::default(),
+        }
+    }
+
+    fn seeded() -> (FutureGraph, BeamCheckpoint) {
+        let mut graph = FutureGraph::new(state());
+        graph.expand_to_depth(SEED_DEPTH).unwrap();
+        let candidates = evaluate_seed_lines(&graph, SEED_DEPTH).lines;
+        let lines = select_seed_beam(&candidates);
+        assert_eq!(lines.len(), BEAM_WIDTH);
+        let checkpoint = BeamCheckpoint::new(lines).unwrap();
+        (graph, checkpoint)
+    }
+
+    #[test]
+    fn completed_round_advances_running_lines_by_two() {
+        let (mut graph, checkpoint) = seeded();
+        let budget = SearchBudget::for_duration(Duration::from_secs(10));
+
+        let outcome = deepen_checkpoint_once(&mut graph, &checkpoint, &budget).unwrap();
+
+        assert!(outcome.stats.committed);
+        assert_eq!(
+            outcome.checkpoint.completed_depth,
+            checkpoint.completed_depth + ROUND_DEPTH
+        );
+        assert!(outcome
+            .checkpoint
+            .lines
+            .iter()
+            .all(|line| line.bound.is_exact()));
+        assert!(outcome.checkpoint.lines.iter().all(|line| {
+            line.terminal != LineTerminal::Running
+                || line.depth >= checkpoint.completed_depth + ROUND_DEPTH
+        }));
+    }
+
+    #[test]
+    fn expired_round_keeps_previous_checkpoint() {
+        let (mut graph, checkpoint) = seeded();
+        let budget = SearchBudget::for_duration(Duration::ZERO);
+
+        let outcome = deepen_checkpoint_once(&mut graph, &checkpoint, &budget).unwrap();
+
+        assert!(!outcome.stats.committed);
+        assert_eq!(outcome.checkpoint, checkpoint);
+    }
+
+    #[test]
+    fn repeated_rounds_only_commit_complete_depths() {
+        let (mut graph, checkpoint) = seeded();
+        let budget = SearchBudget::for_duration(Duration::from_secs(10));
+
+        let first = deepen_checkpoint_once(&mut graph, &checkpoint, &budget).unwrap();
+        assert!(first.stats.committed);
+        let second = deepen_checkpoint_once(&mut graph, &first.checkpoint, &budget).unwrap();
+        assert!(second.stats.committed);
+
+        assert_eq!(first.checkpoint.completed_depth, 5);
+        assert_eq!(second.checkpoint.completed_depth, 7);
+    }
+
+    #[test]
+    fn append_replaces_old_leaf_value_instead_of_double_counting_it() {
+        let (_, checkpoint) = seeded();
+        let line = checkpoint.lines.first().unwrap().clone();
+        let prefix_benefit = line.steps.iter().fold(0_i64, |sum, step| {
+            sum.saturating_add(step.transition.instant_benefit)
+        });
+        let prefix_harm = line.steps.iter().fold(0_i64, |sum, step| {
+            sum.saturating_add(step.transition.instant_harm)
+        });
+        let continuation = ContinuationEvaluation {
+            depth: 2,
+            benefit_total: 900,
+            harm_total: 300,
+            value: 600,
+            terminal: LineTerminal::Running,
+            bound: ValueBound::Exact(600),
+            steps: vec![],
+        };
+
+        let deepened = append_continuation(&line, continuation);
+
+        assert_eq!(
+            deepened.value,
+            prefix_benefit.saturating_sub(prefix_harm) + 600
+        );
+        assert_eq!(deepened.benefit_total, prefix_benefit + 900);
+        assert_eq!(deepened.harm_total, prefix_harm + 300);
+    }
+}
