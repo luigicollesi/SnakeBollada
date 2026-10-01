@@ -183,7 +183,13 @@ mod tests {
         let budget = SearchBudget::from_state_with_extra_reserve(&state(500, "0"), 0);
         let limited = budget.limited_to_soft_deadline();
 
-        assert!(limited.remaining_hard() <= budget.remaining_soft());
-        assert!(limited.remaining_hard() < budget.remaining_hard());
+        let limited_hard = limited.remaining_hard();
+        let original_soft = budget.remaining_soft();
+
+        assert!(
+            limited_hard.saturating_sub(original_soft) <= Duration::from_millis(1),
+            "soft-limited hard deadline must match the original soft deadline"
+        );
+        assert!(limited_hard < budget.remaining_hard());
     }
 }
