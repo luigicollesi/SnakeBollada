@@ -1,9 +1,11 @@
 use std::cmp::Ordering;
+use std::time::Duration;
 
 use crate::analysis::StrategicPosture;
 
 use crate::decision::escape::{
     choose_escape_direction, root_escape_pressure_milli, ESCAPE_ACTIVATION_THRESHOLD_MILLI,
+    ESCAPE_RELEASE_THRESHOLD_MILLI,
 };
 use crate::decision::evaluation::{
     choose_best_direction, evaluate_graph_budgeted, DagEvaluationStats, DirectionEvaluation,
@@ -24,6 +26,9 @@ use crate::strategy::{
 use crate::GameState;
 
 const TARGET_DEPTH: u8 = 3;
+const MIN_SELECTIVE_REEVALUATION_RESERVE_US: u64 = 5_000;
+const MAX_SELECTIVE_REEVALUATION_RESERVE_US: u64 = 60_000;
+const SELECTIVE_REEVALUATION_MULTIPLIER: u64 = 2;
 
 #[derive(Debug, Default, Clone, Copy)]
 pub(crate) struct DecisionEngine;
@@ -159,14 +164,26 @@ impl DecisionEngine {
 
         let mut analyzed_depth = completed_depth;
         if completed_depth >= TARGET_DEPTH && !budget.soft_expired() {
+            let reevaluation_reserve =
+                selective_reevaluation_reserve(&depth_stats, completed_depth);
             if let Ok(stats) = SelectiveSearchScheduler.run(
                 graph,
                 &evaluations,
                 &budget,
                 TARGET_DEPTH,
                 search_intent,
+                reevaluation_reserve,
             ) {
-                analyzed_depth = analyzed_depth.max(stats.max_selective_depth);
+                let selective_depth = completed_depth.max(stats.max_selective_depth);
+                if selective_depth > completed_depth {
+                    if let Some(refined) =
+                        evaluate_graph_budgeted(graph, selective_depth, &budget)
+                    {
+                        evaluations = refined.directions;
+                        dag_stats = refined.stats;
+                        analyzed_depth = selective_depth;
+                    }
+                }
             }
         }
 
@@ -177,9 +194,7 @@ impl DecisionEngine {
         let robust_safe_moves = root_analysis.tactical.ours.safe_moves;
         let policy = ReservedCellPolicy::default();
         let escape_pressure_milli = root_escape_pressure_milli(&evaluations, robust_safe_moves);
-        let escape_choice = if intent.and_then(DecisionIntent::escape).is_some()
-            || escape_pressure_milli >= ESCAPE_ACTIVATION_THRESHOLD_MILLI
-        {
+        let escape_choice = if escape_should_override(intent, escape_pressure_milli) {
             choose_escape_direction(&evaluations, &root.state, robust_safe_moves, policy)
         } else {
             None
@@ -441,6 +456,30 @@ impl DecisionEngine {
             },
         }
     }
+}
+
+
+fn escape_should_override(intent: Option<&DecisionIntent>, pressure_milli: u16) -> bool {
+    pressure_milli >= ESCAPE_ACTIVATION_THRESHOLD_MILLI
+        || (intent.and_then(DecisionIntent::escape).is_some()
+            && pressure_milli > ESCAPE_RELEASE_THRESHOLD_MILLI)
+}
+
+fn selective_reevaluation_reserve(
+    depth_stats: &[DepthSearchStats; 6],
+    completed_depth: u8,
+) -> Duration {
+    let index = usize::from(completed_depth.saturating_sub(1));
+    let observed_us = depth_stats
+        .get(index)
+        .map_or(0, |stats| stats.evaluation_us);
+    let reserve_us = observed_us
+        .saturating_mul(SELECTIVE_REEVALUATION_MULTIPLIER)
+        .clamp(
+            MIN_SELECTIVE_REEVALUATION_RESERVE_US,
+            MAX_SELECTIVE_REEVALUATION_RESERVE_US,
+        );
+    Duration::from_micros(reserve_us)
 }
 
 fn choose_hunt_intent<'a>(
@@ -1634,8 +1673,9 @@ mod tests {
 
         assert!(!escape_should_override(Some(&intent), 250));
         assert!(escape_should_override(Some(&intent), 450));
-        assert!(escape_should_override(None, ESCAPE_ACTIVATION_THRESHOLD_MILLI));
+        assert!(escape_should_override(
+            None,
+            ESCAPE_ACTIVATION_THRESHOLD_MILLI
+        ));
     }
-
-
 }
