@@ -413,6 +413,7 @@ mod tests {
         ActorMetrics {
             health_milli: 800,
             safe_moves: 3,
+            safe_non_reverse_moves: 3,
             reachable_space: 30,
             space_to_length_milli: 3750,
             escape_frontier: 3,
@@ -433,6 +434,7 @@ mod tests {
             exclusive_space: 25,
             contested_space: 5,
             control_ratio_milli: 650,
+            territory_share_milli: 300,
             controlled_food: 1,
             contested_food: 0,
             winning_frontier: 3,
