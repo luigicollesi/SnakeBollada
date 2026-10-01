@@ -9,6 +9,7 @@ use crate::simulation::state::SimulatedGameState;
 pub(crate) struct ActorMetrics {
     pub(crate) health_milli: u16,
     pub(crate) safe_moves: u8,
+    pub(crate) safe_non_reverse_moves: u8,
     pub(crate) reachable_space: u32,
     pub(crate) space_to_length_milli: u32,
     pub(crate) escape_frontier: u8,
@@ -29,6 +30,7 @@ pub(crate) struct ActorMetrics {
     pub(crate) exclusive_space: u32,
     pub(crate) contested_space: u32,
     pub(crate) control_ratio_milli: u16,
+    pub(crate) territory_share_milli: u16,
     pub(crate) controlled_food: u8,
     pub(crate) contested_food: u8,
     pub(crate) winning_frontier: u16,
@@ -78,6 +80,7 @@ impl ActorMetrics {
         Some(Self {
             health_milli,
             safe_moves,
+            safe_non_reverse_moves: safe_moves.min(3),
             reachable_space,
             space_to_length_milli: territory_snapshot.space_to_length_milli(actor.length()),
             escape_frontier: territory_snapshot.escape_frontier,
@@ -106,6 +109,11 @@ impl ActorMetrics {
             exclusive_space: territory_snapshot.exclusive_space,
             contested_space: territory_snapshot.contested_space,
             control_ratio_milli: competitive.map_or(0, |snapshot| snapshot.control_ratio_milli),
+            territory_share_milli: territory_share_milli(
+                state,
+                territory_snapshot.exclusive_space,
+                territory_snapshot.contested_space,
+            ),
             controlled_food: competitive.map_or(0, |snapshot| snapshot.controlled_food),
             contested_food: competitive.map_or(0, |snapshot| snapshot.contested_food),
             winning_frontier: competitive.map_or(0, |snapshot| snapshot.winning_frontier),
@@ -242,6 +250,16 @@ fn offensive_opportunity(
     }
 
     (best_hunt, best_pressure)
+}
+
+fn territory_share_milli(
+    state: &SimulatedGameState,
+    exclusive_space: u32,
+    contested_space: u32,
+) -> u16 {
+    let board_cells = state.width.saturating_mul(state.height).max(1);
+    let effective_control = exclusive_space.saturating_add(contested_space / 2);
+    ratio_milli(effective_control, board_cells)
 }
 
 fn ratio_milli(numerator: u32, denominator: u32) -> u16 {
