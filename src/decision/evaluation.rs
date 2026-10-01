@@ -1097,6 +1097,25 @@ mod tests {
     }
 
     #[test]
+    fn enclosure_risk_beats_offensive_utility() {
+        let safe = evaluation(Direction::Up, summary(10, 0, 2));
+        let mut enclosed = evaluation(Direction::Right, summary(10, 0, 4));
+        enclosed.survival.max_self_enclosure_risk = 2;
+        enclosed.worst_strategic_utility = 100.0;
+        enclosed.average_strategic_utility = 100.0;
+
+        assert_eq!(
+            compare_direction(
+                &safe,
+                &enclosed,
+                &state(vec![]),
+                ReservedCellPolicy::default(),
+            ),
+            Ordering::Less
+        );
+    }
+
+    #[test]
     fn terminal_order_is_won_running_lost() {
         assert_eq!(
             terminal_compare(TerminalAssessment::Won, TerminalAssessment::Running),
