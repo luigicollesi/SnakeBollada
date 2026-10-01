@@ -941,6 +941,11 @@ impl FutureGraph {
     }
 }
 
+fn shared_empty_tactical() -> Arc<TacticalStateAnalysis> {
+    static EMPTY: OnceLock<Arc<TacticalStateAnalysis>> = OnceLock::new();
+    Arc::clone(EMPTY.get_or_init(|| Arc::new(TacticalStateAnalysis::empty())))
+}
+
 fn shared_empty_state_analysis() -> Arc<StateAnalysis> {
     static EMPTY: OnceLock<Arc<StateAnalysis>> = OnceLock::new();
     Arc::clone(EMPTY.get_or_init(|| Arc::new(StateAnalysis::default())))
@@ -1047,19 +1052,19 @@ fn build_node_with_key(
             AnalysisProfile::Full => trace_with_mobility(&state, &state_analysis, &mobility),
             AnalysisProfile::BeamLean => trace_actor_relative_with_mobility(&state, &mobility),
         });
-        let tactical = Arc::new(match profile {
-            AnalysisProfile::Full => TacticalStateAnalysis::from_parts(&state, &tracing, &mobility),
-            AnalysisProfile::BeamLean => {
-                TacticalStateAnalysis::from_parts_actor_relative(&state, &tracing, &mobility)
+        let tactical = match profile {
+            AnalysisProfile::Full => {
+                Arc::new(TacticalStateAnalysis::from_parts(&state, &tracing, &mobility))
             }
-        });
+            AnalysisProfile::BeamLean => shared_empty_tactical(),
+        };
         let border = Arc::new(match profile {
             AnalysisProfile::Full => {
                 BorderFobicAnalysis::from_parts_with_territory(&state, &tactical, &territory)
             }
             AnalysisProfile::BeamLean => {
                 BorderFobicAnalysis::from_parts_with_territory_actor_relative(
-                    &state, &tactical, &mobility, &territory,
+                    &state, &mobility, &territory,
                 )
             }
         });
@@ -1069,9 +1074,9 @@ fn build_node_with_key(
         };
         let enclosure = Arc::new(match profile {
             AnalysisProfile::Full => EnclosureAnalysis::from_parts(&state, &territory, &tactical),
-            AnalysisProfile::BeamLean => EnclosureAnalysis::from_parts_actor_relative(
-                &state, &territory, &tactical, &mobility,
-            ),
+            AnalysisProfile::BeamLean => {
+                EnclosureAnalysis::from_parts_actor_relative(&state, &territory, &mobility)
+            }
         });
 
         let (survival, hunting) = match profile {
