@@ -163,6 +163,7 @@ mod tests {
                 EnemyMoveSet {
                     legal_moves: legal,
                     plausible_moves: plausible,
+                    hypotheses: vec![],
                     eliminations: vec![],
                 },
             )]),
