@@ -1,6 +1,8 @@
 #![allow(dead_code)]
 
-use crate::analysis::{EnclosureAnalysis, EnclosureRisk, TacticalStateAnalysis, TerritoryAnalysis};
+use crate::analysis::{
+    EnclosureAnalysis, EnclosureRisk, StrategicPosture, TacticalStateAnalysis, TerritoryAnalysis,
+};
 use crate::direction::Direction;
 use crate::enemy::tracing::EnemyTracingOutput;
 use crate::simulation::state::SimulatedGameState;
@@ -71,6 +73,7 @@ pub(crate) fn analyze(
         return HuntingModeOutput::default();
     };
 
+    let posture = StrategicPosture::from_state(state);
     let mut candidates = Vec::new();
     let mut plans = Vec::new();
     let board_cells = state.width.saturating_mul(state.height).max(1);
@@ -133,7 +136,9 @@ pub(crate) fn analyze(
             });
         }
 
-        if ours.length() >= TERRITORY_HUNT_MIN_LENGTH && state.aggression.value >= 0.20 {
+        if ours.length() >= TERRITORY_HUNT_MIN_LENGTH
+            && (posture.hunt_drive_milli >= 200 || posture.unique_largest)
+        {
             if let Some(choke) = enemy_territory
                 .nearest_choke()
                 .filter(|choke| choke.distance <= 6)
