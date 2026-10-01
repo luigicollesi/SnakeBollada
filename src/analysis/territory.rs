@@ -245,13 +245,8 @@ impl TerritoryStructural {
                         return None;
                     }
 
-                    let trapped_space = reachable_count(
-                        core.width,
-                        core.height,
-                        &core.open,
-                        head,
-                        Some(*coord),
-                    );
+                    let trapped_space =
+                        reachable_count(core.width, core.height, &core.open, head, Some(*coord));
                     let cut_gain = snapshot.reachable_space.saturating_sub(trapped_space);
                     let minimum_gain = u32::try_from(snake.length()).unwrap_or(u32::MAX).max(4);
                     (cut_gain >= minimum_gain).then_some(ChokePoint {
@@ -1013,10 +1008,7 @@ mod tests {
         let recomposed = TerritoryAnalysis::from_parts(core, structural);
 
         for snake_id in ["ours", "enemy", "wall"] {
-            assert_eq!(
-                public.for_snake(snake_id),
-                recomposed.for_snake(snake_id)
-            );
+            assert_eq!(public.for_snake(snake_id), recomposed.for_snake(snake_id));
             assert_eq!(
                 public.competitive_for_snake(snake_id),
                 recomposed.competitive_for_snake(snake_id)
@@ -1037,5 +1029,4 @@ mod tests {
             }
         }
     }
-
 }
