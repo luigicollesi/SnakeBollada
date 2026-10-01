@@ -1426,7 +1426,7 @@ mod tests {
         let policy = ReservedCellPolicy::default();
         let state = state(vec![Coord { x: 0, y: 1 }]);
         let mut evaluation = evaluation(Direction::Left, summary(4, 1, 2));
-        evaluation.average_leaf_food_potential = 0.25;
+        evaluation.average_food_value = 1.0;
 
         assert!(policy.penalty(&state, Direction::Left) > 0.0);
         assert_eq!(effective_reserved_penalty(policy, &state, &evaluation), 0.0);
