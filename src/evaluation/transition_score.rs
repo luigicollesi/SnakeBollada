@@ -39,22 +39,24 @@ pub(crate) struct TransitionScore {
 
 impl TransitionScore {
     pub(crate) fn from_edge(parent: &SearchNode, edge: &SearchEdge, child: &SearchNode) -> Self {
+        Self::from_parts(parent, &edge.events, child)
+    }
+
+    pub(crate) fn from_parts(
+        parent: &SearchNode,
+        events: &[InstantEvent],
+        child: &SearchNode,
+    ) -> Self {
         let mut actors = HashMap::new();
 
         for actor in parent.state.snakes.iter().filter(|snake| snake.alive) {
             let Some(parent_eval) = actor_evaluation(parent, &actor.id) else {
                 continue;
             };
-            let child_eval = actor_evaluation(child, &actor.id);
-            let weights = child_eval
-                .map(|evaluation| {
-                    StrategicWeights::from_actor(&evaluation.context, &evaluation.metrics)
-                })
-                .unwrap_or_else(|| {
-                    StrategicWeights::from_actor(&parent_eval.context, &parent_eval.metrics)
-                });
+            let weights =
+                StrategicWeights::from_actor(&parent_eval.context, &parent_eval.metrics);
 
-            let score = score_actor_transition(parent, edge, child, &actor.id, weights);
+            let score = score_actor_transition(parent, events, child, &actor.id, weights);
             actors.insert(actor.id.clone(), score);
         }
 
@@ -86,7 +88,7 @@ impl TransitionScore {
 
 fn score_actor_transition(
     parent: &SearchNode,
-    edge: &SearchEdge,
+    events: &[InstantEvent],
     child: &SearchNode,
     actor_id: &str,
     weights: StrategicWeights,
@@ -96,8 +98,7 @@ fn score_actor_transition(
     };
     let after = actor_evaluation(child, actor_id);
 
-    let ate_food = edge
-        .events
+    let ate_food = events
         .iter()
         .any(|event| matches!(event, InstantEvent::AteFood { snake, .. } if snake == actor_id));
 
@@ -112,7 +113,7 @@ fn score_actor_transition(
 
     let (mut hunting_benefit, mut hunting_harm) = opponent_territory_delta(parent, child, actor_id);
 
-    for event in &edge.events {
+    for event in events {
         if let InstantEvent::EnemyKilled {
             enemy, attribution, ..
         } = event
