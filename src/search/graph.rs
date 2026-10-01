@@ -66,6 +66,8 @@ pub(crate) struct SearchNode {
     pub(crate) key: StateKey,
     pub(crate) analysis: Option<Arc<NodeAnalysis>>,
     pub(crate) children: Vec<SearchEdge>,
+    expansion_complete: bool,
+    pending_actions: Option<JointActionGenerator>,
 }
 
 impl SearchNode {
@@ -148,6 +150,13 @@ impl FutureGraph {
     }
 
     pub(crate) fn retain_chosen_direction(&mut self, direction: crate::direction::Direction) {
+        if !self.nodes[self.root].expansion_complete {
+            self.nodes[self.root].children.clear();
+            self.nodes[self.root].pending_actions = None;
+            self.garbage_collect();
+            return;
+        }
+
         let our_id = self.nodes[self.root].state.our_snake_id.clone();
         self.nodes[self.root]
             .children
@@ -292,7 +301,7 @@ impl FutureGraph {
         let edges_before = self.edge_count;
         let transpositions_before = self.transposition_hits;
         let already_expanded =
-            !self.nodes[node_id].children.is_empty() || self.nodes[node_id].is_terminal();
+            self.nodes[node_id].expansion_complete || self.nodes[node_id].is_terminal();
         let started = std::time::Instant::now();
 
         let completed = self.expand_node_budgeted(node_id, Some(budget))?;
@@ -374,12 +383,13 @@ impl FutureGraph {
         node_id: NodeId,
         budget: Option<&SearchBudget>,
     ) -> Result<bool, SearchError> {
-        if !self.nodes[node_id].children.is_empty() || self.is_terminal(node_id) {
+        if self.nodes[node_id].expansion_complete || self.is_terminal(node_id) {
             return Ok(true);
         }
 
         let state = self.nodes[node_id].state.clone();
         let Some(parent_analysis) = self.nodes[node_id].analysis.as_ref() else {
+            self.nodes[node_id].expansion_complete = true;
             return Ok(true);
         };
         let tracing = Arc::clone(&parent_analysis.tracing);
@@ -391,13 +401,22 @@ impl FutureGraph {
             before_tactical.ours.deterministic_moves
         };
 
-        let actions = JointActionGenerator::new(&state, our_moves, &tracing);
-        let mut edges = Vec::with_capacity(actions.estimated_count().min(64));
+        let mut actions = self.nodes[node_id]
+            .pending_actions
+            .take()
+            .unwrap_or_else(|| JointActionGenerator::new(&state, our_moves, &tracing));
 
-        for joint_action in actions {
+        loop {
             if budget.is_some_and(SearchBudget::expired) {
+                self.nodes[node_id].pending_actions = Some(actions);
                 return Ok(false);
             }
+
+            let Some(joint_action) = actions.next() else {
+                self.nodes[node_id].pending_actions = None;
+                self.nodes[node_id].expansion_complete = true;
+                return Ok(true);
+            };
 
             let resolution = resolve_turn(&state, &joint_action)?;
             let child_key = StateKey::from_state(&resolution.state);
@@ -420,19 +439,14 @@ impl FutureGraph {
                 resolution.events.clone()
             };
 
-            edges.push(SearchEdge {
+            self.nodes[node_id].children.push(SearchEdge {
                 joint_action,
                 events,
                 forecast_delta: resolution.forecast_delta,
                 child,
             });
+            self.edge_count = self.edge_count.saturating_add(1);
         }
-
-        self.edge_count = self
-            .edge_count
-            .saturating_add(edges.len().try_into().unwrap_or(u32::MAX));
-        self.nodes[node_id].children = edges;
-        Ok(true)
     }
 
     fn is_terminal(&self, node_id: NodeId) -> bool {
@@ -484,6 +498,8 @@ fn build_node(state: SimulatedGameState) -> SearchNode {
         key,
         analysis,
         children: Vec::new(),
+        expansion_complete: false,
+        pending_actions: None,
     }
 }
 
@@ -611,6 +627,46 @@ mod tests {
         assert_eq!(report.completed_depth, 2);
         assert!(report.nodes > 1);
         assert!(report.edges > 0);
+    }
+
+    #[test]
+    fn interrupted_expansion_preserves_generator_and_can_resume() {
+        let mut graph = FutureGraph::new(state());
+        let root = graph.root();
+        let expired = SearchBudget::for_duration(Duration::ZERO);
+
+        let completed = graph
+            .expand_node_budgeted(root, Some(&expired))
+            .unwrap();
+
+        assert!(!completed);
+        assert!(graph.nodes[root].pending_actions.is_some());
+        assert!(!graph.nodes[root].expansion_complete);
+
+        graph.expand_node(root).unwrap();
+
+        assert!(graph.nodes[root].pending_actions.is_none());
+        assert!(graph.nodes[root].expansion_complete);
+        assert!(!graph.nodes[root].children.is_empty());
+    }
+
+    #[test]
+    fn incomplete_root_cache_is_dropped_before_direction_retention() {
+        let mut graph = FutureGraph::new(state());
+        let root = graph.root();
+        let analysis = graph.nodes[root].analysis.as_ref().unwrap();
+        let our_moves = analysis.tactical.ours.deterministic_moves;
+        graph.nodes[root].pending_actions = Some(JointActionGenerator::new(
+            &graph.nodes[root].state,
+            our_moves,
+            &analysis.tracing,
+        ));
+
+        graph.retain_chosen_direction(crate::direction::Direction::Up);
+
+        assert!(graph.nodes[graph.root()].pending_actions.is_none());
+        assert!(graph.nodes[graph.root()].children.is_empty());
+        assert!(!graph.nodes[graph.root()].expansion_complete);
     }
 
     #[test]
