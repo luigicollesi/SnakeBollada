@@ -103,13 +103,32 @@ impl EnemyMoveSet {
     pub(crate) fn ordered_search_moves(&self) -> Vec<Direction> {
         self.ordered_search_moves_with_profile(None)
     }
+    pub(crate) fn ordered_legal_moves_with_profile(
+        &self,
+        profile: Option<&OpponentProfile>,
+    ) -> Vec<Direction> {
+        let legal = if self.legal_moves.is_empty() {
+            MoveMask::all()
+        } else {
+            self.legal_moves
+        };
+        self.ordered_moves(legal, profile)
+    }
+
 
     pub(crate) fn ordered_search_moves_with_profile(
         &self,
         profile: Option<&OpponentProfile>,
     ) -> Vec<Direction> {
-        let search = self.search_moves();
-        let mut moves = search.iter().collect::<Vec<_>>();
+        self.ordered_moves(self.search_moves(), profile)
+    }
+
+    fn ordered_moves(
+        &self,
+        moves_mask: MoveMask,
+        profile: Option<&OpponentProfile>,
+    ) -> Vec<Direction> {
+        let mut moves = moves_mask.iter().collect::<Vec<_>>();
         moves.sort_by(|left, right| {
             let left_hypothesis = self.hypothesis(*left);
             let right_hypothesis = self.hypothesis(*right);
