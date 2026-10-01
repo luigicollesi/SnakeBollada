@@ -1095,12 +1095,7 @@ fn build_node_with_key(
             .filter(|snake| snake.alive)
             .filter_map(|snake| {
                 let metrics = ActorUtilityMetrics::from_parts(
-                    &state,
-                    &snake.id,
-                    &mobility,
-                    &territory,
-                    &enclosure,
-                    &border,
+                    &state, &snake.id, &mobility, &territory, &enclosure, &border,
                 )?;
                 let weights =
                     StrategicWeights::for_actor(&state, &snake.id, metrics.territory_share_milli)?;
@@ -1199,7 +1194,9 @@ mod tests {
         let legacy = FutureGraph::new(initial);
         let beam = legacy.independent_beam_graph();
         let root = beam.node(beam.root());
-        let analysis = root.active_analysis().expect("beam root must have analysis");
+        let analysis = root
+            .active_analysis()
+            .expect("beam root must have analysis");
         let ours = analysis
             .actor_snapshot("ours")
             .expect("our actor snapshot must exist");
@@ -1210,7 +1207,9 @@ mod tests {
             .is_none());
         assert_eq!(ours.metrics.best_food_distance, Some(2));
         assert_eq!(
-            analysis.territory.distance_for("ours", Coord { x: 3, y: 1 }),
+            analysis
+                .territory
+                .distance_for("ours", Coord { x: 3, y: 1 }),
             Some(2)
         );
     }
