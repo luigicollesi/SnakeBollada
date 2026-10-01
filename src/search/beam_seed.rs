@@ -76,12 +76,9 @@ pub(crate) fn build_seed_checkpoint(
             return Ok(None);
         }
 
-        let Some(next_checkpoint) = deepen_seed_one_layer(
-            graph,
-            &checkpoint,
-            budget,
-            &mut next_line_id,
-        )? else {
+        let Some(next_checkpoint) =
+            deepen_seed_one_layer(graph, &checkpoint, budget, &mut next_line_id)?
+        else {
             return Ok(None);
         };
 
