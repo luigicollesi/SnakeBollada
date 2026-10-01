@@ -383,7 +383,9 @@ enum InstantEvent {
 
 Eventos não são scores.
 
-## 15. Nenhum benefício agregado no node
+## 15. Nenhum score mutável é armazenado no SearchNode
+
+O `SearchNode` continua representando apenas estado + análise compartilhada.
 
 Não existem:
 
@@ -393,7 +395,7 @@ node.hunt_score
 node.survival_score
 ```
 
-A avaliação acontece somente durante traversal de uma rota completa.
+Os valores estratégicos pertencem ao evaluator bottom-up e aos resultados memoizados de `(NodeId, certainty, remaining_depth)`; eles não alteram o estado do FutureGraph.
 
 ## 16. Avaliação bottom-up do DAG
 
@@ -567,17 +569,21 @@ Health pode aumentar o valor alimentar.
 
 Quando comida é necessária para não morrer, ela é elevada a necessidade de Survival.
 
-## 25. Direção versus rotas futuras
+## 25. Direção versus respostas futuras
 
-Escolhemos apenas o primeiro movimento atual, mas cada direção possui várias rotas possíveis.
+Escolhemos apenas o primeiro movimento atual. As respostas adversárias são agregadas bottom-up sem materializar `Vec<RouteEvaluation>`.
 
 ```rust
 struct DirectionEvaluation {
     direction: Direction,
-    routes: Vec<RouteEvaluation>,
-    survival_summary: DirectionSurvivalSummary,
+    terminal: TerminalAssessment,
+    survival: DirectionSurvivalSummary,
+    worst_strategic_utility: f32,
+    average_strategic_utility: f32,
 }
 ```
+
+As contagens de rotas são acumuladas por programação dinâmica apenas para telemetria.
 
 Ordem:
 
@@ -890,19 +896,22 @@ Registrar:
 
 ## 44. Critérios de aceite
 
-- [ ] existem exatamente um FutureGraph e uma StateAnalysis por estado;
-- [ ] Food validation ocorre antes do cache lookup;
-- [ ] spawn inesperado invalida o grafo inteiro;
-- [ ] transições após consumo podem ser provisórias;
-- [ ] eventos são armazenados em edges;
-- [ ] nodes não carregam score agregado;
-- [ ] cada rota E2E é avaliada isoladamente;
-- [ ] Survival é prioridade máxima;
-- [ ] Food/Hunting são ponderados por agressividade;
-- [ ] todas as cobras participam da resolução simultânea;
-- [ ] depth inicial é 3;
-- [ ] profundidade pode crescer com iterative deepening;
-- [ ] margem de latência é preservada;
-- [ ] rolling cache reaproveita futuros compatíveis;
-- [ ] bordas/quinas são política exclusiva do Decision;
-- [ ] regras do Battlesnake existem em um único TurnResolver.
+- [x] existe um único FutureGraph por sessão e uma análise compartilhada por StateKey;
+- [x] Food validation ocorre antes do cache lookup;
+- [x] spawn inesperado invalida o grafo inteiro;
+- [x] transições após consumo podem ser provisórias;
+- [x] eventos são armazenados em edges;
+- [x] SearchNodes não carregam score estratégico mutável;
+- [x] avaliação usa backup bottom-up sem misturar siblings;
+- [x] Survival adversarial é prioridade máxima;
+- [x] Food/Hunting são ponderados por agressividade;
+- [x] todas as cobras vivas participam da resolução simultânea;
+- [x] depth inicial alvo é 3;
+- [x] profundidade pode crescer com iterative deepening;
+- [x] margem de latência e jitter é preservada;
+- [x] rolling cache reaproveita futuros compatíveis;
+- [x] bordas/quinas são política exclusiva do Decision;
+- [x] regras simuladas do Battlesnake existem em um único TurnResolver;
+- [x] transpositions são memoizadas por node/certainty/profundidade restante;
+- [x] terminal nodes evitam análise pesada;
+- [x] avaliação mantém contagens de rotas sem materializar caminhos completos.
