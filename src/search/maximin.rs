@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use crate::direction::Direction;
 use crate::evaluation::TransitionScore;
 
-use super::beam::{BeamLine, BeamStep, LineId, LineTerminal};
+use super::beam::{select_seed_beam, BeamLine, BeamStep, LineId, LineTerminal};
 use super::bounds::ValueBound;
 use super::graph::{FutureGraph, NodeId, SearchEdge, SearchNode};
 
@@ -125,6 +125,12 @@ pub(crate) fn evaluate_seed_lines(graph: &FutureGraph, target_depth: u8) -> Seed
         lines,
         stats: evaluator.stats,
     }
+}
+
+pub(crate) fn evaluate_seed_beam(graph: &FutureGraph, target_depth: u8) -> SeedEvaluation {
+    let mut evaluation = evaluate_seed_lines(graph, target_depth);
+    evaluation.lines = select_seed_beam(&evaluation.lines);
+    evaluation
 }
 
 impl MaximinEvaluator<'_> {
@@ -541,6 +547,42 @@ mod tests {
             .iter()
             .all(|line| line.steps.len() == usize::from(SEED_DEPTH)));
         assert!(running.iter().all(|line| line.bound.is_exact()));
+    }
+
+    #[test]
+    fn seed_beam_selects_three_lines_with_root_diversity() {
+        let mut graph = FutureGraph::new(state());
+        graph.expand_to_depth(SEED_DEPTH).unwrap();
+
+        let candidates = evaluate_seed_lines(&graph, SEED_DEPTH);
+        let beam = evaluate_seed_beam(&graph, SEED_DEPTH);
+
+        assert!(candidates.lines.len() >= 3);
+        assert_eq!(beam.lines.len(), 3);
+
+        let mut root_directions = beam
+            .lines
+            .iter()
+            .map(|line| line.root_direction.rank())
+            .collect::<Vec<_>>();
+        root_directions.sort_unstable();
+        root_directions.dedup();
+
+        let candidate_direction_count = {
+            let mut directions = candidates
+                .lines
+                .iter()
+                .filter(|line| line.is_viable())
+                .map(|line| line.root_direction.rank())
+                .collect::<Vec<_>>();
+            directions.sort_unstable();
+            directions.dedup();
+            directions.len()
+        };
+
+        if candidate_direction_count >= 2 {
+            assert!(root_directions.len() >= 2);
+        }
     }
 
     #[test]
