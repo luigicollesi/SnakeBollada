@@ -183,11 +183,7 @@ impl StateAnalysis {
         self.claims.get(&food)
     }
 
-    pub(crate) fn claim_for_actor(
-        &self,
-        snake_id: &str,
-        food: Coord,
-    ) -> Option<FoodClaimInfo> {
+    pub(crate) fn claim_for_actor(&self, snake_id: &str, food: Coord) -> Option<FoodClaimInfo> {
         let actor_eta = self.route_for(snake_id, food)?.distance;
         let nearest = self.nearest_competitor_for(snake_id, food);
         let nearest_eta = nearest.as_ref().map(|competitor| competitor.eta);
