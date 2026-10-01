@@ -550,9 +550,7 @@ mod tests {
             .filter(|line| line.terminal == LineTerminal::Lost)
             .collect::<Vec<_>>();
 
-        assert!(losses
-            .iter()
-            .all(|line| line.value <= -TERMINAL_VALUE));
+        assert!(losses.iter().all(|line| line.value <= -TERMINAL_VALUE));
     }
 
     #[test]
@@ -627,10 +625,7 @@ mod tests {
 
     #[test]
     fn our_future_choice_maximizes_our_own_utility() {
-        let chosen = max_our_choices(vec![
-            synthetic_line(9, 100, 1),
-            synthetic_line(5, 0, 2),
-        ]);
+        let chosen = max_our_choices(vec![synthetic_line(9, 100, 1), synthetic_line(5, 0, 2)]);
 
         assert_eq!(chosen.our_utility_total, 9);
         assert_eq!(chosen.opponent_utility_total, 100);
