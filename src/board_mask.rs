@@ -57,15 +57,7 @@ impl BoardMask {
         }
     }
 
-    pub(crate) fn union_with(&mut self, other: &Self) {
-        debug_assert_eq!(self.width, other.width);
-        debug_assert_eq!(self.height, other.height);
-
-        for (left, right) in self.bits.iter_mut().zip(&other.bits) {
-            *left |= *right;
-        }
-    }
-
+    #[cfg(test)]
     pub(crate) fn count_ones(&self) -> u32 {
         self.bits.iter().map(|word| word.count_ones()).sum()
     }
