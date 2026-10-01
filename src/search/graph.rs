@@ -1040,7 +1040,7 @@ fn build_node_with_key(
             }
             AnalysisProfile::BeamLean => {
                 BorderFobicAnalysis::from_parts_with_territory_actor_relative(
-                    &state, &tactical, &territory,
+                    &state, &tactical, &mobility, &territory,
                 )
             }
         });
@@ -1051,7 +1051,12 @@ fn build_node_with_key(
         let enclosure = Arc::new(match profile {
             AnalysisProfile::Full => EnclosureAnalysis::from_parts(&state, &territory, &tactical),
             AnalysisProfile::BeamLean => {
-                EnclosureAnalysis::from_parts_actor_relative(&state, &territory, &tactical)
+                EnclosureAnalysis::from_parts_actor_relative(
+                    &state,
+                    &territory,
+                    &tactical,
+                    &mobility,
+                )
             }
         });
 
