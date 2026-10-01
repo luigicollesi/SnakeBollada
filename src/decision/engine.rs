@@ -1,5 +1,6 @@
 use std::cmp::Ordering;
-use std::time::Duration;
+use std::env;
+use std::time::{Duration, Instant};
 
 use crate::analysis::StrategicPosture;
 
@@ -15,13 +16,14 @@ use crate::decision::intent::{committable_hunt_plan, DecisionIntent, EscapeInten
 use crate::decision::policy::ReservedCellPolicy;
 use crate::forecast::ForecastCertainty;
 use crate::modes::{food, hunting::HuntingPlanKind};
+use crate::search::beam_search::search_beam;
 use crate::search::budget::SearchBudget;
 use crate::search::graph::FutureGraph;
 use crate::search::scheduler::SelectiveSearchScheduler;
 use crate::simulation::state::{SimulatedGameState, SimulationSupport, OPENING_FOOD_TARGET_FRUITS};
 use crate::strategy::{
-    choose_move_baseline, CacheInvalidationReason, Decision, DecisionReason, DepthSearchStats,
-    DirectionOutcomeSummary, SearchMetadata,
+    choose_move_baseline, BeamShadowMetadata, CacheInvalidationReason, Decision, DecisionReason,
+    DepthSearchStats, DirectionOutcomeSummary, SearchMetadata,
 };
 use crate::GameState;
 
@@ -29,6 +31,9 @@ const TARGET_DEPTH: u8 = 3;
 const MIN_SELECTIVE_REEVALUATION_RESERVE_US: u64 = 5_000;
 const MAX_SELECTIVE_REEVALUATION_RESERVE_US: u64 = 60_000;
 const SELECTIVE_REEVALUATION_MULTIPLIER: u64 = 2;
+const MAX_BEAM_SHADOW_MS: u64 = 50;
+const MIN_BEAM_SHADOW_MS: u64 = 5;
+const BEAM_SHADOW_RESPONSE_RESERVE_MS: u64 = 5;
 
 #[derive(Debug, Default, Clone, Copy)]
 pub(crate) struct DecisionEngine;
@@ -399,6 +404,8 @@ impl DecisionEngine {
             classify_decision_reason(best, &evaluations, &root.state, robust_safe_moves, policy)
         };
 
+        let beam_shadow = run_beam_shadow(graph, &budget, best.direction);
+
         Decision {
             direction: best.direction,
             reason,
@@ -467,9 +474,70 @@ impl DecisionEngine {
                 food_mutation_invalidations: 0,
                 depth_stats,
                 direction_outcomes: summarize_direction_outcomes(&evaluations),
+                beam_shadow,
             },
         }
     }
+}
+
+fn run_beam_shadow(
+    graph: &FutureGraph,
+    budget: &SearchBudget,
+    legacy_direction: crate::direction::Direction,
+) -> BeamShadowMetadata {
+    if !beam_shadow_enabled() {
+        return BeamShadowMetadata::default();
+    }
+
+    let started = Instant::now();
+    let mut shadow_graph = graph.clone();
+    let available = budget
+        .remaining_hard()
+        .saturating_sub(Duration::from_millis(BEAM_SHADOW_RESPONSE_RESERVE_MS));
+    if available < Duration::from_millis(MIN_BEAM_SHADOW_MS) {
+        return BeamShadowMetadata {
+            enabled: true,
+            elapsed_us: started.elapsed().as_micros().try_into().unwrap_or(u64::MAX),
+            ..BeamShadowMetadata::default()
+        };
+    }
+
+    let shadow_duration = available.min(Duration::from_millis(MAX_BEAM_SHADOW_MS));
+    let shadow_budget = SearchBudget::for_duration(shadow_duration);
+    let mut metadata = BeamShadowMetadata {
+        enabled: true,
+        ..BeamShadowMetadata::default()
+    };
+
+    if let Ok(Some(result)) = search_beam(&mut shadow_graph, &shadow_budget) {
+        metadata.completed = true;
+        metadata.completed_depth = result.completed_depth();
+        metadata.attempted_depth = result.deepening.attempted_depth;
+        metadata.line_count = result
+            .checkpoint
+            .lines
+            .len()
+            .try_into()
+            .unwrap_or(u8::MAX);
+
+        if let Some(best) = result.best_line() {
+            metadata.direction = Some(best.root_direction);
+            metadata.agreed_with_legacy = best.root_direction == legacy_direction;
+            metadata.best_value = best.value;
+        }
+    }
+
+    metadata.elapsed_us = started.elapsed().as_micros().try_into().unwrap_or(u64::MAX);
+    metadata
+}
+
+fn beam_shadow_enabled() -> bool {
+    env::var("SNAKE_BEAM_SHADOW").is_ok_and(|value| {
+        matches!(
+            value.trim().to_ascii_lowercase().as_str(),
+            "1" | "true" | "yes" | "on"
+        )
+    })
 }
 
 fn escape_should_override(intent: Option<&DecisionIntent>, pressure_milli: u16) -> bool {
