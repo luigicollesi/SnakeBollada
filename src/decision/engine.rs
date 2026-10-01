@@ -196,6 +196,10 @@ impl DecisionEngine {
                     .try_into()
                     .unwrap_or(u64::MAX),
                 runtime_jitter_reserve_us: extra_reserve_ms.saturating_mul(1000),
+                dag_nodes_evaluated: dag_stats.nodes_evaluated,
+                dag_memo_hits: dag_stats.memo_hits,
+                dag_deterministic_evaluations: dag_stats.deterministic_evaluations,
+                dag_provisional_evaluations: dag_stats.provisional_evaluations,
                 aggression_milli: (root.state.aggression.value.clamp(0.0, 1.0) * 1000.0).round()
                     as u16,
                 enemy_moves_observed: 0,
@@ -371,13 +375,14 @@ fn summarize_direction_outcomes(
         outcomes[usize::from(evaluation.direction.rank())] = DirectionOutcomeSummary {
             direction: evaluation.direction,
             available: true,
-            total_routes: evaluation.survival.total_routes,
-            death_routes: evaluation.survival.death_routes,
-            dead_end_routes: evaluation.survival.dead_end_routes,
-            forced_routes: evaluation.survival.forced_routes,
-            constrained_routes: evaluation.survival.constrained_routes,
+            total_routes: saturating_u64_to_u32(evaluation.survival.total_routes),
+            death_routes: saturating_u64_to_u32(evaluation.survival.death_routes),
+            dead_end_routes: saturating_u64_to_u32(evaluation.survival.dead_end_routes),
+            forced_routes: saturating_u64_to_u32(evaluation.survival.forced_routes),
+            constrained_routes: saturating_u64_to_u32(evaluation.survival.constrained_routes),
             min_future_mobility: evaluation.survival.min_future_mobility,
             min_reachable_space: evaluation.survival.min_reachable_space,
+            min_second_order_mobility: evaluation.survival.min_second_order_mobility,
             worst_utility_milli: utility_milli(evaluation.worst_strategic_utility),
             average_utility_milli: utility_milli(evaluation.average_strategic_utility),
             average_food_milli: utility_milli(evaluation.average_food_value),
@@ -389,6 +394,10 @@ fn summarize_direction_outcomes(
     }
 
     outcomes
+}
+
+fn saturating_u64_to_u32(value: u64) -> u32 {
+    value.try_into().unwrap_or(u32::MAX)
 }
 
 fn utility_milli(value: f32) -> i32 {
