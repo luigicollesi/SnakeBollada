@@ -207,12 +207,7 @@ impl DecisionEngine {
             .as_ref()
             .map(|(evaluation, _)| *evaluation)
             .or_else(|| {
-                choose_best_direction(
-                    &evaluations,
-                    &root.state,
-                    robust_safe_moves,
-                    policy,
-                )
+                choose_best_direction(&evaluations, &root.state, robust_safe_moves, policy)
             })
         else {
             return baseline_fallback(state);
@@ -237,13 +232,7 @@ impl DecisionEngine {
         let reason = if opening_food_choice.is_some() {
             DecisionReason::FoodStrategic
         } else {
-            classify_decision_reason(
-                best,
-                &evaluations,
-                &root.state,
-                robust_safe_moves,
-                policy,
-            )
+            classify_decision_reason(best, &evaluations, &root.state, robust_safe_moves, policy)
         };
 
         Decision {
@@ -297,8 +286,7 @@ fn choose_food_opening<'a>(
             .iter()
             .find(|evaluation| evaluation.direction == candidate.first_move)
             .filter(|evaluation| {
-                (robust_safe_moves.is_empty()
-                    || robust_safe_moves.contains(evaluation.direction))
+                (robust_safe_moves.is_empty() || robust_safe_moves.contains(evaluation.direction))
                     && !evaluation.survival.has_death_response()
                     && !evaluation.survival.has_dead_end_response()
                     && !evaluation.survival.has_forced_response()
@@ -320,7 +308,6 @@ fn choose_food_opening<'a>(
         .iter()
         .find_map(|candidate| viable(candidate).map(|evaluation| (evaluation, candidate.clone())))
 }
-
 
 fn baseline_fallback(state: &GameState) -> Decision {
     let mut decision = choose_move_baseline(state);
