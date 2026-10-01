@@ -118,19 +118,12 @@ pub(crate) fn analyze(
                         .favorable_head_frontier
                         .min(3)
                         .saturating_mul(60)
-                        .saturating_add(
-                            snapshot
-                                .dominance_frontier_cells
-                                .min(4)
-                                .saturating_mul(25),
-                        )
+                        .saturating_add(snapshot.dominance_frontier_cells.min(4).saturating_mul(25))
                 });
                 plans.push(HuntingPlanCandidate {
                     target: enemy.id.clone(),
                     kind: HuntingPlanKind::HeadPressure,
-                    score_milli: (220
-                        + length_advantage.max(0) as u16 * 35
-                        + dominance_bonus)
+                    score_milli: (220 + length_advantage.max(0) as u16 * 35 + dominance_bonus)
                         .min(520),
                     length_advantage,
                 });
