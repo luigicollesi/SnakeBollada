@@ -154,9 +154,8 @@ impl DecisionEngine {
                     analysis.tactical.ours.safe_moves
                 });
             let pressure = root_escape_pressure_milli(&evaluations, robust_safe_moves);
-            (pressure >= ESCAPE_ACTIVATION_THRESHOLD_MILLI).then(|| {
-                DecisionIntent::Escape(EscapeIntent::new(root.state.turn, pressure))
-            })
+            (pressure >= ESCAPE_ACTIVATION_THRESHOLD_MILLI)
+                .then(|| DecisionIntent::Escape(EscapeIntent::new(root.state.turn, pressure)))
         } else {
             None
         };
