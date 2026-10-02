@@ -57,13 +57,8 @@ impl DecisionEngine {
         graph: &mut FutureGraph,
         extra_reserve_ms: u64,
     ) -> Option<Decision> {
-        self.try_decide_beam_with_continuity(
-            state,
-            graph,
-            extra_reserve_ms,
-            None,
-        )
-        .map(|outcome| outcome.decision)
+        self.try_decide_beam_with_continuity(state, graph, extra_reserve_ms, None)
+            .map(|outcome| outcome.decision)
     }
 
     pub(crate) fn try_decide_beam_with_continuity(

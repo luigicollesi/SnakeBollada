@@ -38,7 +38,13 @@ impl DecisionContinuity {
     pub(crate) fn replace_from_line(&mut self, graph: &FutureGraph, line: &BeamLine) {
         self.clear();
 
-        for step in line.path.steps().into_iter().skip(1).take(MAX_PLANNED_STEPS) {
+        for step in line
+            .path
+            .steps()
+            .into_iter()
+            .skip(1)
+            .take(MAX_PLANNED_STEPS)
+        {
             let node = graph.node(step.node);
             let Some(our_actor) = node.state.actor_index(&node.state.our_snake_id) else {
                 break;
