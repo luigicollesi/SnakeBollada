@@ -47,23 +47,26 @@ pub(crate) fn edge_priority(
     edge: &SearchEdge,
     _child: &SearchNode,
 ) -> ActorEdgePriority {
-    let our_id = parent.state.our_snake_id.as_str();
-    let ours = edge
-        .transition
-        .for_actor(our_id)
+    let our_index = parent.state.actor_index(&parent.state.our_snake_id);
+    let ours = our_index
+        .and_then(|actor| edge.transition.for_actor(actor))
         .copied()
         .unwrap_or_default();
 
     let mut strongest_enemy_opportunity = 0_i64;
     let mut strongest_enemy_harm = 0_i64;
 
-    for enemy in parent
+    for (index, enemy) in parent
         .state
         .snakes
         .iter()
-        .filter(|snake| snake.alive && snake.id != our_id)
+        .enumerate()
+        .filter(|(_, snake)| snake.alive && snake.id != parent.state.our_snake_id)
     {
-        let Some(score) = edge.transition.for_actor(&enemy.id) else {
+        let Some(actor) = crate::simulation::state::ActorIndex::new(index) else {
+            continue;
+        };
+        let Some(score) = edge.transition.for_actor(actor) else {
             continue;
         };
         strongest_enemy_opportunity = strongest_enemy_opportunity.max(score.net.max(0));
