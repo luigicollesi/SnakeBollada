@@ -77,8 +77,8 @@ impl EvaluatedLine {
 
         self.benefit_total = self
             .benefit_total
-            .saturating_add(transition.instant_benefit);
-        self.harm_total = self.harm_total.saturating_add(transition.instant_harm);
+            .saturating_add(transition.effective_benefit);
+        self.harm_total = self.harm_total.saturating_add(transition.effective_harm);
         self.path = self.path.prepend(BeamStep {
             node,
             joint_action: edge.joint_action.clone(),

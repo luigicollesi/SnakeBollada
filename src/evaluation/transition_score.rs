@@ -70,6 +70,10 @@ pub(crate) struct ActorTransitionScore {
 pub(crate) struct TransitionScore {
     pub(crate) instant_benefit: i64,
     pub(crate) instant_harm: i64,
+    pub(crate) opponent_benefit_total: i64,
+    pub(crate) opponent_harm_total: i64,
+    pub(crate) effective_benefit: i64,
+    pub(crate) effective_harm: i64,
     pub(crate) net: i64,
     pub(crate) opponent_net_total: i64,
     pub(crate) actors: ActorVec<ActorTransitionScore>,
@@ -112,14 +116,26 @@ impl TransitionScore {
             .and_then(|actor| actors.get(actor))
             .copied()
             .unwrap_or_default();
-        let opponent_net_total = actors
+        let (opponent_benefit_total, opponent_harm_total, opponent_net_total) = actors
             .iter()
             .filter(|(actor, _)| Some(*actor) != our_index)
-            .fold(0_i64, |sum, (_, score)| sum.saturating_add(score.net));
+            .fold((0_i64, 0_i64, 0_i64), |(benefit, harm, net), (_, score)| {
+                (
+                    benefit.saturating_add(score.benefit_total),
+                    harm.saturating_add(score.harm_total),
+                    net.saturating_add(score.net),
+                )
+            });
+        let effective_benefit = ours.benefit_total.saturating_add(opponent_harm_total);
+        let effective_harm = ours.harm_total.saturating_add(opponent_benefit_total);
 
         Self {
             instant_benefit: ours.benefit_total,
             instant_harm: ours.harm_total,
+            opponent_benefit_total,
+            opponent_harm_total,
+            effective_benefit,
+            effective_harm,
             net: ours.net,
             opponent_net_total,
             actors,
@@ -131,7 +147,8 @@ impl TransitionScore {
     }
 
     pub(crate) fn route_delta(&self) -> i64 {
-        self.net.saturating_sub(self.opponent_net_total)
+        self.effective_benefit
+            .saturating_sub(self.effective_harm)
     }
 }
 
@@ -782,6 +799,24 @@ mod tests {
         let benefits = hunting_territory_benefits(parent, child);
         let ours = actor_index(&parent.state, "ours");
         assert!(benefits.get(ours).copied().unwrap_or(0) > 0);
+    }
+
+    #[test]
+    fn effective_benefit_minus_harm_matches_competitive_route_delta() {
+        let mut graph = FutureGraph::new(state(80, vec![Coord { x: 4, y: 1 }], 2));
+        graph.expand_to_depth(1).unwrap();
+
+        let edge = first_edge_for(&graph, Direction::Right, |_| true);
+        let score = &edge.transition;
+
+        assert_eq!(
+            score.effective_benefit.saturating_sub(score.effective_harm),
+            score.net.saturating_sub(score.opponent_net_total)
+        );
+        assert_eq!(
+            score.route_delta(),
+            score.effective_benefit.saturating_sub(score.effective_harm)
+        );
     }
 
     #[test]
