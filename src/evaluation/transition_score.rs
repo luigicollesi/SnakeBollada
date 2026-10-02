@@ -497,9 +497,7 @@ fn weighted(raw: i64, weight_milli: u16) -> i64 {
 mod tests {
     use crate::direction::Direction;
     use crate::search::graph::{FutureGraph, SearchEdge};
-    use crate::simulation::state::{
-        RulesContext, SimulatedGameState, SimulatedSnake,
-    };
+    use crate::simulation::state::{RulesContext, SimulatedGameState, SimulatedSnake};
     use crate::Coord;
 
     use super::*;
