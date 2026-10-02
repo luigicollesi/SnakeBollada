@@ -53,11 +53,7 @@ impl EnclosureAnalysis {
                 let moves = mobility.deterministic_moves_for(state, &snake.id).len();
 
                 let ratio = territory_snapshot.space_to_length_milli(snake.length());
-                let useful_chokes = territory_snapshot
-                    .useful_chokes
-                    .len()
-                    .try_into()
-                    .unwrap_or(u8::MAX);
+                let useful_chokes = territory_snapshot.useful_choke_count;
 
                 let risk = classify_risk(
                     territory_snapshot.reachable_space,

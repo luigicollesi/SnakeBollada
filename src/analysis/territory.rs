@@ -14,11 +14,11 @@ const MAX_CHOKES_PER_SNAKE: usize = 8;
 const COMPETITIVE_HORIZON: u16 = 5;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct ChokePoint {
-    pub(crate) coord: Coord,
-    pub(crate) distance: u16,
-    pub(crate) trapped_space: u32,
-    pub(crate) cut_gain: u32,
+struct ChokePoint {
+    coord: Coord,
+    distance: u16,
+    trapped_space: u32,
+    cut_gain: u32,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -29,7 +29,7 @@ pub(crate) struct SnakeTerritorySnapshot {
     pub(crate) contested_space: u32,
     pub(crate) escape_frontier: u8,
     pub(crate) edge_distance: u16,
-    pub(crate) useful_chokes: Vec<ChokePoint>,
+    pub(crate) useful_choke_count: u8,
 }
 
 impl SnakeTerritorySnapshot {
@@ -42,9 +42,6 @@ impl SnakeTerritorySnapshot {
             .saturating_div(length.try_into().unwrap_or(u32::MAX).max(1))
     }
 
-    pub(crate) fn nearest_choke(&self) -> Option<ChokePoint> {
-        self.useful_chokes.first().copied()
-    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -188,7 +185,7 @@ impl TerritoryCore {
 
 #[derive(Debug, Clone, Default)]
 struct TerritoryStructural {
-    useful_chokes: ActorVec<Vec<ChokePoint>>,
+    useful_choke_counts: ActorVec<u8>,
 }
 
 impl TerritoryStructural {
@@ -220,7 +217,7 @@ impl TerritoryStructural {
         }
 
         let articulation = articulation_points(core.width, core.height, &core.open);
-        let useful_chokes = state
+        let useful_choke_counts = state
             .snakes
             .par_iter()
             .enumerate()
@@ -229,14 +226,16 @@ impl TerritoryStructural {
                 if !snake.alive || !relevant.contains(&actor) {
                     return None;
                 }
-                useful_chokes_for_actor(actor, snake, core, &articulation)
-                    .map(|chokes| (actor, chokes))
+                useful_choke_count_for_actor(actor, snake, core, &articulation)
+                    .map(|count| (actor, count))
             })
             .collect::<Vec<_>>()
             .into_iter()
             .collect::<ActorVec<_>>();
 
-        Self { useful_chokes }
+        Self {
+            useful_choke_counts,
+        }
     }
 
     fn from_core(state: &SimulatedGameState, core: &TerritoryCore) -> Self {
@@ -245,7 +244,7 @@ impl TerritoryStructural {
         }
 
         let articulation = articulation_points(core.width, core.height, &core.open);
-        let useful_chokes = state
+        let useful_choke_counts = state
             .snakes
             .par_iter()
             .enumerate()
@@ -254,23 +253,25 @@ impl TerritoryStructural {
                 if !snake.alive {
                     return None;
                 }
-                useful_chokes_for_actor(actor, snake, core, &articulation)
-                    .map(|chokes| (actor, chokes))
+                useful_choke_count_for_actor(actor, snake, core, &articulation)
+                    .map(|count| (actor, count))
             })
             .collect::<Vec<_>>()
             .into_iter()
             .collect::<ActorVec<_>>();
 
-        Self { useful_chokes }
+        Self {
+            useful_choke_counts,
+        }
     }
 }
 
-fn useful_chokes_for_actor(
+fn useful_choke_count_for_actor(
     actor: ActorIndex,
     snake: &crate::simulation::state::SimulatedSnake,
     core: &TerritoryCore,
     articulation: &HashSet<Coord>,
-) -> Option<Vec<ChokePoint>> {
+) -> Option<u8> {
     let head = snake.head()?;
     let field = core.distances.get(actor)?;
     let snapshot = core.snakes.get(actor)?;
@@ -303,7 +304,7 @@ fn useful_chokes_for_actor(
             .then_with(|| left.coord.cmp(&right.coord))
     });
     useful_chokes.truncate(MAX_CHOKES_PER_SNAKE);
-    Some(useful_chokes)
+    Some(useful_chokes.len().try_into().unwrap_or(u8::MAX))
 }
 
 fn structural_relevant(
@@ -372,7 +373,10 @@ impl TerritoryAnalysis {
 
         let mut snakes = ActorVec::with_capacity(state.snakes.len());
         for (actor, snapshot) in core_snakes.iter() {
-            let useful_chokes = structural.useful_chokes.take(actor).unwrap_or_default();
+            let useful_choke_count = structural
+                .useful_choke_counts
+                .take(actor)
+                .unwrap_or_default();
             snakes.insert(
                 actor,
                 SnakeTerritorySnapshot {
@@ -382,7 +386,7 @@ impl TerritoryAnalysis {
                     contested_space: snapshot.contested_space,
                     escape_frontier: snapshot.escape_frontier,
                     edge_distance: snapshot.edge_distance,
-                    useful_chokes,
+                    useful_choke_count,
                 },
             );
         }
@@ -977,10 +981,7 @@ mod tests {
         let territory = TerritoryAnalysis::from_state(&state);
         let enemy = territory.for_snake("enemy").unwrap();
 
-        assert!(enemy
-            .useful_chokes
-            .iter()
-            .any(|choke| choke.coord == Coord { x: 2, y: 2 }));
+        assert!(enemy.useful_choke_count > 0);
     }
 
     #[test]
