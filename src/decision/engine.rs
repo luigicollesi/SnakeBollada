@@ -698,9 +698,7 @@ fn hunting_intent_progress(
             i32::from(plan.score_milli)
         });
 
-    let Some(our_actor) = root.state.actor_index(&root.state.our_snake_id) else {
-        return None;
-    };
+    let our_actor = root.state.actor_index(&root.state.our_snake_id)?;
 
     let mut scores = Vec::new();
     for edge in &root.children {
