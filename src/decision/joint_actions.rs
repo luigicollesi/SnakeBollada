@@ -29,7 +29,7 @@ impl JointActionGenerator {
         tracing: &EnemyTracingOutput,
         profiles: &OpponentProfiles,
     ) -> Self {
-        Self::new_with_profiles_and_scope(state, our_moves, tracing, profiles, false)
+        Self::build(state, our_moves, tracing, profiles)
     }
 
     pub(crate) fn new_actor_relative_with_profiles(
@@ -38,15 +38,14 @@ impl JointActionGenerator {
         tracing: &EnemyTracingOutput,
         profiles: &OpponentProfiles,
     ) -> Self {
-        Self::new_with_profiles_and_scope(state, our_moves, tracing, profiles, true)
+        Self::build(state, our_moves, tracing, profiles)
     }
 
-    fn new_with_profiles_and_scope(
+    fn build(
         state: &SimulatedGameState,
         our_moves: MoveMask,
         tracing: &EnemyTracingOutput,
         profiles: &OpponentProfiles,
-        all_legal_enemy_moves: bool,
     ) -> Self {
         let Some(ours) = state.snake(&state.our_snake_id).filter(|snake| snake.alive) else {
             return Self {
@@ -82,13 +81,7 @@ impl JointActionGenerator {
         for (actor, enemy) in enemies {
             let moves = tracing
                 .for_actor(actor)
-                .map(|set| {
-                    if all_legal_enemy_moves {
-                        set.ordered_legal_moves_with_profile(profiles.get(&enemy.id))
-                    } else {
-                        set.ordered_search_moves_with_profile(profiles.get(&enemy.id))
-                    }
-                })
+                .map(|set| set.ordered_legal_moves_with_profile(profiles.get(&enemy.id)))
                 .unwrap_or_else(|| normalized_moves(MoveMask::all()).iter().collect());
 
             options.push((actor, moves));
@@ -202,9 +195,7 @@ mod tests {
     fn set(moves: MoveMask) -> EnemyMoveSet {
         EnemyMoveSet {
             legal_moves: moves,
-            plausible_moves: moves,
             hypotheses: vec![],
-            eliminations: vec![],
         }
     }
 
@@ -300,7 +291,7 @@ mod tests {
     }
 
     #[test]
-    fn actor_relative_generator_keeps_legal_moves_filtered_by_legacy_plausibility() {
+    fn every_generator_path_keeps_all_legal_enemy_moves() {
         let state = state(vec![snake("ours", &[(1, 1)]), snake("enemy", &[(5, 5)])]);
         let tracing = tracing(
             &state,
@@ -312,14 +303,13 @@ mod tests {
                         Direction::Down,
                         Direction::Right,
                     ]),
-                    plausible_moves: MoveMask::single(Direction::Left),
                     hypotheses: vec![],
-                    eliminations: vec![],
                 },
             )],
         );
 
-        let legacy = JointActionGenerator::new(&state, MoveMask::single(Direction::Up), &tracing);
+        let default_generator =
+            JointActionGenerator::new(&state, MoveMask::single(Direction::Up), &tracing);
         let actor_relative = JointActionGenerator::new_actor_relative_with_profiles(
             &state,
             MoveMask::single(Direction::Up),
@@ -327,7 +317,7 @@ mod tests {
             &OpponentProfiles::default(),
         );
 
-        assert_eq!(legacy.estimated_count(), 1);
+        assert_eq!(default_generator.estimated_count(), 3);
         assert_eq!(actor_relative.estimated_count(), 3);
     }
 
@@ -340,9 +330,7 @@ mod tests {
                 "enemy",
                 EnemyMoveSet {
                     legal_moves: MoveMask::empty(),
-                    plausible_moves: MoveMask::empty(),
                     hypotheses: vec![],
-                    eliminations: vec![],
                 },
             )],
         );
@@ -381,7 +369,6 @@ mod tests {
         let state = state(vec![snake("ours", &[(1, 1)]), snake("enemy", &[(5, 5)])]);
         let move_set = EnemyMoveSet {
             legal_moves: MoveMask::from_iter([Direction::Left, Direction::Down]),
-            plausible_moves: MoveMask::from_iter([Direction::Left, Direction::Down]),
             hypotheses: vec![
                 OpponentMoveHypothesis {
                     direction: Direction::Left,
@@ -402,7 +389,6 @@ mod tests {
                     plausibility_milli: 600,
                 },
             ],
-            eliminations: vec![],
         };
         let mut profile = OpponentProfile::default();
         for _ in 0..4 {
@@ -437,7 +423,6 @@ mod tests {
                 "enemy",
                 EnemyMoveSet {
                     legal_moves: MoveMask::from_iter([Direction::Left, Direction::Down]),
-                    plausible_moves: MoveMask::from_iter([Direction::Left, Direction::Down]),
                     hypotheses: vec![
                         OpponentMoveHypothesis {
                             direction: Direction::Left,
@@ -459,7 +444,6 @@ mod tests {
                             plausibility_milli: 800,
                         },
                     ],
-                    eliminations: vec![],
                 },
             )],
         );

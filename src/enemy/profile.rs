@@ -15,7 +15,6 @@ pub(crate) type OpponentProfiles = HashMap<String, OpponentProfile>;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct OpponentProfile {
-    pub(crate) survival_bias_milli: u16,
     pub(crate) food_bias_milli: u16,
     pub(crate) hunting_bias_milli: u16,
     pub(crate) head_threat_bias_milli: u16,
@@ -26,7 +25,6 @@ pub(crate) struct OpponentProfile {
 impl Default for OpponentProfile {
     fn default() -> Self {
         Self {
-            survival_bias_milli: BASE_BIAS_MILLI,
             food_bias_milli: BASE_BIAS_MILLI,
             hunting_bias_milli: BASE_BIAS_MILLI,
             head_threat_bias_milli: BASE_BIAS_MILLI,
@@ -47,14 +45,6 @@ impl OpponentProfile {
 
         let mut alternatives = moves.hypotheses.iter().copied();
 
-        self.survival_bias_milli = update_bias(
-            self.survival_bias_milli,
-            hypothesis.support.survival,
-            alternatives
-                .clone()
-                .any(|candidate| candidate.support.survival),
-            SUPPORTED_REWARD,
-        );
         self.food_bias_milli = update_bias(
             self.food_bias_milli,
             hypothesis.support.food,
@@ -81,10 +71,6 @@ impl OpponentProfile {
         let mut total = 0_u32;
         let mut count = 0_u32;
 
-        if hypothesis.support.survival {
-            total = total.saturating_add(u32::from(self.survival_bias_milli));
-            count = count.saturating_add(1);
-        }
         if hypothesis.support.food {
             total = total.saturating_add(u32::from(self.food_bias_milli));
             count = count.saturating_add(1);
@@ -133,13 +119,11 @@ mod tests {
     fn set() -> EnemyMoveSet {
         EnemyMoveSet {
             legal_moves: MoveMask::from_iter([Direction::Left, Direction::Down]),
-            plausible_moves: MoveMask::from_iter([Direction::Left, Direction::Down]),
             hypotheses: vec![
                 OpponentMoveHypothesis {
                     direction: Direction::Left,
                     support: OpponentPolicySupport {
                         food: true,
-                        survival: true,
                         ..OpponentPolicySupport::default()
                     },
                     threat: ThreatClass::None,
@@ -150,14 +134,12 @@ mod tests {
                     support: OpponentPolicySupport {
                         hunting: true,
                         head_threat: true,
-                        survival: true,
                         ..OpponentPolicySupport::default()
                     },
                     threat: ThreatClass::Likely,
                     plausibility_milli: 600,
                 },
             ],
-            eliminations: vec![],
         }
     }
 

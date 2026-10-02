@@ -5,30 +5,8 @@ use rayon::prelude::*;
 use crate::direction::{Direction, MoveMask};
 use crate::enemy::profile::OpponentProfile;
 use crate::evaluation::ActorVec;
-use crate::simulation::mobility::{DeterministicMoveBlock, MobilityAnalysis};
+use crate::simulation::mobility::MobilityAnalysis;
 use crate::simulation::state::{ActorIndex, SimulatedGameState, SimulatedSnake};
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum EliminationStage {
-    Hard,
-    Plausibility,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum MoveEliminationReason {
-    OutOfBounds,
-    DeterministicBodyCollision,
-    FatalHazard,
-    Starvation,
-    InsufficientSpace,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct MoveElimination {
-    pub(crate) direction: Direction,
-    pub(crate) stage: EliminationStage,
-    pub(crate) reason: MoveEliminationReason,
-}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub(crate) enum ThreatClass {
@@ -51,7 +29,6 @@ impl ThreatClass {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub(crate) struct OpponentPolicySupport {
-    pub(crate) survival: bool,
     pub(crate) food: bool,
     pub(crate) hunting: bool,
     pub(crate) head_threat: bool,
@@ -59,9 +36,7 @@ pub(crate) struct OpponentPolicySupport {
 
 impl OpponentPolicySupport {
     pub(crate) fn count(self) -> u8 {
-        u8::from(self.survival)
-            .saturating_add(u8::from(self.food))
-            .saturating_add(u8::from(self.hunting))
+        u8::from(self.food).saturating_add(u8::from(self.hunting))
     }
 }
 
@@ -76,25 +51,10 @@ pub(crate) struct OpponentMoveHypothesis {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct EnemyMoveSet {
     pub(crate) legal_moves: MoveMask,
-    pub(crate) plausible_moves: MoveMask,
     pub(crate) hypotheses: Vec<OpponentMoveHypothesis>,
-    pub(crate) eliminations: Vec<MoveElimination>,
 }
 
 impl EnemyMoveSet {
-    pub(crate) fn search_moves(&self) -> MoveMask {
-        if !self.plausible_moves.is_empty() {
-            self.plausible_moves
-        } else if !self.legal_moves.is_empty() {
-            self.legal_moves
-        } else {
-            MoveMask::all()
-        }
-    }
-
-    pub(crate) fn ordered_search_moves(&self) -> Vec<Direction> {
-        self.ordered_search_moves_with_profile(None)
-    }
     pub(crate) fn ordered_legal_moves_with_profile(
         &self,
         profile: Option<&OpponentProfile>,
@@ -104,22 +64,7 @@ impl EnemyMoveSet {
         } else {
             self.legal_moves
         };
-        self.ordered_moves(legal, profile)
-    }
-
-    pub(crate) fn ordered_search_moves_with_profile(
-        &self,
-        profile: Option<&OpponentProfile>,
-    ) -> Vec<Direction> {
-        self.ordered_moves(self.search_moves(), profile)
-    }
-
-    fn ordered_moves(
-        &self,
-        moves_mask: MoveMask,
-        profile: Option<&OpponentProfile>,
-    ) -> Vec<Direction> {
-        let mut moves = moves_mask.iter().collect::<Vec<_>>();
+        let mut moves = legal.iter().collect::<Vec<_>>();
         moves.sort_by(|left, right| {
             let left_hypothesis = self.hypothesis(*left);
             let right_hypothesis = self.hypothesis(*right);
@@ -150,28 +95,6 @@ impl EnemyMoveSet {
             .iter()
             .copied()
             .find(|hypothesis| hypothesis.direction == direction)
-    }
-
-    pub(crate) fn threat_class(&self, direction: Direction) -> ThreatClass {
-        self.hypothesis(direction).map_or_else(
-            || {
-                if self.plausible_moves.contains(direction) {
-                    ThreatClass::Likely
-                } else {
-                    ThreatClass::None
-                }
-            },
-            |hypothesis| hypothesis.threat,
-        )
-    }
-
-    pub(crate) fn pruning_ratio(&self) -> f32 {
-        let legal = self.legal_moves.len();
-        if legal == 0 {
-            return 0.0;
-        }
-
-        1.0 - f32::from(self.plausible_moves.len()) / f32::from(legal)
     }
 }
 
@@ -213,62 +136,37 @@ fn trace_enemy_actor_relative(
     mobility: &MobilityAnalysis,
     enemy: &SimulatedSnake,
 ) -> EnemyMoveSet {
-    let mut legal_moves = MoveMask::empty();
-    let mut eliminations = Vec::new();
-
-    for direction in Direction::ALL {
-        match mobility.classify_move(state, enemy, direction) {
-            None => legal_moves.insert(direction),
-            Some(block) => eliminations.push(MoveElimination {
-                direction,
-                stage: EliminationStage::Hard,
-                reason: hard_reason(block),
-            }),
-        }
-    }
-
+    let legal_moves = mobility.deterministic_moves_for(state, &enemy.id);
     let food_moves = cheap_food_ordering_moves(state, enemy, legal_moves);
     let hunting_moves = hunting_policy_moves(state, enemy, legal_moves);
     let threat_moves = head_threat_moves(state, mobility, enemy, legal_moves);
-    let hypotheses = build_hypotheses(
-        legal_moves,
-        legal_moves,
-        MoveMask::empty(),
-        food_moves,
-        hunting_moves,
-        threat_moves,
-    );
+    let hypotheses = build_hypotheses(legal_moves, food_moves, hunting_moves, threat_moves);
 
     EnemyMoveSet {
         legal_moves,
-        plausible_moves: legal_moves,
         hypotheses,
-        eliminations,
     }
 }
 
 fn build_hypotheses(
-    structural_moves: MoveMask,
-    plausible_moves: MoveMask,
-    survival_moves: MoveMask,
+    legal_moves: MoveMask,
     food_moves: MoveMask,
     hunting_moves: MoveMask,
     threat_moves: MoveMask,
 ) -> Vec<OpponentMoveHypothesis> {
-    plausible_moves
+    legal_moves
         .iter()
         .map(|direction| {
             let support = OpponentPolicySupport {
-                survival: survival_moves.contains(direction),
                 food: food_moves.contains(direction),
                 hunting: hunting_moves.contains(direction),
                 head_threat: threat_moves.contains(direction),
             };
             let threat = if !support.head_threat {
                 ThreatClass::None
-            } else if structural_moves.len() == 1 {
+            } else if legal_moves.len() == 1 {
                 ThreatClass::Forced
-            } else if support.hunting || support.survival || support.count() >= 2 {
+            } else if support.hunting || support.count() >= 2 {
                 ThreatClass::Likely
             } else {
                 ThreatClass::Possible
@@ -280,7 +178,6 @@ fn build_hypotheses(
                 ThreatClass::Forced => 380,
             };
             let plausibility_milli = 80_u16
-                .saturating_add(u16::from(support.survival) * 260)
                 .saturating_add(u16::from(support.food) * 220)
                 .saturating_add(u16::from(support.hunting) * 300)
                 .saturating_add(threat_bonus)
@@ -294,17 +191,6 @@ fn build_hypotheses(
             }
         })
         .collect()
-}
-
-fn hard_reason(block: DeterministicMoveBlock) -> MoveEliminationReason {
-    match block {
-        DeterministicMoveBlock::OutOfBounds => MoveEliminationReason::OutOfBounds,
-        DeterministicMoveBlock::DeterministicBodyCollision => {
-            MoveEliminationReason::DeterministicBodyCollision
-        }
-        DeterministicMoveBlock::FatalHazard => MoveEliminationReason::FatalHazard,
-        DeterministicMoveBlock::Starvation => MoveEliminationReason::Starvation,
-    }
 }
 
 fn cheap_food_ordering_moves(
@@ -467,11 +353,7 @@ mod tests {
         let deterministic = mobility.deterministic_moves_for(&state, "enemy");
 
         assert_eq!(enemy.legal_moves, deterministic);
-        assert_eq!(enemy.plausible_moves, deterministic);
-        assert!(enemy
-            .eliminations
-            .iter()
-            .all(|elimination| elimination.stage == EliminationStage::Hard));
+        assert_eq!(enemy.hypotheses.len(), deterministic.len() as usize);
     }
 
     #[test]
@@ -487,7 +369,7 @@ mod tests {
     }
 
     #[test]
-    fn hard_constraints_remove_illegal_moves_without_plausibility_pruning() {
+    fn hard_constraints_remove_illegal_moves_without_ordering_pruning() {
         let state = state(
             vec![
                 snake("ours", 100, &[(5, 5), (5, 4)]),
@@ -501,7 +383,7 @@ mod tests {
 
         assert!(!enemy.legal_moves.contains(Direction::Left));
         assert!(!enemy.legal_moves.contains(Direction::Down));
-        assert_eq!(enemy.plausible_moves, enemy.legal_moves);
+        assert_eq!(enemy.hypotheses.len(), enemy.legal_moves.len() as usize);
     }
 
     #[test]
@@ -548,23 +430,5 @@ mod tests {
             .all(|direction| enemy.legal_moves.contains(*direction)));
     }
 
-    #[test]
-    fn empty_legal_set_falls_back_to_all_search_moves() {
-        let mut state = state(
-            vec![
-                snake("ours", 100, &[(6, 6), (6, 5)]),
-                snake("enemy", 1, &[(0, 0), (0, 1)]),
-            ],
-            vec![],
-        );
-        state.hazards = vec![Coord { x: 1, y: 0 }, Coord { x: 0, y: 1 }];
-        state.rules.hazard_damage_per_turn = 100;
-        let mobility = MobilityAnalysis::from_state(&state);
 
-        let output = trace_actor_relative_with_mobility(&state, &mobility);
-        let enemy = output.for_actor(actor(&state, "enemy")).unwrap();
-
-        assert!(enemy.legal_moves.is_empty());
-        assert_eq!(enemy.search_moves(), MoveMask::all());
-    }
 }

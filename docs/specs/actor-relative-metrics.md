@@ -147,3 +147,8 @@ Search-node analyses should retain only data required for:
 - telemetry explicitly used in production.
 
 Temporary intermediate vectors, maps, choke details, and aggregates should be collapsed into compact final signals and discarded when no later consumer exists.
+
+
+## Opponent tracing invariant
+
+Enemy tracing is an ordering layer, not a pruning layer. Every deterministic legal opponent move remains in the joint-action generator. Historical opponent profiles may change move order only; they never alter actor utility and never remove a legal move.
