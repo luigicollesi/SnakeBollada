@@ -532,24 +532,21 @@ fn run_beam_shadow(
             metadata.agreed_with_legacy = best.root_direction == legacy_direction;
             metadata.best_value = best.value;
 
-            let our_id = shadow_graph
-                .node(shadow_graph.root())
-                .state
-                .our_snake_id
-                .as_str();
+            let root_state = &shadow_graph.node(shadow_graph.root()).state;
+            let our_index = root_state.actor_index(&root_state.our_snake_id);
             for step in &best.steps {
                 let Some(edge) = shadow_graph.node(step.node).children.iter().find(|edge| {
                     edge.child == step.child && edge.joint_action == step.joint_action
                 }) else {
                     continue;
                 };
-                for (actor_id, score) in edge.transition.actors.iter() {
+                for (actor, score) in edge.transition.actors.iter() {
                     let food = score.food_benefit.saturating_sub(score.food_harm);
                     let hunting = score.hunting_benefit.saturating_sub(score.hunting_harm);
                     let survival = score.survival_benefit.saturating_sub(score.survival_harm);
                     let terminal = score.terminal_benefit.saturating_sub(score.terminal_harm);
 
-                    if actor_id == our_id {
+                    if Some(actor) == our_index {
                         metadata.our_food_utility = metadata.our_food_utility.saturating_add(food);
                         metadata.our_hunting_utility =
                             metadata.our_hunting_utility.saturating_add(hunting);
