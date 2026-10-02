@@ -9,7 +9,8 @@ pub(crate) struct ActorUtilityMetrics {
     pub(crate) border_structural_risk_milli: u16,
     pub(crate) border_exposure_milli: u16,
     pub(crate) border_pin_risk_milli: u16,
-    pub(crate) territory_share_milli: u16,
+    pub(crate) space_capacity_milli: u16,
+    pub(crate) territory_control_milli: u16,
     pub(crate) food_potential_milli: u16,
 }
 
@@ -43,11 +44,11 @@ impl ActorUtilityMetrics {
             }),
             border_pin_risk_milli: border_snapshot
                 .map_or(0, |snapshot| snapshot.enemy_pin_risk_milli),
-            territory_share_milli: territory_share_milli(
-                state,
-                territory_snapshot.exclusive_space,
-                territory_snapshot.contested_space,
+            space_capacity_milli: space_capacity_milli(
+                territory_snapshot.reachable_space,
+                actor_snake.length(),
             ),
+            territory_control_milli: territory.competitive_control_milli(actor),
             food_potential_milli: food_potential_milli(state, territory, actor),
         })
     }
@@ -117,14 +118,23 @@ fn food_potential_milli(
         .unwrap_or(u16::MAX)
 }
 
-fn territory_share_milli(
-    state: &SimulatedGameState,
-    exclusive_space: u32,
-    contested_space: u32,
-) -> u16 {
-    let board_cells = state.width.saturating_mul(state.height).max(1);
-    let effective_control = exclusive_space.saturating_add(contested_space / 2);
-    ratio_milli(effective_control, board_cells)
+fn space_capacity_milli(reachable_space: u32, length: usize) -> u16 {
+    let length = u32::try_from(length).unwrap_or(u32::MAX).max(1);
+    let ratio_milli = reachable_space
+        .saturating_mul(1000)
+        .saturating_div(length);
+
+    if ratio_milli <= 1000 {
+        return 0;
+    }
+
+    ratio_milli
+        .saturating_sub(1000)
+        .min(2000)
+        .saturating_mul(1000)
+        .saturating_div(2000)
+        .try_into()
+        .unwrap_or(1000)
 }
 
 fn ratio_milli(numerator: u32, denominator: u32) -> u16 {
@@ -174,6 +184,15 @@ mod tests {
                 hazard_damage_per_turn: 0,
             },
         }
+    }
+
+    #[test]
+    fn space_capacity_tracks_reachable_space_relative_to_body_length() {
+        assert_eq!(space_capacity_milli(10, 10), 0);
+        assert_eq!(space_capacity_milli(15, 10), 250);
+        assert_eq!(space_capacity_milli(20, 10), 500);
+        assert_eq!(space_capacity_milli(30, 10), 1000);
+        assert_eq!(space_capacity_milli(50, 10), 1000);
     }
 
     #[test]

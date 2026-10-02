@@ -422,6 +422,41 @@ impl TerritoryAnalysis {
             .and_then(|actor| self.for_actor(actor))
     }
 
+    pub(crate) fn competitive_control_milli(&self, actor: ActorIndex) -> u16 {
+        let mut actor_units = 0_u32;
+        let mut relevant_units = 0_u32;
+
+        for claim in &self.competitive_claims {
+            match claim {
+                CompetitiveClaim::Unclaimed => {}
+                CompetitiveClaim::Owned(owner) => {
+                    relevant_units = relevant_units.saturating_add(1000);
+                    if *owner == actor {
+                        actor_units = actor_units.saturating_add(1000);
+                    }
+                }
+                CompetitiveClaim::Contested(contenders) => {
+                    relevant_units = relevant_units.saturating_add(1000);
+                    if contenders.contains(actor) {
+                        let count = u32::try_from(contenders.len()).unwrap_or(u32::MAX).max(1);
+                        actor_units = actor_units.saturating_add(1000_u32.saturating_div(count));
+                    }
+                }
+            }
+        }
+
+        if relevant_units == 0 {
+            return 0;
+        }
+
+        actor_units
+            .saturating_mul(1000)
+            .saturating_div(relevant_units)
+            .min(1000)
+            .try_into()
+            .unwrap_or(1000)
+    }
+
     pub(crate) fn competitive_owner_actor_at(&self, coord: Coord) -> Option<ActorIndex> {
         let index = index_of(self.width, self.height, coord)?;
         match self.competitive_claims.get(index)? {
@@ -805,6 +840,29 @@ mod tests {
         assert!(ours.exclusive_space > 0);
         assert!(enemy.exclusive_space > 0);
         assert!(ours.contested_space > 0);
+    }
+
+    #[test]
+    fn competitive_control_is_relative_to_current_claimed_space() {
+        let state = state(
+            7,
+            7,
+            vec![
+                snake("ours", &[(1, 3), (1, 2), (1, 1), (0, 1)]),
+                snake("enemy", &[(5, 3), (5, 2), (5, 1)]),
+            ],
+        );
+        let territory = TerritoryAnalysis::from_state(&state);
+        let ours = state.actor_index("ours").unwrap();
+        let enemy = state.actor_index("enemy").unwrap();
+
+        let ours_control = territory.competitive_control_milli(ours);
+        let enemy_control = territory.competitive_control_milli(enemy);
+
+        assert!(ours_control > enemy_control);
+        assert!(ours_control <= 1000);
+        assert!(enemy_control <= 1000);
+        assert!(ours_control.saturating_add(enemy_control) >= 990);
     }
 
     #[test]

@@ -7,7 +7,8 @@ use crate::simulation::state::ActorIndex;
 
 const FOOD_POTENTIAL_DELTA_SCALE: i64 = 3;
 const FOOD_CONSUMED: i64 = 1000;
-const TERRITORY_DELTA_SCALE: i64 = 4;
+const SPACE_CAPACITY_DELTA_SCALE: i64 = 2;
+const TERRITORY_CONTROL_DELTA_SCALE: i64 = 4;
 const HUNTING_TERRITORY_BUDGET: i64 = 2000;
 const HUNTING_DENIAL_NUMERATOR: i64 = 1;
 const HUNTING_DENIAL_DENOMINATOR: i64 = 2;
@@ -25,7 +26,8 @@ struct ActorTransitionFacts {
     ate_food: bool,
     food_potential_before: u16,
     food_potential_after: u16,
-    territory_share_delta_milli: i16,
+    space_capacity_delta_milli: i16,
+    territory_control_delta_milli: i16,
     survival_weight_after: u16,
     mobility_delta: i8,
     border_risk_improvement_milli: i16,
@@ -194,10 +196,16 @@ impl TransitionFacts {
                 food_potential_after: after
                     .map(|snapshot| snapshot.metrics.food_potential_milli)
                     .unwrap_or(0),
-                territory_share_delta_milli: after.map_or(0, |snapshot| {
+                space_capacity_delta_milli: after.map_or(0, |snapshot| {
                     signed_i16(
-                        i32::from(snapshot.metrics.territory_share_milli)
-                            .saturating_sub(i32::from(before.metrics.territory_share_milli)),
+                        i32::from(snapshot.metrics.space_capacity_milli)
+                            .saturating_sub(i32::from(before.metrics.space_capacity_milli)),
+                    )
+                }),
+                territory_control_delta_milli: after.map_or(0, |snapshot| {
+                    signed_i16(
+                        i32::from(snapshot.metrics.territory_control_milli)
+                            .saturating_sub(i32::from(before.metrics.territory_control_milli)),
                     )
                 }),
                 survival_weight_after: after
@@ -256,23 +264,20 @@ fn score_actor_transition(
         .hunting_territory_benefit
         .saturating_add(facts.kill_benefit);
     let mut hunting_harm = 0_i64;
-    let mut territory_benefit = 0_i64;
-    let mut territory_harm = 0_i64;
+    let (space_benefit, space_harm) = weighted_survival_delta(
+        facts.space_capacity_delta_milli,
+        SPACE_CAPACITY_DELTA_SCALE,
+        weights.survival,
+        facts.survival_weight_after,
+    );
+    let (territory_benefit, territory_harm) = weighted_survival_delta(
+        facts.territory_control_delta_milli,
+        TERRITORY_CONTROL_DELTA_SCALE,
+        weights.survival,
+        facts.survival_weight_after,
+    );
     let mut survival_benefit = 0_i64;
     let mut survival_harm = 0_i64;
-
-    add_signed_delta(
-        i64::from(facts.territory_share_delta_milli).saturating_mul(TERRITORY_DELTA_SCALE),
-        &mut territory_benefit,
-        &mut territory_harm,
-    );
-    let territory_weight = if facts.territory_share_delta_milli < 0 {
-        weights.survival.max(facts.survival_weight_after)
-    } else {
-        weights.survival
-    };
-    territory_benefit = weighted(territory_benefit, territory_weight);
-    territory_harm = weighted(territory_harm, territory_weight);
 
     add_signed_delta(
         i64::from(facts.mobility_delta).saturating_mul(MOBILITY_STEP),
@@ -305,9 +310,12 @@ fn score_actor_transition(
     food_harm = weighted(food_harm, weights.food);
     hunting_benefit = weighted(hunting_benefit, weights.hunting);
     hunting_harm = weighted(hunting_harm, weights.hunting);
-    survival_benefit =
-        weighted(survival_benefit, weights.survival).saturating_add(territory_benefit);
-    survival_harm = weighted(survival_harm, weights.survival).saturating_add(territory_harm);
+    survival_benefit = weighted(survival_benefit, weights.survival)
+        .saturating_add(space_benefit)
+        .saturating_add(territory_benefit);
+    survival_harm = weighted(survival_harm, weights.survival)
+        .saturating_add(space_harm)
+        .saturating_add(territory_harm);
 
     let terminal_benefit = if facts.sole_survivor {
         TERMINAL_UTILITY
@@ -503,6 +511,27 @@ fn signed_i8(value: i16) -> i8 {
         })
 }
 
+fn weighted_survival_delta(
+    delta_milli: i16,
+    scale: i64,
+    current_weight: u16,
+    next_weight: u16,
+) -> (i64, i64) {
+    let mut benefit = 0_i64;
+    let mut harm = 0_i64;
+    add_signed_delta(
+        i64::from(delta_milli).saturating_mul(scale),
+        &mut benefit,
+        &mut harm,
+    );
+    let weight = if delta_milli < 0 {
+        current_weight.max(next_weight)
+    } else {
+        current_weight
+    };
+    (weighted(benefit, weight), weighted(harm, weight))
+}
+
 fn add_signed_delta(value: i64, benefit: &mut i64, harm: &mut i64) {
     if value > 0 {
         *benefit = benefit.saturating_add(value);
@@ -526,9 +555,53 @@ mod tests {
     use super::*;
 
     #[test]
-    fn territory_collapse_uses_the_higher_child_survival_pressure_immediately() {
+    fn space_capacity_collapse_is_survival_harm_and_uses_child_pressure() {
         let facts = ActorTransitionFacts {
-            territory_share_delta_milli: -50,
+            space_capacity_delta_milli: -100,
+            survival_weight_after: 900,
+            ..ActorTransitionFacts::default()
+        };
+        let weights = StrategicWeights {
+            food: 275,
+            hunting: 275,
+            survival: 450,
+        };
+
+        let score = score_actor_transition(facts, weights);
+
+        assert_eq!(score.survival_benefit, 0);
+        assert_eq!(score.survival_harm, 180);
+    }
+
+    #[test]
+    fn space_capacity_recovery_is_strongest_when_currently_constrained() {
+        let facts = ActorTransitionFacts {
+            space_capacity_delta_milli: 100,
+            survival_weight_after: 450,
+            ..ActorTransitionFacts::default()
+        };
+        let constrained = StrategicWeights {
+            food: 125,
+            hunting: 125,
+            survival: 750,
+        };
+        let comfortable = StrategicWeights {
+            food: 425,
+            hunting: 425,
+            survival: 150,
+        };
+
+        let constrained_score = score_actor_transition(facts, constrained);
+        let comfortable_score = score_actor_transition(facts, comfortable);
+
+        assert!(constrained_score.survival_benefit > comfortable_score.survival_benefit);
+        assert_eq!(constrained_score.survival_harm, 0);
+    }
+
+    #[test]
+    fn territory_control_collapse_uses_the_higher_child_survival_pressure_immediately() {
+        let facts = ActorTransitionFacts {
+            territory_control_delta_milli: -50,
             survival_weight_after: 750,
             ..ActorTransitionFacts::default()
         };
@@ -545,9 +618,9 @@ mod tests {
     }
 
     #[test]
-    fn territory_recovery_is_rewarded_by_the_current_high_survival_pressure() {
+    fn territory_control_recovery_is_rewarded_by_the_current_high_survival_pressure() {
         let facts = ActorTransitionFacts {
-            territory_share_delta_milli: 80,
+            territory_control_delta_milli: 80,
             survival_weight_after: 600,
             ..ActorTransitionFacts::default()
         };

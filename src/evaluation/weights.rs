@@ -5,6 +5,7 @@ const MIN_CATEGORY_WEIGHT: u16 = 100;
 const MAX_CATEGORY_WEIGHT: u16 = 900;
 const MIN_SURVIVAL_WEIGHT: u16 = 150;
 const MAX_SURVIVAL_WEIGHT: u16 = 900;
+const MAX_TERRITORY_ONLY_SURVIVAL_WEIGHT: u16 = 650;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct StrategicWeights {
@@ -17,7 +18,8 @@ impl StrategicWeights {
     pub(crate) fn for_actor(
         state: &SimulatedGameState,
         actor_id: &str,
-        territory_share_milli: u16,
+        space_capacity_milli: u16,
+        territory_control_milli: u16,
     ) -> Option<Self> {
         let actor = state.snake(actor_id).filter(|snake| snake.alive)?;
         let actor_length = u32::try_from(actor.length()).unwrap_or(u32::MAX);
@@ -48,7 +50,7 @@ impl StrategicWeights {
         let (size_advantage_milli, size_disadvantage_milli) =
             relative_size_pressure(actor_length, reference_enemy);
 
-        let survival = survival_weight(territory_share_milli);
+        let survival = survival_weight(space_capacity_milli, territory_control_milli);
         let offensive_budget = STRATEGIC_BUDGET.saturating_sub(survival);
 
         let food_share = 500_i32
@@ -80,8 +82,28 @@ impl StrategicWeights {
     }
 }
 
-fn survival_weight(territory_share_milli: u16) -> u16 {
-    let territory = territory_share_milli.min(1000);
+fn survival_weight(space_capacity_milli: u16, territory_control_milli: u16) -> u16 {
+    let spatial = space_survival_weight(space_capacity_milli);
+    let territorial = territory_survival_weight(territory_control_milli)
+        .min(MAX_TERRITORY_ONLY_SURVIVAL_WEIGHT);
+    spatial.max(territorial)
+}
+
+fn space_survival_weight(space_capacity_milli: u16) -> u16 {
+    let capacity = space_capacity_milli.min(1000);
+    match capacity {
+        0..=100 => MAX_SURVIVAL_WEIGHT,
+        101..=250 => interpolate(capacity, 100, 250, 900, 800),
+        251..=400 => interpolate(capacity, 250, 400, 800, 650),
+        401..=550 => interpolate(capacity, 400, 550, 650, 500),
+        551..=700 => interpolate(capacity, 550, 700, 500, 350),
+        701..=850 => interpolate(capacity, 700, 850, 350, 220),
+        _ => interpolate(capacity, 850, 1000, 220, MIN_SURVIVAL_WEIGHT),
+    }
+}
+
+fn territory_survival_weight(territory_control_milli: u16) -> u16 {
+    let territory = territory_control_milli.min(1000);
     match territory {
         0..=100 => MAX_SURVIVAL_WEIGHT,
         101..=150 => interpolate(territory, 100, 150, 900, 750),
@@ -175,15 +197,15 @@ mod tests {
     #[test]
     fn strategic_weights_always_consume_the_whole_budget() {
         let state = state(&[("ours", 6), ("enemy", 6)]);
-        let weights = StrategicWeights::for_actor(&state, "ours", 400).unwrap();
+        let weights = StrategicWeights::for_actor(&state, "ours", 1000, 400).unwrap();
         assert_eq!(weights.total(), STRATEGIC_BUDGET);
     }
 
     #[test]
     fn less_territory_increases_survival_and_suppresses_offense() {
         let state = state(&[("ours", 6), ("enemy", 6)]);
-        let comfortable = StrategicWeights::for_actor(&state, "ours", 700).unwrap();
-        let constrained = StrategicWeights::for_actor(&state, "ours", 150).unwrap();
+        let comfortable = StrategicWeights::for_actor(&state, "ours", 1000, 700).unwrap();
+        let constrained = StrategicWeights::for_actor(&state, "ours", 1000, 150).unwrap();
 
         assert!(constrained.survival > comfortable.survival);
         assert!(
@@ -193,22 +215,48 @@ mod tests {
     }
 
     #[test]
-    fn survival_curve_is_moderate_at_normal_four_player_share() {
-        assert_eq!(survival_weight(100), 900);
-        assert_eq!(survival_weight(150), 750);
-        assert_eq!(survival_weight(200), 600);
-        assert_eq!(survival_weight(250), 450);
-        assert_eq!(survival_weight(300), 350);
-        assert_eq!(survival_weight(350), 250);
-        assert_eq!(survival_weight(450), 150);
-        assert_eq!(survival_weight(700), 150);
+    fn territory_curve_is_moderate_at_normal_four_player_share() {
+        assert_eq!(territory_survival_weight(100), 900);
+        assert_eq!(territory_survival_weight(150), 750);
+        assert_eq!(territory_survival_weight(200), 600);
+        assert_eq!(territory_survival_weight(250), 450);
+        assert_eq!(territory_survival_weight(300), 350);
+        assert_eq!(territory_survival_weight(350), 250);
+        assert_eq!(territory_survival_weight(450), 150);
+        assert_eq!(territory_survival_weight(700), 150);
     }
 
     #[test]
-    fn survival_curve_decreases_monotonically_with_control() {
+    fn territory_curve_decreases_monotonically_with_control() {
         let samples = [50, 100, 150, 200, 250, 300, 350, 450, 700];
         for pair in samples.windows(2) {
             assert!(survival_weight(pair[0]) >= survival_weight(pair[1]));
+        }
+    }
+
+    #[test]
+    fn large_space_with_low_control_is_pressured_but_not_spatially_critical() {
+        let state = state(&[("ours", 6), ("enemy", 6)]);
+        let weights = StrategicWeights::for_actor(&state, "ours", 1000, 120).unwrap();
+
+        assert_eq!(weights.survival, MAX_TERRITORY_ONLY_SURVIVAL_WEIGHT);
+        assert!(weights.survival < MAX_SURVIVAL_WEIGHT);
+    }
+
+    #[test]
+    fn small_space_dominates_even_when_territory_control_is_high() {
+        let state = state(&[("ours", 12), ("enemy", 6)]);
+        let weights = StrategicWeights::for_actor(&state, "ours", 50, 800).unwrap();
+
+        assert_eq!(weights.survival, MAX_SURVIVAL_WEIGHT);
+        assert!(weights.survival > weights.food.saturating_add(weights.hunting));
+    }
+
+    #[test]
+    fn spatial_capacity_relaxes_survival_monotonically() {
+        let samples = [0, 100, 250, 400, 550, 700, 850, 1000];
+        for pair in samples.windows(2) {
+            assert!(space_survival_weight(pair[0]) >= space_survival_weight(pair[1]));
         }
     }
 
@@ -217,8 +265,8 @@ mod tests {
         let smaller_state = state(&[("ours", 5), ("enemy-a", 12), ("enemy-b", 8)]);
         let larger_state = state(&[("ours", 14), ("enemy-a", 7), ("enemy-b", 6)]);
 
-        let smaller = StrategicWeights::for_actor(&smaller_state, "ours", 600).unwrap();
-        let larger = StrategicWeights::for_actor(&larger_state, "ours", 600).unwrap();
+        let smaller = StrategicWeights::for_actor(&smaller_state, "ours", 1000, 600).unwrap();
+        let larger = StrategicWeights::for_actor(&larger_state, "ours", 1000, 600).unwrap();
 
         assert!(smaller.food > smaller.hunting);
         assert!(larger.hunting > larger.food);
@@ -231,8 +279,8 @@ mod tests {
         let even = state(&[("ours", 8), ("enemy-a", 8), ("enemy-b", 8)]);
         let one_large = state(&[("ours", 8), ("enemy-a", 14), ("enemy-b", 2)]);
 
-        let even = StrategicWeights::for_actor(&even, "ours", 600).unwrap();
-        let one_large = StrategicWeights::for_actor(&one_large, "ours", 600).unwrap();
+        let even = StrategicWeights::for_actor(&even, "ours", 1000, 600).unwrap();
+        let one_large = StrategicWeights::for_actor(&one_large, "ours", 1000, 600).unwrap();
 
         assert!(one_large.food > even.food);
         assert!(one_large.hunting < even.hunting);
@@ -241,7 +289,7 @@ mod tests {
     #[test]
     fn constrained_territory_keeps_survival_dominant_even_for_largest_snake() {
         let state = state(&[("ours", 16), ("enemy-a", 7), ("enemy-b", 6)]);
-        let weights = StrategicWeights::for_actor(&state, "ours", 120).unwrap();
+        let weights = StrategicWeights::for_actor(&state, "ours", 1000, 120).unwrap();
 
         assert!(weights.survival > weights.food);
         assert!(weights.survival > weights.hunting);
@@ -253,8 +301,8 @@ mod tests {
         let smaller_state = state(&[("ours", 5), ("enemy-a", 10), ("enemy-b", 9)]);
         let larger_state = state(&[("ours", 15), ("enemy-a", 7), ("enemy-b", 6)]);
 
-        let smaller = StrategicWeights::for_actor(&smaller_state, "ours", 650).unwrap();
-        let larger = StrategicWeights::for_actor(&larger_state, "ours", 650).unwrap();
+        let smaller = StrategicWeights::for_actor(&smaller_state, "ours", 1000, 650).unwrap();
+        let larger = StrategicWeights::for_actor(&larger_state, "ours", 1000, 650).unwrap();
 
         assert!(smaller.food > smaller.hunting);
         assert!(smaller.food > smaller.survival);

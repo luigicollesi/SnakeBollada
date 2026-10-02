@@ -107,7 +107,8 @@ If none applies, the metric should be removed.
 | border structural risk | Survival | structural-risk delta |
 | border exposure | Survival | repeated per-turn harm |
 | border pin risk | Survival | repeated per-turn harm |
-| territory share | Survival | dynamic weight + territory delta |
+| space capacity | Survival | dynamic weight + spatial-capacity delta |
+| territory control | Survival | dynamic weight + territory-control delta |
 | food potential | Food | food-potential delta |
 
 Strategic weights are recomputed from the node state for every living actor. They are not persisted across turns.
@@ -120,7 +121,8 @@ Examples:
 
 - body-on-edge and leading-edge-chain are internal components of border structural risk;
 - inward control is an internal component of border pin risk;
-- own territory gain belongs to Survival;
+- spatial capacity and territory control are distinct Survival signals;
+- own territory-control gain belongs to Survival;
 - causal capture/denial of enemy ownership belongs to Hunting.
 
 ## Traceability requirement
