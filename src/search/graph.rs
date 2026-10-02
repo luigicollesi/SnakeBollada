@@ -147,19 +147,13 @@ pub(crate) struct FutureGraph {
 }
 
 impl FutureGraph {
+    #[cfg(test)]
     pub(crate) fn new(root_state: SimulatedGameState) -> Self {
         Self::new_with_context(
             root_state,
             OpponentProfiles::default(),
             FoodForecastPolicy::default(),
         )
-    }
-
-    pub(crate) fn new_with_opponent_profiles(
-        root_state: SimulatedGameState,
-        opponent_profiles: OpponentProfiles,
-    ) -> Self {
-        Self::new_with_context(root_state, opponent_profiles, FoodForecastPolicy::default())
     }
 
     pub(crate) fn new_with_context(
@@ -183,6 +177,7 @@ impl FutureGraph {
         }
     }
 
+    #[cfg(test)]
     pub(crate) fn new_beam(root_state: SimulatedGameState) -> Self {
         Self::new(root_state)
     }
@@ -192,13 +187,6 @@ impl FutureGraph {
         forecast_policy: FoodForecastPolicy,
     ) -> Self {
         Self::new_with_context(root_state, OpponentProfiles::default(), forecast_policy)
-    }
-
-    pub(crate) fn new_beam_with_opponent_profiles(
-        root_state: SimulatedGameState,
-        opponent_profiles: OpponentProfiles,
-    ) -> Self {
-        Self::new_with_opponent_profiles(root_state, opponent_profiles)
     }
 
     pub(crate) fn new_beam_with_opponent_profiles_and_forecast(
