@@ -392,7 +392,6 @@ impl TerritoryAnalysis {
             height,
             distances,
             snakes,
-            competitive,
             competitive_claims,
         }
     }
