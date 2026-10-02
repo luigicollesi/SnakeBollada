@@ -376,7 +376,7 @@ impl TerritoryAnalysis {
     ) -> Self {
         let core = TerritoryCore::from_spatial(state, spatial);
         let structural = TerritoryStructural::from_core_actor_relative(state, &core);
-        Self::from_parts(core, structural)
+        Self::from_parts(state, core, structural)
     }
 
     fn from_parts(
@@ -1216,7 +1216,7 @@ mod tests {
         let public = TerritoryAnalysis::from_state(&state);
         let core = TerritoryCore::from_state(&state);
         let structural = TerritoryStructural::from_core(&state, &core);
-        let recomposed = TerritoryAnalysis::from_parts(core, structural);
+        let recomposed = TerritoryAnalysis::from_parts(&state, core, structural);
 
         for snake_id in ["ours", "enemy", "wall"] {
             assert_eq!(public.for_snake(snake_id), recomposed.for_snake(snake_id));
