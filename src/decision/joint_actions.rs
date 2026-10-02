@@ -4,11 +4,11 @@ use crate::direction::{Direction, MoveMask};
 use crate::enemy::profile::OpponentProfiles;
 use crate::enemy::tracing::EnemyTracingOutput;
 use crate::simulation::joint_action::JointAction;
-use crate::simulation::state::SimulatedGameState;
+use crate::simulation::state::{ActorIndex, SimulatedGameState};
 
 #[derive(Debug, Clone)]
 pub(crate) struct JointActionGenerator {
-    options: Vec<(String, Vec<Direction>)>,
+    options: Vec<(ActorIndex, Vec<Direction>)>,
     indices: Vec<usize>,
     done: bool,
     estimated_count: usize,
@@ -57,19 +57,29 @@ impl JointActionGenerator {
             };
         };
 
+        let Some(our_index) = state.actor_index(&ours.id) else {
+            return Self {
+                options: vec![],
+                indices: vec![],
+                done: true,
+                estimated_count: 0,
+            };
+        };
         let mut options = vec![(
-            ours.id.clone(),
+            our_index,
             normalized_moves(our_moves).iter().collect::<Vec<_>>(),
         )];
 
         let mut enemies = state
             .snakes
             .iter()
-            .filter(|snake| snake.alive && snake.id != state.our_snake_id)
+            .enumerate()
+            .filter(|(_, snake)| snake.alive && snake.id != state.our_snake_id)
+            .filter_map(|(index, snake)| ActorIndex::new(index).map(|actor| (actor, snake)))
             .collect::<Vec<_>>();
-        enemies.sort_by(|left, right| left.id.cmp(&right.id));
+        enemies.sort_by(|(_, left), (_, right)| left.id.cmp(&right.id));
 
-        for enemy in enemies {
+        for (actor, enemy) in enemies {
             let moves = tracing
                 .for_enemy(&enemy.id)
                 .map(|set| {
@@ -81,7 +91,7 @@ impl JointActionGenerator {
                 })
                 .unwrap_or_else(|| normalized_moves(MoveMask::all()).iter().collect());
 
-            options.push((enemy.id.clone(), moves));
+            options.push((actor, moves));
         }
 
         let estimated_count = options.iter().fold(1_usize, |count, (_, moves)| {
@@ -124,8 +134,8 @@ impl Iterator for JointActionGenerator {
         }
 
         let mut action = JointAction::new();
-        for (option_index, (snake_id, directions)) in self.options.iter().enumerate() {
-            action = action.with_move(snake_id.clone(), directions[self.indices[option_index]]);
+        for (option_index, (actor, directions)) in self.options.iter().enumerate() {
+            action = action.with_move(*actor, directions[self.indices[option_index]]);
         }
 
         self.advance();
@@ -186,6 +196,10 @@ mod tests {
             },
             aggression: AggressionState::default(),
         }
+    }
+
+    fn actor(state: &SimulatedGameState, actor_id: &str) -> ActorIndex {
+        state.actor_index(actor_id).expect("actor must exist")
     }
 
     fn set(moves: MoveMask) -> EnemyMoveSet {
@@ -273,9 +287,9 @@ mod tests {
 
         for action in JointActionGenerator::new(&state, MoveMask::single(Direction::Up), &tracing) {
             assert_eq!(action.len(), 3);
-            assert!(action.direction_for("ours").is_some());
-            assert!(action.direction_for("enemy-a").is_some());
-            assert!(action.direction_for("enemy-b").is_some());
+            assert!(action.direction_for(actor(&state, "ours")).is_some());
+            assert!(action.direction_for(actor(&state, "enemy-a")).is_some());
+            assert!(action.direction_for(actor(&state, "enemy-b")).is_some());
         }
     }
 
@@ -401,7 +415,7 @@ mod tests {
         .next()
         .unwrap();
 
-        assert_eq!(first.direction_for("enemy"), Some(Direction::Down));
+        assert_eq!(first.direction_for(actor(&state, "enemy")), Some(Direction::Down));
     }
 
     #[test]
@@ -445,7 +459,7 @@ mod tests {
             .next()
             .unwrap();
 
-        assert_eq!(first.direction_for("enemy"), Some(Direction::Down));
+        assert_eq!(first.direction_for(actor(&state, "enemy")), Some(Direction::Down));
     }
 
     #[test]
@@ -475,12 +489,12 @@ mod tests {
         )
         .collect::<Vec<_>>();
 
-        assert_eq!(actions[0].direction_for("ours"), Some(Direction::Up));
-        assert_eq!(actions[0].direction_for("enemy-a"), Some(Direction::Up));
-        assert_eq!(actions[0].direction_for("enemy-b"), Some(Direction::Right));
+        assert_eq!(actions[0].direction_for(actor(&state, "ours")), Some(Direction::Up));
+        assert_eq!(actions[0].direction_for(actor(&state, "enemy-a")), Some(Direction::Up));
+        assert_eq!(actions[0].direction_for(actor(&state, "enemy-b")), Some(Direction::Right));
 
-        assert_eq!(actions[1].direction_for("ours"), Some(Direction::Up));
-        assert_eq!(actions[1].direction_for("enemy-a"), Some(Direction::Up));
-        assert_eq!(actions[1].direction_for("enemy-b"), Some(Direction::Down));
+        assert_eq!(actions[1].direction_for(actor(&state, "ours")), Some(Direction::Up));
+        assert_eq!(actions[1].direction_for(actor(&state, "enemy-a")), Some(Direction::Up));
+        assert_eq!(actions[1].direction_for(actor(&state, "enemy-b")), Some(Direction::Down));
     }
 }
