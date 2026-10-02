@@ -196,13 +196,6 @@ impl FutureGraph {
         Self::new_with_opponent_profiles(root_state, opponent_profiles)
     }
 
-    pub(crate) fn independent_beam_graph(&self) -> Self {
-        Self::new_with_opponent_profiles(
-            self.nodes[self.root].state.clone(),
-            self.opponent_profiles.clone(),
-        )
-    }
-
     pub(crate) fn set_opponent_profiles(&mut self, opponent_profiles: OpponentProfiles) {
         self.opponent_profiles = opponent_profiles;
     }
@@ -1031,9 +1024,8 @@ mod tests {
         let mut initial = state();
         initial.food = vec![Coord { x: 3, y: 1 }];
 
-        let legacy = FutureGraph::new(initial);
-        let beam = legacy.independent_beam_graph();
-        let root = beam.node(beam.root());
+        let graph = FutureGraph::new(initial);
+        let root = graph.node(graph.root());
         let analysis = root
             .active_analysis()
             .expect("beam root must have analysis");
@@ -1041,7 +1033,6 @@ mod tests {
             .actor_snapshot(actor(&root.state, "ours"))
             .expect("our actor snapshot must exist");
 
-        assert!(analysis.legacy().is_none());
         assert!(ours.metrics.food_potential_milli > 0);
         assert_eq!(
             analysis
@@ -1052,34 +1043,13 @@ mod tests {
     }
 
     #[test]
-    fn independent_beam_graph_starts_clean_and_lean_from_current_root() {
-        let mut legacy = FutureGraph::new(state());
-        legacy.expand_to_depth(1).unwrap();
-        assert!(!legacy.node(legacy.root()).children.is_empty());
-
-        let beam = legacy.independent_beam_graph();
-        let root = beam.node(beam.root());
-        let analysis = root
-            .active_analysis()
-            .expect("beam root must be analyzable");
-
-        assert_eq!(beam.node_count(), 1);
-        assert_eq!(beam.edge_count(), 0);
-        assert!(root.children.is_empty());
-        assert!(analysis.legacy().is_none());
-        assert!(!analysis.actor_snapshots.is_empty());
-    }
-
-    #[test]
-    fn beam_lean_nodes_skip_legacy_modes_but_keep_actor_snapshots() {
+    fn actor_relative_nodes_keep_actor_snapshots() {
         let mut graph = FutureGraph::new(state());
-        graph.use_beam_lean_analysis();
         graph.expand_to_depth(1).unwrap();
 
         let child = graph.node(graph.node(graph.root()).children[0].child);
         let analysis = child.active_analysis().expect("child must be analyzable");
 
-        assert!(analysis.legacy().is_none());
         assert_eq!(
             analysis.actor_snapshots.len(),
             child
@@ -1108,11 +1078,9 @@ mod tests {
     #[test]
     fn parallel_batch_preserves_deterministic_edge_order() {
         let mut first = FutureGraph::new(state());
-        first.use_beam_lean_analysis();
         first.expand_to_depth(1).unwrap();
 
         let mut second = FutureGraph::new(state());
-        second.use_beam_lean_analysis();
         second.expand_to_depth(1).unwrap();
 
         let signature = |graph: &FutureGraph| {
@@ -1145,7 +1113,6 @@ mod tests {
             .health = 1;
 
         let mut graph = FutureGraph::new(initial);
-        graph.use_beam_lean_analysis();
         graph.expand_to_depth(1).unwrap();
 
         let root = graph.root();
@@ -1387,12 +1354,17 @@ mod tests {
         let mut graph = FutureGraph::new(state());
         let root = graph.root();
         let analysis = graph.nodes[root].analysis.as_ref().unwrap();
-        let our_moves = analysis.tactical().ours.deterministic_moves;
-        graph.nodes[root].pending_actions = Some(JointActionGenerator::new(
-            &graph.nodes[root].state,
-            our_moves,
-            &analysis.tracing,
-        ));
+        let root_state = &graph.nodes[root].state;
+        let our_moves = analysis
+            .mobility
+            .deterministic_moves_for(root_state, &root_state.our_snake_id);
+        graph.nodes[root].pending_actions =
+            Some(JointActionGenerator::new_actor_relative_with_profiles(
+                root_state,
+                our_moves,
+                &analysis.tracing,
+                &OpponentProfiles::default(),
+            ));
 
         graph.retain_chosen_direction(crate::direction::Direction::Up);
 
@@ -1440,9 +1412,9 @@ mod tests {
     #[test]
     fn build_node_reuses_precomputed_state_key() {
         let initial = state();
-        let key = StateKey::from_state(&initial);
+        let key = StateKey::from_beam_state(&initial);
 
-        let node = build_node_with_key(initial, key.clone(), AnalysisProfile::Full);
+        let node = build_node_with_key(initial, key.clone());
 
         assert_eq!(node.key, key);
     }
