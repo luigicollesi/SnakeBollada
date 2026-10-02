@@ -458,8 +458,8 @@ mod tests {
             our_utility_total: 900,
             opponent_utility_total: 300,
             actor_utility_totals: crate::evaluation::ActorVec::from_iter([
-                ("ours".to_string(), 900),
-                ("enemy".to_string(), 300),
+                (crate::simulation::state::ActorIndex::new(0).unwrap(), 900),
+                (crate::simulation::state::ActorIndex::new(1).unwrap(), 300),
             ]),
             value: 600,
             terminal: LineTerminal::Running,
