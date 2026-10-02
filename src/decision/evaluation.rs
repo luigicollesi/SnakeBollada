@@ -361,7 +361,7 @@ impl DagEvaluator<'_> {
             let robust_safe_moves = node
                 .active_analysis()
                 .expect("running search node must have analysis")
-                .tactical
+                .tactical()
                 .ours
                 .safe_moves;
             let guaranteed_enemy_kills = directions
@@ -757,7 +757,7 @@ fn aggregate_direction(
                 parent
                     .active_analysis()
                     .expect("expanded parent must have analysis")
-                    .tactical
+                    .tactical()
                     .ours
                     .safe_moves
                     .len(),
@@ -771,7 +771,7 @@ fn aggregate_direction(
                 parent
                     .active_analysis()
                     .expect("expanded parent must have analysis")
-                    .tactical
+                    .tactical()
                     .ours
                     .best_reachable_space,
             ),
@@ -1126,7 +1126,7 @@ fn hunting_leaf_potential(node: &SearchNode) -> f32 {
         .expect("running leaf must have analysis");
 
     let tactical_pressure = analysis
-        .tactical
+        .tactical()
         .enemies
         .values()
         .filter_map(|enemy| {
