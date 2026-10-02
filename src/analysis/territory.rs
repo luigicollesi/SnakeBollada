@@ -118,19 +118,12 @@ impl TerritoryCore {
             .iter()
             .enumerate()
             .filter(|(_, snake)| snake.alive)
-            .filter_map(|(index, snake)| {
-                Some((ActorIndex::new(index)?, snake, snake.head()?))
-            })
+            .filter_map(|(index, snake)| Some((ActorIndex::new(index)?, snake, snake.head()?)))
             .collect::<Vec<_>>();
 
         let distances = living
             .par_iter()
-            .map(|(actor, _, head)| {
-                (
-                    *actor,
-                    bfs_distances(width, height, &open, *head, None),
-                )
-            })
+            .map(|(actor, _, head)| (*actor, bfs_distances(width, height, &open, *head, None)))
             .collect::<Vec<_>>()
             .into_iter()
             .collect::<ActorVec<_>>();
@@ -644,7 +637,11 @@ fn competitive_snapshots(
             .unwrap_or(0);
         let winner_actors = arrivals
             .into_iter()
-            .filter(|actor| state.snake_at(*actor).is_some_and(|snake| snake.length() == best_length))
+            .filter(|actor| {
+                state
+                    .snake_at(*actor)
+                    .is_some_and(|snake| snake.length() == best_length)
+            })
             .collect::<Vec<_>>();
 
         if winner_actors.len() == 1 && arrival_count > 1 {
