@@ -137,7 +137,6 @@ fn ratio_milli(numerator: u32, denominator: u32) -> u16 {
         .unwrap_or(1000)
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
