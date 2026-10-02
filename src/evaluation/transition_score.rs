@@ -449,6 +449,7 @@ fn hunting_territory_benefits(parent: &SearchNode, child: &SearchNode) -> ActorV
         return ActorVec::new();
     };
 
+    let transition = parent_territory.competitive_transition_to(child_territory);
     let board_cells = parent
         .state
         .width
@@ -463,50 +464,17 @@ fn hunting_territory_benefits(parent: &SearchNode, child: &SearchNode) -> ActorV
         .max(1);
     let mut benefits = ActorVec::<i64>::with_capacity(parent.state.snakes.len());
 
-    for y in 0..parent.state.height {
-        for x in 0..parent.state.width {
-            let coord = crate::Coord {
-                x: i32::try_from(x).unwrap_or(i32::MAX),
-                y: i32::try_from(y).unwrap_or(i32::MAX),
-            };
-            let Some(previous_owner) = parent_territory.competitive_owner_actor_at(coord) else {
-                continue;
-            };
-
-            if let Some(new_owner) = child_territory.competitive_owner_actor_at(coord) {
-                if previous_owner != new_owner {
-                    benefits.add(new_owner, cell_value);
-                }
-                continue;
-            }
-
-            if !child_territory.competitive_is_contested_at(coord) {
-                continue;
-            }
-
-            let contender_count = child_territory.competitive_contender_count_at(coord).max(1);
-            let split_denial = denial_value
-                .saturating_div(i64::try_from(contender_count).unwrap_or(i64::MAX))
-                .max(1);
-
-            for (index, _) in child
-                .state
-                .snakes
-                .iter()
-                .enumerate()
-                .filter(|(_, snake)| snake.alive)
-            {
-                let Some(actor_index) = ActorIndex::new(index) else {
-                    continue;
-                };
-                if actor_index == previous_owner {
-                    continue;
-                }
-                if child_territory.competitive_contested_by_actor(coord, actor_index) {
-                    benefits.add(actor_index, split_denial);
-                }
-            }
-        }
+    for (actor, captures) in transition.captures.iter() {
+        benefits.add(
+            actor,
+            i64::from(*captures).saturating_mul(cell_value),
+        );
+    }
+    for (actor, denials) in transition.denials.iter() {
+        benefits.add(
+            actor,
+            i64::from(*denials).saturating_mul(denial_value),
+        );
     }
 
     benefits
@@ -749,6 +717,27 @@ mod tests {
 
     fn actor_index(state: &SimulatedGameState, actor_id: &str) -> ActorIndex {
         state.actor_index(actor_id).expect("actor must exist")
+    }
+
+    #[test]
+    fn hunting_transition_uses_only_shared_open_competitive_cells() {
+        let parent_graph =
+            FutureGraph::new(territory_state(Coord { x: 1, y: 3 }, Coord { x: 5, y: 3 }));
+        let child_graph =
+            FutureGraph::new(territory_state(Coord { x: 2, y: 3 }, Coord { x: 5, y: 5 }));
+
+        let parent = parent_graph.node(parent_graph.root());
+        let child = child_graph.node(child_graph.root());
+        let parent_territory = &parent.active_analysis().unwrap().territory;
+        let child_territory = &child.active_analysis().unwrap().territory;
+        let delta = parent_territory.competitive_transition_to(child_territory);
+        let ours = actor_index(&parent.state, "ours");
+
+        assert_eq!(
+            hunting_territory_benefits(parent, child).get(ours).copied().unwrap_or(0) > 0,
+            delta.captures.get(ours).copied().unwrap_or(0) > 0
+                || delta.denials.get(ours).copied().unwrap_or(0) > 0
+        );
     }
 
     #[test]

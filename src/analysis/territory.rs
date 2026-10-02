@@ -338,9 +338,16 @@ fn structural_relevant(
 pub(crate) struct TerritoryAnalysis {
     width: u16,
     height: u16,
+    open: Vec<bool>,
     distances: ActorVec<Vec<u16>>,
     snakes: ActorVec<SnakeTerritorySnapshot>,
     competitive_claims: Vec<CompetitiveClaim>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub(crate) struct CompetitiveTransition {
+    pub(crate) captures: ActorVec<u32>,
+    pub(crate) denials: ActorVec<u32>,
 }
 
 impl TerritoryAnalysis {
@@ -372,10 +379,10 @@ impl TerritoryAnalysis {
         let TerritoryCore {
             width,
             height,
+            open,
             distances,
             snakes: core_snakes,
             competitive_claims,
-            ..
         } = core;
 
         let mut snakes = ActorVec::with_capacity(state.snakes.len());
@@ -402,6 +409,7 @@ impl TerritoryAnalysis {
         Self {
             width,
             height,
+            open,
             distances,
             snakes,
             competitive_claims,
@@ -437,6 +445,44 @@ impl TerritoryAnalysis {
     pub(crate) fn competitive_control_milli(&self, actor: ActorIndex) -> u16 {
         self.for_actor(actor)
             .map_or(0, |snapshot| snapshot.competitive_control_milli)
+    }
+
+    pub(crate) fn competitive_transition_to(&self, child: &Self) -> CompetitiveTransition {
+        let mut transition = CompetitiveTransition::default();
+        let cells = self
+            .competitive_claims
+            .len()
+            .min(child.competitive_claims.len())
+            .min(self.open.len())
+            .min(child.open.len());
+
+        for index in 0..cells {
+            if !self.open[index] || !child.open[index] {
+                continue;
+            }
+
+            let CompetitiveClaim::Owned(previous_owner) = self.competitive_claims[index] else {
+                continue;
+            };
+
+            match child.competitive_claims[index] {
+                CompetitiveClaim::Owned(new_owner) if new_owner != previous_owner => {
+                    transition.captures.add(new_owner, 1);
+                }
+                CompetitiveClaim::Contested(contenders) => {
+                    for contender in contenders.iter() {
+                        if contender != previous_owner {
+                            transition.denials.add(contender, 1);
+                        }
+                    }
+                }
+                CompetitiveClaim::Unclaimed
+                | CompetitiveClaim::Owned(_)
+                | CompetitiveClaim::Contested(_) => {}
+            }
+        }
+
+        transition
     }
 
     pub(crate) fn competitive_owner_actor_at(&self, coord: Coord) -> Option<ActorIndex> {
@@ -925,6 +971,39 @@ mod tests {
 
         assert_eq!(control.get(ours).copied(), Some(500));
         assert_eq!(control.get(enemy).copied(), Some(500));
+    }
+
+    #[test]
+    fn competitive_transition_ignores_cells_not_open_in_both_states() {
+        let ours = ActorIndex::new(0).unwrap();
+        let enemy = ActorIndex::new(1).unwrap();
+
+        let parent = TerritoryAnalysis {
+            width: 2,
+            height: 1,
+            open: vec![false, true],
+            distances: ActorVec::new(),
+            snakes: ActorVec::new(),
+            competitive_claims: vec![
+                CompetitiveClaim::Owned(enemy),
+                CompetitiveClaim::Owned(enemy),
+            ],
+        };
+        let child = TerritoryAnalysis {
+            width: 2,
+            height: 1,
+            open: vec![false, true],
+            distances: ActorVec::new(),
+            snakes: ActorVec::new(),
+            competitive_claims: vec![
+                CompetitiveClaim::Owned(ours),
+                CompetitiveClaim::Owned(ours),
+            ],
+        };
+
+        let delta = parent.competitive_transition_to(&child);
+
+        assert_eq!(delta.captures.get(ours).copied(), Some(1));
     }
 
     #[test]
