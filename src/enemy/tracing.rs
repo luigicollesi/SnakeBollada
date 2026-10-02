@@ -1,6 +1,5 @@
 #![allow(dead_code)]
 
-
 use rayon::prelude::*;
 
 use crate::analysis::StateAnalysis;
