@@ -71,24 +71,8 @@ pub(crate) fn build_seed_checkpoint(
         .unwrap_or(0)
         .saturating_add(1);
 
-    while completed_depth < SEED_DEPTH {
-        if budget.expired() {
-            return Ok(None);
-        }
-
-        let Some(next_checkpoint) =
-            deepen_seed_one_layer(graph, &checkpoint, budget, &mut next_line_id)?
-        else {
-            return Ok(None);
-        };
-
-        checkpoint = next_checkpoint;
-        completed_depth = checkpoint.completed_depth;
-
-        if has_single_root_direction(&checkpoint.lines) {
-            break;
-        }
-    }
+    checkpoint = deepen_seed_while_affordable(graph, checkpoint, budget, &mut next_line_id)?;
+    completed_depth = checkpoint.completed_depth;
 
     let valid = checkpoint.lines.iter().all(|line| {
         line.bound.is_exact()
@@ -106,6 +90,29 @@ pub(crate) fn build_seed_checkpoint(
         edges_before,
         started,
     )))
+}
+
+fn deepen_seed_while_affordable(
+    graph: &mut FutureGraph,
+    mut checkpoint: BeamCheckpoint,
+    budget: &SearchBudget,
+    next_line_id: &mut u32,
+) -> Result<BeamCheckpoint, SearchError> {
+    while checkpoint.completed_depth < SEED_DEPTH && !has_single_root_direction(&checkpoint.lines) {
+        if budget.expired() {
+            break;
+        }
+
+        let Some(next_checkpoint) =
+            deepen_seed_one_layer(graph, &checkpoint, budget, next_line_id)?
+        else {
+            break;
+        };
+
+        checkpoint = next_checkpoint;
+    }
+
+    Ok(checkpoint)
 }
 
 fn deepen_seed_one_layer(
@@ -287,6 +294,36 @@ mod tests {
             result.checkpoint.lines[0].root_direction,
             crate::direction::Direction::Up
         );
+    }
+
+    #[test]
+    fn expired_deepening_budget_keeps_last_complete_seed_checkpoint() {
+        let mut graph = FutureGraph::new(state());
+        graph.expand_to_depth(1).unwrap();
+
+        let first_evaluation = evaluate_seed_beam(&graph, 1);
+        let checkpoint =
+            BeamCheckpoint::new(first_evaluation.lines).expect("depth-one checkpoint must exist");
+        let original = checkpoint.clone();
+        let mut next_line_id = original
+            .lines
+            .iter()
+            .map(|line| line.id.0)
+            .max()
+            .unwrap_or(0)
+            .saturating_add(1);
+        let expired = SearchBudget::for_duration(Duration::ZERO);
+
+        let retained = deepen_seed_while_affordable(
+            &mut graph,
+            checkpoint,
+            &expired,
+            &mut next_line_id,
+        )
+        .unwrap();
+
+        assert_eq!(retained, original);
+        assert_eq!(retained.completed_depth, 1);
     }
 
     #[test]
