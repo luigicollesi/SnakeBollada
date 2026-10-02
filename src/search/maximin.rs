@@ -597,9 +597,7 @@ fn shift_bound(bound: ValueBound, delta: i64) -> ValueBound {
 mod tests {
     use crate::search::beam::SEED_DEPTH;
     use crate::simulation::joint_action::JointAction;
-    use crate::simulation::state::{
-        RulesContext, SimulatedGameState, SimulatedSnake,
-    };
+    use crate::simulation::state::{RulesContext, SimulatedGameState, SimulatedSnake};
     use crate::Coord;
 
     use super::*;
