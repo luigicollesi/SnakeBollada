@@ -136,3 +136,59 @@ fn ratio_milli(numerator: u32, denominator: u32) -> u16 {
         .try_into()
         .unwrap_or(1000)
 }
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::analysis::TerritoryAnalysis;
+    use crate::simulation::state::{
+        AggressionState, RulesContext, SimulatedGameState, SimulatedSnake,
+    };
+    use crate::Coord;
+
+    fn snake(id: &str, head: Coord) -> SimulatedSnake {
+        SimulatedSnake {
+            id: id.to_string(),
+            health: 100,
+            body: vec![head],
+            alive: true,
+        }
+    }
+
+    fn state(food: Coord) -> SimulatedGameState {
+        SimulatedGameState {
+            turn: 1,
+            width: 7,
+            height: 7,
+            food: vec![food],
+            hazards: vec![],
+            snakes: vec![
+                snake("ours", Coord { x: 2, y: 2 }),
+                snake("enemy", Coord { x: 5, y: 5 }),
+            ],
+            our_snake_id: "ours".to_string(),
+            rules: RulesContext {
+                name: "standard".to_string(),
+                max_health: 100,
+                hazard_damage_per_turn: 0,
+            },
+            aggression: AggressionState::default(),
+        }
+    }
+
+    #[test]
+    fn food_potential_prefers_food_we_can_claim() {
+        let claimable = state(Coord { x: 2, y: 4 });
+        let losing = state(Coord { x: 5, y: 4 });
+
+        let claimable_territory = TerritoryAnalysis::from_state(&claimable);
+        let losing_territory = TerritoryAnalysis::from_state(&losing);
+        let ours = claimable.actor_index("ours").unwrap();
+
+        let claimable_value = food_potential_milli(&claimable, &claimable_territory, ours);
+        let losing_value = food_potential_milli(&losing, &losing_territory, ours);
+
+        assert!(claimable_value > losing_value);
+    }
+}
