@@ -230,7 +230,7 @@ mod tests {
     fn territory_curve_decreases_monotonically_with_control() {
         let samples = [50, 100, 150, 200, 250, 300, 350, 450, 700];
         for pair in samples.windows(2) {
-            assert!(survival_weight(pair[0]) >= survival_weight(pair[1]));
+            assert!(territory_survival_weight(pair[0]) >= territory_survival_weight(pair[1]));
         }
     }
 
