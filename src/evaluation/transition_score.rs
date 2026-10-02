@@ -675,15 +675,12 @@ mod tests {
         let root = graph.node(graph.root());
         let our_actor = actor_index(&root.state, "ours");
         let edge = first_edge_for(&graph, Direction::Right, |edge| {
-            !edge
-                .events
-                .iter()
-                .any(|event| {
-                    matches!(
-                        event,
-                        InstantEvent::AteFood { actor, .. } if *actor == our_actor
-                    )
-                })
+            !edge.events.iter().any(|event| {
+                matches!(
+                    event,
+                    InstantEvent::AteFood { actor, .. } if *actor == our_actor
+                )
+            })
         });
         let child = graph.node(edge.child);
         let score = TransitionScore::from_edge(root, edge, child);
