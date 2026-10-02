@@ -2,8 +2,8 @@
 
 use std::collections::HashMap;
 
-use crate::direction::Direction;
 use super::graph::{FutureGraph, NodeId, SearchEdge, SearchNode};
+use crate::direction::Direction;
 
 const FORCING_SCALE: i64 = 4_000;
 
