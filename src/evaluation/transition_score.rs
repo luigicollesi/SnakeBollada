@@ -471,7 +471,11 @@ fn score_actor_transition(
         .saturating_add(survival_harm);
     let net = benefit_total.saturating_sub(harm_total);
     let actor_terminal = terminal_benefit.saturating_sub(terminal_harm);
-    let actor_choice_net = net.saturating_add(actor_terminal);
+    let actor_choice_net = if actor_terminal != 0 {
+        actor_terminal
+    } else {
+        net
+    };
 
     ActorTransitionScore {
         food_benefit,
