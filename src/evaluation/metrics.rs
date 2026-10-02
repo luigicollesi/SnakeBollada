@@ -64,9 +64,7 @@ fn food_potential_milli(
                 .snakes
                 .iter()
                 .enumerate()
-                .filter(|(index, snake)| {
-                    snake.alive && ActorIndex::new(*index) != Some(actor)
-                })
+                .filter(|(index, snake)| snake.alive && ActorIndex::new(*index) != Some(actor))
                 .filter_map(|(index, _)| {
                     territory.distance_for_actor(ActorIndex::new(index)?, *food)
                 })
