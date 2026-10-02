@@ -415,7 +415,10 @@ mod tests {
         .next()
         .unwrap();
 
-        assert_eq!(first.direction_for(actor(&state, "enemy")), Some(Direction::Down));
+        assert_eq!(
+            first.direction_for(actor(&state, "enemy")),
+            Some(Direction::Down)
+        );
     }
 
     #[test]
@@ -459,7 +462,10 @@ mod tests {
             .next()
             .unwrap();
 
-        assert_eq!(first.direction_for(actor(&state, "enemy")), Some(Direction::Down));
+        assert_eq!(
+            first.direction_for(actor(&state, "enemy")),
+            Some(Direction::Down)
+        );
     }
 
     #[test]
@@ -489,12 +495,30 @@ mod tests {
         )
         .collect::<Vec<_>>();
 
-        assert_eq!(actions[0].direction_for(actor(&state, "ours")), Some(Direction::Up));
-        assert_eq!(actions[0].direction_for(actor(&state, "enemy-a")), Some(Direction::Up));
-        assert_eq!(actions[0].direction_for(actor(&state, "enemy-b")), Some(Direction::Right));
+        assert_eq!(
+            actions[0].direction_for(actor(&state, "ours")),
+            Some(Direction::Up)
+        );
+        assert_eq!(
+            actions[0].direction_for(actor(&state, "enemy-a")),
+            Some(Direction::Up)
+        );
+        assert_eq!(
+            actions[0].direction_for(actor(&state, "enemy-b")),
+            Some(Direction::Right)
+        );
 
-        assert_eq!(actions[1].direction_for(actor(&state, "ours")), Some(Direction::Up));
-        assert_eq!(actions[1].direction_for(actor(&state, "enemy-a")), Some(Direction::Up));
-        assert_eq!(actions[1].direction_for(actor(&state, "enemy-b")), Some(Direction::Down));
+        assert_eq!(
+            actions[1].direction_for(actor(&state, "ours")),
+            Some(Direction::Up)
+        );
+        assert_eq!(
+            actions[1].direction_for(actor(&state, "enemy-a")),
+            Some(Direction::Up)
+        );
+        assert_eq!(
+            actions[1].direction_for(actor(&state, "enemy-b")),
+            Some(Direction::Down)
+        );
     }
 }
