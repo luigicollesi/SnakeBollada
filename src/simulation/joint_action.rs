@@ -25,7 +25,10 @@ impl JointAction {
     }
 
     pub(crate) fn len(&self) -> usize {
-        self.moves.iter().filter(|direction| direction.is_some()).count()
+        self.moves
+            .iter()
+            .filter(|direction| direction.is_some())
+            .count()
     }
 
     pub(crate) fn is_empty(&self) -> bool {
