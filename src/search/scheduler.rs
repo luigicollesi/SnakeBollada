@@ -331,7 +331,7 @@ fn intent_focus(node: &crate::search::graph::SearchNode, intent: Option<&Decisio
             }
 
             let Some(route) = analysis
-                .state
+                .state_analysis()
                 .route_for(&node.state.our_snake_id, food.target)
             else {
                 return 0;
@@ -359,7 +359,7 @@ fn intent_focus(node: &crate::search::graph::SearchNode, intent: Option<&Decisio
                 u16::from(snapshot.boundary_support).saturating_mul(70)
             });
             let plan = analysis
-                .hunting
+                .hunting()
                 .plans
                 .iter()
                 .find(|plan| plan.target == hunt.target && plan.kind == hunt.kind)
@@ -408,7 +408,7 @@ fn forcing_score(node: &crate::search::graph::SearchNode) -> u16 {
 
     let our_moves = u32::from(analysis.tactical().ours.safe_moves.len().max(1));
     let enemy_branching = analysis
-        .tactical
+        .tactical()
         .enemies
         .values()
         .fold(1_u32, |product, enemy| {
