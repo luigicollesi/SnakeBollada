@@ -217,13 +217,14 @@ mod tests {
     }
 
     fn state_with_enemy(turn: i32) -> GameState {
-        let ours = snake(
-            "ours",
-            vec![Coord { x: 2, y: 1 }, Coord { x: 1, y: 1 }],
-        );
+        let ours = snake("ours", vec![Coord { x: 2, y: 1 }, Coord { x: 1, y: 1 }]);
         let enemy = snake(
             "enemy",
-            vec![Coord { x: 2, y: 3 }, Coord { x: 2, y: 4 }, Coord { x: 1, y: 4 }],
+            vec![
+                Coord { x: 2, y: 3 },
+                Coord { x: 2, y: 4 },
+                Coord { x: 1, y: 4 },
+            ],
         );
 
         GameState {
