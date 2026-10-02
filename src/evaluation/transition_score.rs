@@ -798,9 +798,7 @@ mod tests {
         });
         let child = graph.node(edge.child);
         let score = TransitionScore::from_edge(root, edge, child);
-        let ours = score
-            .for_actor(actor_index(&root.state, "ours"))
-            .unwrap();
+        let ours = score.for_actor(actor_index(&root.state, "ours")).unwrap();
 
         assert!(ours.food_benefit > 0);
         assert!(ours.benefit_total >= ours.food_benefit);
