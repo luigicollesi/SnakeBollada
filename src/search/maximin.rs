@@ -515,9 +515,7 @@ fn same_joint_context_except_actor(
         .snakes
         .iter()
         .enumerate()
-        .filter(|(index, snake)| {
-            snake.alive && ActorIndex::new(*index) != Some(deviating_actor)
-        })
+        .filter(|(index, snake)| snake.alive && ActorIndex::new(*index) != Some(deviating_actor))
         .all(|(_, snake)| {
             left_action.direction_for(&snake.id) == right_action.direction_for(&snake.id)
         })
