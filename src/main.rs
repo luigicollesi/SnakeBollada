@@ -21,7 +21,6 @@ mod enemy;
 mod evaluation;
 mod forecast;
 mod logic;
-mod modes;
 mod navigation;
 mod runtime;
 mod search;
