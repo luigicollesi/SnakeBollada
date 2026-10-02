@@ -1,6 +1,5 @@
 use serde::{Deserialize, Serialize};
 
-use crate::analysis::StrategicPhase;
 use crate::direction::Direction;
 use crate::navigation::{reachable_after_move, NavigationMap};
 use crate::{Coord, GameState};
@@ -18,93 +17,6 @@ pub(crate) enum DecisionReason {
     BaselineFallback,
     OnlyLegalMove,
     NoSafeMove,
-}
-
-#[derive(Deserialize, Serialize, Debug, Clone, Copy, PartialEq, Eq, Default)]
-#[serde(rename_all = "snake_case")]
-pub(crate) enum CacheInvalidationReason {
-    #[default]
-    None,
-    TurnMismatch,
-    FoodSpawn,
-    FoodMutation,
-    StateMismatch,
-}
-
-#[derive(Deserialize, Serialize, Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct DirectionOutcomeSummary {
-    pub(crate) direction: Direction,
-    pub(crate) available: bool,
-    pub(crate) total_routes: u32,
-    pub(crate) death_routes: u32,
-    pub(crate) dead_end_routes: u32,
-    pub(crate) forced_routes: u32,
-    pub(crate) constrained_routes: u32,
-    pub(crate) average_border_ticks_milli: u32,
-    pub(crate) average_border_cost_milli: u32,
-    pub(crate) min_future_mobility: u8,
-    pub(crate) min_reachable_space: u32,
-    pub(crate) min_second_order_mobility: u32,
-    pub(crate) worst_utility_milli: i32,
-    pub(crate) average_utility_milli: i32,
-    pub(crate) average_food_milli: i32,
-    pub(crate) average_hunting_milli: i32,
-    pub(crate) average_leaf_food_milli: i32,
-    pub(crate) average_leaf_hunting_milli: i32,
-    pub(crate) reserved_override: bool,
-}
-
-impl DirectionOutcomeSummary {
-    pub(crate) const fn empty(direction: Direction) -> Self {
-        Self {
-            direction,
-            available: false,
-            total_routes: 0,
-            death_routes: 0,
-            dead_end_routes: 0,
-            forced_routes: 0,
-            constrained_routes: 0,
-            average_border_ticks_milli: 0,
-            average_border_cost_milli: 0,
-            min_future_mobility: 0,
-            min_reachable_space: 0,
-            min_second_order_mobility: 0,
-            worst_utility_milli: 0,
-            average_utility_milli: 0,
-            average_food_milli: 0,
-            average_hunting_milli: 0,
-            average_leaf_food_milli: 0,
-            average_leaf_hunting_milli: 0,
-            reserved_override: false,
-        }
-    }
-}
-
-#[derive(Deserialize, Serialize, Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct DepthSearchStats {
-    pub(crate) depth: u8,
-    pub(crate) completed: bool,
-    pub(crate) frontier_nodes: u32,
-    pub(crate) new_nodes: u32,
-    pub(crate) edges_generated: u32,
-    pub(crate) branching_milli: u32,
-    pub(crate) expansion_us: u64,
-    pub(crate) evaluation_us: u64,
-}
-
-impl DepthSearchStats {
-    pub(crate) const fn empty(depth: u8) -> Self {
-        Self {
-            depth,
-            completed: false,
-            frontier_nodes: 0,
-            new_nodes: 0,
-            edges_generated: 0,
-            branching_milli: 0,
-            expansion_us: 0,
-            evaluation_us: 0,
-        }
-    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -136,99 +48,17 @@ pub(crate) struct BeamShadowMetadata {
     pub(crate) opponent_terminal_utility: i64,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub(crate) struct SearchMetadata {
     pub(crate) completed_depth: u8,
     pub(crate) analyzed_depth: u8,
     pub(crate) nodes: u32,
     pub(crate) edges: u32,
     pub(crate) transposition_hits: u32,
-    pub(crate) cache_reused: bool,
-    pub(crate) cache_invalidation: CacheInvalidationReason,
     pub(crate) elapsed_us: u64,
     pub(crate) safety_reserve_us: u64,
     pub(crate) runtime_jitter_reserve_us: u64,
-    pub(crate) dag_nodes_evaluated: u32,
-    pub(crate) dag_memo_hits: u32,
-    pub(crate) dag_deterministic_evaluations: u32,
-    pub(crate) dag_provisional_evaluations: u32,
-    pub(crate) aggression_milli: u16,
-    pub(crate) strategic_phase: StrategicPhase,
-    pub(crate) growth_aggression_milli: u16,
-    pub(crate) size_dominance_milli: u16,
-    pub(crate) hunt_drive_milli: u16,
-    pub(crate) food_urgency_milli: u16,
-    pub(crate) our_length: u16,
-    pub(crate) largest_enemy_length: u16,
-    pub(crate) control_ratio_milli: u16,
-    pub(crate) dominance_frontier_cells: u16,
-    pub(crate) border_risk_milli: u16,
-    pub(crate) enemy_pin_risk_milli: u16,
-    pub(crate) escape_pressure_milli: u16,
-    pub(crate) escape_selected: bool,
-    pub(crate) enemy_moves_observed: u16,
-    pub(crate) enemy_moves_legal_covered: u16,
-    pub(crate) enemy_moves_plausible_covered: u16,
-    pub(crate) food_spawn_invalidations: u32,
-    pub(crate) food_mutation_invalidations: u32,
-    pub(crate) depth_stats: [DepthSearchStats; 6],
-    pub(crate) direction_outcomes: [DirectionOutcomeSummary; 4],
     pub(crate) beam_shadow: BeamShadowMetadata,
-}
-
-impl Default for SearchMetadata {
-    fn default() -> Self {
-        Self {
-            completed_depth: 0,
-            analyzed_depth: 0,
-            nodes: 0,
-            edges: 0,
-            transposition_hits: 0,
-            cache_reused: false,
-            cache_invalidation: CacheInvalidationReason::None,
-            elapsed_us: 0,
-            safety_reserve_us: 0,
-            runtime_jitter_reserve_us: 0,
-            dag_nodes_evaluated: 0,
-            dag_memo_hits: 0,
-            dag_deterministic_evaluations: 0,
-            dag_provisional_evaluations: 0,
-            aggression_milli: 0,
-            strategic_phase: StrategicPhase::default(),
-            growth_aggression_milli: 0,
-            size_dominance_milli: 0,
-            hunt_drive_milli: 0,
-            food_urgency_milli: 0,
-            our_length: 0,
-            largest_enemy_length: 0,
-            control_ratio_milli: 0,
-            dominance_frontier_cells: 0,
-            border_risk_milli: 0,
-            enemy_pin_risk_milli: 0,
-            escape_pressure_milli: 0,
-            escape_selected: false,
-            enemy_moves_observed: 0,
-            enemy_moves_legal_covered: 0,
-            enemy_moves_plausible_covered: 0,
-            food_spawn_invalidations: 0,
-            food_mutation_invalidations: 0,
-            depth_stats: [
-                DepthSearchStats::empty(1),
-                DepthSearchStats::empty(2),
-                DepthSearchStats::empty(3),
-                DepthSearchStats::empty(4),
-                DepthSearchStats::empty(5),
-                DepthSearchStats::empty(6),
-            ],
-            direction_outcomes: [
-                DirectionOutcomeSummary::empty(Direction::Up),
-                DirectionOutcomeSummary::empty(Direction::Right),
-                DirectionOutcomeSummary::empty(Direction::Down),
-                DirectionOutcomeSummary::empty(Direction::Left),
-            ],
-            beam_shadow: BeamShadowMetadata::default(),
-        }
-    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
