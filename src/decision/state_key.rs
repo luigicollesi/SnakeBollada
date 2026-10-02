@@ -6,32 +6,20 @@ pub(crate) struct SnakeStateKey {
     id: String,
     health: i32,
     body: Vec<Coord>,
-    alive: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub(crate) struct StateKey {
-    turn: i32,
     width: u32,
     height: u32,
     snakes: Vec<SnakeStateKey>,
     food: Vec<Coord>,
     hazards: Vec<Coord>,
     rules: RulesContext,
-    aggression_fruits_eaten: u32,
-    aggression_milli: u16,
 }
 
 impl StateKey {
-    pub(crate) fn from_state(state: &SimulatedGameState) -> Self {
-        Self::from_state_with_aggression(state, true)
-    }
-
     pub(crate) fn from_beam_state(state: &SimulatedGameState) -> Self {
-        Self::from_state_with_aggression(state, false)
-    }
-
-    fn from_state_with_aggression(state: &SimulatedGameState, include_aggression: bool) -> Self {
         let mut snakes = state
             .snakes
             .iter()
@@ -40,7 +28,6 @@ impl StateKey {
                 id: snake.id.clone(),
                 health: snake.health,
                 body: snake.body.clone(),
-                alive: snake.alive,
             })
             .collect::<Vec<_>>();
         snakes.sort_by(|left, right| left.id.cmp(&right.id));
@@ -52,37 +39,18 @@ impl StateKey {
         hazards.sort_unstable();
 
         Self {
-            turn: if include_aggression { state.turn } else { 0 },
             width: state.width,
             height: state.height,
             snakes,
             food,
             hazards,
             rules: state.rules.clone(),
-            aggression_fruits_eaten: if include_aggression {
-                state.aggression.fruits_eaten
-            } else {
-                0
-            },
-            aggression_milli: if include_aggression {
-                aggression_bucket(state.aggression.value)
-            } else {
-                0
-            },
         }
     }
 
     pub(crate) fn food(&self) -> &[Coord] {
         &self.food
     }
-}
-
-fn aggression_bucket(value: f32) -> u16 {
-    if !value.is_finite() {
-        return 0;
-    }
-
-    (value.clamp(0.0, 1.0) * 1000.0).round() as u16
 }
 
 #[cfg(test)]
@@ -132,7 +100,10 @@ mod tests {
         right.hazards.reverse();
         right.snakes.reverse();
 
-        assert_eq!(StateKey::from_state(&left), StateKey::from_state(&right));
+        assert_eq!(
+            StateKey::from_beam_state(&left),
+            StateKey::from_beam_state(&right)
+        );
     }
 
     #[test]
@@ -146,7 +117,10 @@ mod tests {
             alive: false,
         });
 
-        assert_eq!(StateKey::from_state(&left), StateKey::from_state(&right));
+        assert_eq!(
+            StateKey::from_beam_state(&left),
+            StateKey::from_beam_state(&right)
+        );
     }
 
     #[test]
@@ -155,26 +129,17 @@ mod tests {
         let mut right = sample_state();
         right.snakes[0].health -= 1;
 
-        assert_ne!(StateKey::from_state(&left), StateKey::from_state(&right));
-    }
-
-    #[test]
-    fn beam_key_ignores_turn_for_simulation_equivalent_states() {
-        let left = sample_state();
-        let mut right = sample_state();
-        right.turn = right.turn.saturating_add(9);
-
-        assert_eq!(
+        assert_ne!(
             StateKey::from_beam_state(&left),
             StateKey::from_beam_state(&right)
         );
-        assert_ne!(StateKey::from_state(&left), StateKey::from_state(&right));
     }
 
     #[test]
-    fn beam_key_ignores_legacy_aggression_state() {
+    fn beam_key_ignores_turn_and_legacy_aggression() {
         let left = sample_state();
         let mut right = sample_state();
+        right.turn = right.turn.saturating_add(9);
         right.aggression.fruits_eaten = right.aggression.fruits_eaten.saturating_add(5);
         right.aggression.value = 0.95;
 
@@ -182,25 +147,5 @@ mod tests {
             StateKey::from_beam_state(&left),
             StateKey::from_beam_state(&right)
         );
-        assert_ne!(StateKey::from_state(&left), StateKey::from_state(&right));
-    }
-
-    #[test]
-    fn fruits_eaten_participates_in_hashing() {
-        let left = sample_state();
-        let mut right = sample_state();
-        right.aggression.fruits_eaten += 1;
-
-        assert_ne!(StateKey::from_state(&left), StateKey::from_state(&right));
-    }
-
-    #[test]
-    fn aggression_is_normalized_for_hashing() {
-        let mut left = sample_state();
-        let mut right = sample_state();
-        left.aggression.value = 0.3751;
-        right.aggression.value = 0.3754;
-
-        assert_eq!(StateKey::from_state(&left), StateKey::from_state(&right));
     }
 }
