@@ -146,8 +146,7 @@ fn select_incumbent_or_challenger<'a>(
 ) -> &'a BeamLine {
     if emergency
         || incumbent.terminal == LineTerminal::Lost
-        || (challenger.terminal == LineTerminal::Won
-            && incumbent.terminal != LineTerminal::Won)
+        || (challenger.terminal == LineTerminal::Won && incumbent.terminal != LineTerminal::Won)
     {
         return challenger;
     }
