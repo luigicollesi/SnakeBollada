@@ -1107,7 +1107,7 @@ fn build_node_with_key(
             .filter_map(|(index, snake)| {
                 let actor = ActorIndex::new(index)?;
                 let metrics = ActorUtilityMetrics::from_parts(
-                    &state, &snake.id, &mobility, &territory, &enclosure, &border,
+                    &state, actor, &mobility, &territory, &enclosure, &border,
                 )?;
                 let weights =
                     StrategicWeights::for_actor(&state, &snake.id, metrics.territory_share_milli)?;
