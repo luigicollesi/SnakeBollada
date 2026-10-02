@@ -1,0 +1,150 @@
+name: Hobbs Simulation
+
+on:
+  pull_request:
+    branches: [dev]
+    paths:
+      - ".github/workflows/hobbs-simulation.yml"
+  workflow_dispatch:
+
+jobs:
+  simulate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Checkout SnakeBollada
+        uses: actions/checkout@v4
+
+      - name: Build SnakeBollada
+        run: docker build -t snakebollada:simulation .
+
+      - name: Checkout Hovering Hobbs
+        run: |
+          git clone --depth 1 https://github.com/coreyja/battlesnake-rs.git /tmp/battlesnake-rs
+          git -C /tmp/battlesnake-rs rev-parse HEAD | tee hobbs-commit.txt
+
+      - name: Build Hovering Hobbs
+        run: docker build -t hovering-hobbs:simulation /tmp/battlesnake-rs
+
+      - name: Start both snakes
+        run: |
+          docker run -d --name snakebollada \
+            -p 8000:8000 \
+            -e RUST_LOG="info,opponent_intent=debug" \
+            snakebollada:simulation
+
+          docker run -d --name hovering-hobbs \
+            -p 8001:8000 \
+            hovering-hobbs:simulation
+
+          for i in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:8000/ >/dev/null \
+              && curl -fsS http://127.0.0.1:8001/hovering-hobbs >/dev/null; then
+              exit 0
+            fi
+            sleep 1
+          done
+
+          echo "Servers failed readiness checks"
+          docker logs snakebollada || true
+          docker logs hovering-hobbs || true
+          exit 1
+
+      - name: Install Battlesnake CLI
+        run: |
+          go install github.com/BattlesnakeOfficial/rules/cli/battlesnake@latest
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+
+      - name: Run deterministic standard duel
+        run: |
+          set +e
+          battlesnake play \
+            --width 11 \
+            --height 11 \
+            --name "SnakeBollada" \
+            --url http://127.0.0.1:8000 \
+            --name "Hovering Hobbs" \
+            --url http://127.0.0.1:8001/hovering-hobbs \
+            --timeout 500 \
+            --gametype standard \
+            --map standard \
+            --seed 20261002 \
+            --output game.jsonl \
+            --viewmap \
+            2>&1 | tee game-console.log
+          status=${PIPESTATUS[0]}
+          echo "battlesnake_exit_code=${status}" | tee simulation-status.txt
+          exit 0
+
+      - name: Collect server logs
+        if: always()
+        run: |
+          docker logs snakebollada > snakebollada.log 2>&1 || true
+          docker logs hovering-hobbs > hovering-hobbs.log 2>&1 || true
+          docker inspect snakebollada > snakebollada-container.json 2>/dev/null || true
+          docker inspect hovering-hobbs > hovering-hobbs-container.json 2>/dev/null || true
+
+      - name: Generate compact summary
+        if: always()
+        run: |
+          python3 - <<'PY' | tee simulation-summary.txt
+          import json
+          from pathlib import Path
+
+          path = Path("game.jsonl")
+          if not path.exists():
+              print("No game.jsonl produced")
+              raise SystemExit(0)
+
+          states = []
+          for line in path.read_text().splitlines():
+              line = line.strip()
+              if not line:
+                  continue
+              try:
+                  states.append(json.loads(line))
+              except json.JSONDecodeError:
+                  pass
+
+          print(f"states={len(states)}")
+          if not states:
+              raise SystemExit(0)
+
+          first, last = states[0], states[-1]
+          print(f"game_id={first['game']['id']}")
+          print(f"first_turn={first['turn']}")
+          print(f"last_turn={last['turn']}")
+          print(f"final_snakes={len(last['board']['snakes'])}")
+
+          for name in ("SnakeBollada", "Hovering Hobbs"):
+              max_len = 0
+              min_health = 101
+              appearances = 0
+              for state in states:
+                  snake = next((s for s in state["board"]["snakes"] if s["name"] == name), None)
+                  if snake:
+                      appearances += 1
+                      max_len = max(max_len, snake["length"])
+                      min_health = min(min_health, snake["health"])
+              print(f"{name}: appearances={appearances} max_length={max_len} min_health={min_health if appearances else 'n/a'}")
+
+          survivors = [s["name"] for s in last["board"]["snakes"]]
+          print("last_state_survivors=" + ",".join(survivors))
+          PY
+
+      - name: Upload simulation evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: hobbs-simulation-20261002
+          path: |
+            game.jsonl
+            game-console.log
+            snakebollada.log
+            hovering-hobbs.log
+            simulation-summary.txt
+            simulation-status.txt
+            hobbs-commit.txt
+            snakebollada-container.json
+            hovering-hobbs-container.json
+          if-no-files-found: warn
