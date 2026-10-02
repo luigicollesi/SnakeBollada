@@ -345,10 +345,7 @@ fn trapping_support_by_move(
             value = value.saturating_mul(5).saturating_div(4);
         }
 
-        support[usize::from(direction.rank())] = value
-            .min(1000)
-            .try_into()
-            .unwrap_or(1000);
+        support[usize::from(direction.rank())] = value.min(1000).try_into().unwrap_or(1000);
     }
 
     support

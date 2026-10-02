@@ -29,7 +29,9 @@ struct IntentAccumulator {
 
 impl IntentAccumulator {
     fn add(&mut self, evidence: IntentEvidence) {
-        self.food_total = self.food_total.saturating_add(u32::from(evidence.food_milli));
+        self.food_total = self
+            .food_total
+            .saturating_add(u32::from(evidence.food_milli));
         self.hunting_total = self
             .hunting_total
             .saturating_add(u32::from(evidence.hunting_milli));
@@ -99,11 +101,7 @@ pub(crate) fn infer_observed_intent(
         by_direction[usize::from(direction.rank())].add(evidence);
     }
 
-    contrast_from_accumulators(
-        by_direction,
-        observed,
-        enemy_snapshot.weights.survival,
-    )
+    contrast_from_accumulators(by_direction, observed, enemy_snapshot.weights.survival)
 }
 
 fn edge_evidence(
@@ -144,7 +142,12 @@ fn edge_evidence(
         .unwrap_or(1000);
 
     let direct_hunting = actor_score
-        .map(|score| score.hunting_benefit.saturating_sub(score.hunting_harm).max(0))
+        .map(|score| {
+            score
+                .hunting_benefit
+                .saturating_sub(score.hunting_harm)
+                .max(0)
+        })
         .unwrap_or(0)
         .min(700)
         .try_into()
@@ -258,10 +261,7 @@ fn contrast_from_accumulators(
 
     let food = signed_contrast(observed.food_milli, alternative_mean.food_milli);
     let hunting = signed_contrast(observed.hunting_milli, alternative_mean.hunting_milli);
-    let trapping = signed_contrast(
-        observed.trapping_milli,
-        alternative_mean.trapping_milli,
-    );
+    let trapping = signed_contrast(observed.trapping_milli, alternative_mean.trapping_milli);
     let strongest = [food, hunting, trapping]
         .into_iter()
         .map(i32::abs)
@@ -325,8 +325,7 @@ mod tests {
         directions[usize::from(Direction::Down.rank())] = accumulator(80, 300, 850);
         directions[usize::from(Direction::Left.rank())] = accumulator(900, 50, 40);
 
-        let contrast =
-            contrast_from_accumulators(directions, Direction::Down, 200).unwrap();
+        let contrast = contrast_from_accumulators(directions, Direction::Down, 200).unwrap();
 
         assert!(contrast.trapping_milli > 700);
         assert!(contrast.food_milli < -700);
@@ -347,10 +346,8 @@ mod tests {
         directions[usize::from(Direction::Down.rank())] = accumulator(100, 200, 900);
         directions[usize::from(Direction::Left.rank())] = accumulator(800, 100, 100);
 
-        let normal =
-            contrast_from_accumulators(directions, Direction::Down, 200).unwrap();
-        let emergency =
-            contrast_from_accumulators(directions, Direction::Down, 850).unwrap();
+        let normal = contrast_from_accumulators(directions, Direction::Down, 200).unwrap();
+        let emergency = contrast_from_accumulators(directions, Direction::Down, 850).unwrap();
 
         assert!(emergency.information_milli < normal.information_milli);
     }

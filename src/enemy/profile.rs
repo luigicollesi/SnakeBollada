@@ -107,8 +107,7 @@ impl OpponentProfile {
             support_weight = support_weight.saturating_add(1000);
         }
         if hypothesis.support.hunting {
-            weighted_bias =
-                weighted_bias.saturating_add(u32::from(self.hunting_bias_milli) * 1000);
+            weighted_bias = weighted_bias.saturating_add(u32::from(self.hunting_bias_milli) * 1000);
             support_weight = support_weight.saturating_add(1000);
         }
         if hypothesis.support.head_threat {
@@ -118,8 +117,8 @@ impl OpponentProfile {
         }
         if hypothesis.support.trapping_milli > 0 {
             let trapping_weight = u32::from(hypothesis.support.trapping_milli);
-            weighted_bias = weighted_bias
-                .saturating_add(u32::from(self.trapping_bias_milli) * trapping_weight);
+            weighted_bias =
+                weighted_bias.saturating_add(u32::from(self.trapping_bias_milli) * trapping_weight);
             support_weight = support_weight.saturating_add(trapping_weight);
         }
 
