@@ -115,23 +115,67 @@ struct ResolvedCandidate {
 }
 
 #[derive(Debug, Clone)]
+pub(crate) struct LegacyNodeAnalysis {
+    state: Arc<StateAnalysis>,
+    tactical: Arc<TacticalStateAnalysis>,
+    posture: Arc<StrategicPosture>,
+    survival: Arc<SurvivalModeOutput>,
+    hunting: Arc<HuntingModeOutput>,
+}
+
+#[derive(Debug, Clone)]
 pub(crate) struct NodeAnalysis {
-    pub(crate) state: Arc<StateAnalysis>,
     pub(crate) mobility: Arc<MobilityAnalysis>,
     pub(crate) tracing: Arc<EnemyTracingOutput>,
-    pub(crate) tactical: Arc<TacticalStateAnalysis>,
     pub(crate) territory: Arc<TerritoryAnalysis>,
     pub(crate) border: Arc<BorderFobicAnalysis>,
-    pub(crate) posture: Arc<StrategicPosture>,
     pub(crate) enclosure: Arc<EnclosureAnalysis>,
-    pub(crate) survival: Arc<SurvivalModeOutput>,
-    pub(crate) hunting: Arc<HuntingModeOutput>,
     pub(crate) actor_snapshots: ActorVec<ActorSnapshot>,
+    legacy: Option<Arc<LegacyNodeAnalysis>>,
 }
 
 impl NodeAnalysis {
     pub(crate) fn actor_snapshot(&self, actor: ActorIndex) -> Option<&ActorSnapshot> {
         self.actor_snapshots.get(actor)
+    }
+
+    pub(crate) fn legacy(&self) -> Option<&LegacyNodeAnalysis> {
+        self.legacy.as_deref()
+    }
+
+    pub(crate) fn state_analysis(&self) -> &StateAnalysis {
+        &self
+            .legacy()
+            .expect("legacy state analysis requires full node profile")
+            .state
+    }
+
+    pub(crate) fn tactical(&self) -> &TacticalStateAnalysis {
+        &self
+            .legacy()
+            .expect("legacy tactical analysis requires full node profile")
+            .tactical
+    }
+
+    pub(crate) fn posture(&self) -> &StrategicPosture {
+        &self
+            .legacy()
+            .expect("legacy posture requires full node profile")
+            .posture
+    }
+
+    pub(crate) fn survival(&self) -> &SurvivalModeOutput {
+        &self
+            .legacy()
+            .expect("legacy survival analysis requires full node profile")
+            .survival
+    }
+
+    pub(crate) fn hunting(&self) -> &HuntingModeOutput {
+        &self
+            .legacy()
+            .expect("legacy hunting analysis requires full node profile")
+            .hunting
     }
 }
 
@@ -1037,55 +1081,25 @@ fn build_node_with_key(
         let spatial = Arc::new(SpatialOccupancy::from_state(&state));
         let mobility = Arc::new(MobilityAnalysis::from_spatial(Arc::clone(&spatial)));
 
-        let (state_analysis, territory) = match profile {
+        let (tracing, territory, border, enclosure, legacy) = match profile {
             AnalysisProfile::Full => {
                 let (state_analysis, territory) = rayon::join(
                     || StateAnalysis::from_simulated(&state),
                     || TerritoryAnalysis::from_spatial(&state, &spatial),
                 );
-                (Arc::new(state_analysis), Arc::new(territory))
-            }
-            AnalysisProfile::BeamLean => (
-                shared_empty_state_analysis(),
-                Arc::new(TerritoryAnalysis::from_spatial_actor_relative(
-                    &state, &spatial,
-                )),
-            ),
-        };
-
-        let tracing = Arc::new(match profile {
-            AnalysisProfile::Full => trace_with_mobility(&state, &state_analysis, &mobility),
-            AnalysisProfile::BeamLean => trace_actor_relative_with_mobility(&state, &mobility),
-        });
-        let tactical = match profile {
-            AnalysisProfile::Full => Arc::new(TacticalStateAnalysis::from_parts(
-                &state, &tracing, &mobility,
-            )),
-            AnalysisProfile::BeamLean => shared_empty_tactical(),
-        };
-        let border = Arc::new(match profile {
-            AnalysisProfile::Full => {
-                BorderFobicAnalysis::from_parts_with_territory(&state, &tactical, &territory)
-            }
-            AnalysisProfile::BeamLean => {
-                BorderFobicAnalysis::from_parts_with_territory_actor_relative(
-                    &state, &mobility, &territory,
-                )
-            }
-        });
-        let posture = match profile {
-            AnalysisProfile::Full => Arc::new(StrategicPosture::from_state(&state)),
-            AnalysisProfile::BeamLean => shared_empty_posture(),
-        };
-        let enclosure = Arc::new(match profile {
-            AnalysisProfile::Full => EnclosureAnalysis::from_parts(&state, &territory, &tactical),
-            AnalysisProfile::BeamLean => {
-                EnclosureAnalysis::from_parts_actor_relative(&state, &territory, &mobility)
-            }
-        });
-
-        let (survival, hunting) = match profile {
-            AnalysisProfile::Full => {
+                let state_analysis = Arc::new(state_analysis);
+                let territory = Arc::new(territory);
+                let tracing = Arc::new(trace_with_mobility(&state, &state_analysis, &mobility));
+                let tactical = Arc::new(TacticalStateAnalysis::from_parts(
+                    &state, &tracing, &mobility,
+                ));
+                let border = Arc::new(BorderFobicAnalysis::from_parts_with_territory(
+                    &state, &tactical, &territory,
+                ));
+                let posture = Arc::new(StrategicPosture::from_state(&state));
+                let enclosure = Arc::new(EnclosureAnalysis::from_parts(
+                    &state, &territory, &tactical,
+                ));
                 let (survival, hunting) = rayon::join(
                     || survival::analyze_with_border(&state, &tactical, &border),
                     || {
@@ -1094,9 +1108,30 @@ fn build_node_with_key(
                         )
                     },
                 );
-                (Arc::new(survival), Arc::new(hunting))
+                let legacy = Arc::new(LegacyNodeAnalysis {
+                    state: state_analysis,
+                    tactical,
+                    posture,
+                    survival: Arc::new(survival),
+                    hunting: Arc::new(hunting),
+                });
+                (tracing, territory, border, enclosure, Some(legacy))
             }
-            AnalysisProfile::BeamLean => (shared_empty_survival(), shared_empty_hunting()),
+            AnalysisProfile::BeamLean => {
+                let territory = Arc::new(TerritoryAnalysis::from_spatial_actor_relative(
+                    &state, &spatial,
+                ));
+                let tracing = Arc::new(trace_actor_relative_with_mobility(&state, &mobility));
+                let border = Arc::new(
+                    BorderFobicAnalysis::from_parts_with_territory_actor_relative(
+                        &state, &mobility, &territory,
+                    ),
+                );
+                let enclosure = Arc::new(EnclosureAnalysis::from_parts_actor_relative(
+                    &state, &territory, &mobility,
+                ));
+                (tracing, territory, border, enclosure, None)
+            }
         };
 
         let actor_snapshots = state
@@ -1117,17 +1152,13 @@ fn build_node_with_key(
             .into_iter()
             .collect::<ActorVec<_>>();
         Some(Arc::new(NodeAnalysis {
-            state: state_analysis,
             mobility,
             tracing,
-            tactical,
             territory,
             border,
-            posture,
             enclosure,
-            survival,
-            hunting,
             actor_snapshots,
+            legacy,
         }))
     };
 
