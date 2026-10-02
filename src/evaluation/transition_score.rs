@@ -138,10 +138,8 @@ impl TransitionFacts {
 
         for event in events {
             match event {
-                InstantEvent::AteFood { snake, .. } => {
-                    if let Some(actor) = parent.state.actor_index(snake) {
-                        ate_food.insert(actor, true);
-                    }
+                InstantEvent::AteFood { actor, .. } => {
+                    ate_food.insert(*actor, true);
                 }
                 InstantEvent::EnemyKilled {
                     enemy, attribution, ..
