@@ -438,7 +438,7 @@ fn hunting_territory_benefits(parent: &SearchNode, child: &SearchNode) -> ActorV
                 .saturating_div(i64::try_from(contender_count).unwrap_or(i64::MAX))
                 .max(1);
 
-            for (index, actor) in child
+            for (index, _) in child
                 .state
                 .snakes
                 .iter()
