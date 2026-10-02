@@ -19,6 +19,17 @@ struct IntentEvidence {
     trapping_milli: u16,
 }
 
+struct EdgeEvidenceContext<'a> {
+    parent: &'a crate::search::graph::SearchNode,
+    child: &'a crate::search::graph::SearchNode,
+    actor_score: Option<&'a crate::evaluation::ActorTransitionScore>,
+    hypothesis: Option<crate::enemy::tracing::OpponentMoveHypothesis>,
+    enemy_actor: ActorIndex,
+    our_actor: ActorIndex,
+    enemy_food_before: u16,
+    our_before: &'a crate::evaluation::ActorSnapshot,
+}
+
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 struct IntentAccumulator {
     food_total: u32,
@@ -88,51 +99,47 @@ pub(crate) fn infer_observed_intent(
             continue;
         };
         let child = graph.node(edge.child);
-        let evidence = edge_evidence(
-            root,
+        let evidence = edge_evidence(EdgeEvidenceContext {
+            parent: root,
             child,
-            edge.transition.for_actor(enemy_actor),
-            move_set.hypothesis(direction),
+            actor_score: edge.transition.for_actor(enemy_actor),
+            hypothesis: move_set.hypothesis(direction),
             enemy_actor,
             our_actor,
-            enemy_snapshot.metrics.food_potential_milli,
-            our_snapshot,
-        );
+            enemy_food_before: enemy_snapshot.metrics.food_potential_milli,
+            our_before: our_snapshot,
+        });
         by_direction[usize::from(direction.rank())].add(evidence);
     }
 
     contrast_from_accumulators(by_direction, observed, enemy_snapshot.weights.survival)
 }
 
-fn edge_evidence(
-    parent: &crate::search::graph::SearchNode,
-    child: &crate::search::graph::SearchNode,
-    actor_score: Option<&crate::evaluation::ActorTransitionScore>,
-    hypothesis: Option<crate::enemy::tracing::OpponentMoveHypothesis>,
-    enemy_actor: ActorIndex,
-    our_actor: ActorIndex,
-    enemy_food_before: u16,
-    our_before: &crate::evaluation::ActorSnapshot,
-) -> IntentEvidence {
-    let child_analysis = child.active_analysis();
-    let enemy_after = child_analysis.and_then(|analysis| analysis.actor_snapshot(enemy_actor));
-    let our_after = child_analysis.and_then(|analysis| analysis.actor_snapshot(our_actor));
+fn edge_evidence(context: EdgeEvidenceContext<'_>) -> IntentEvidence {
+    let child_analysis = context.child.active_analysis();
+    let enemy_after =
+        child_analysis.and_then(|analysis| analysis.actor_snapshot(context.enemy_actor));
+    let our_after =
+        child_analysis.and_then(|analysis| analysis.actor_snapshot(context.our_actor));
 
-    let consumed_food = child
+    let consumed_food = context
+        .child
         .state
-        .snake_at(enemy_actor)
+        .snake_at(context.enemy_actor)
         .filter(|snake| snake.alive)
         .and_then(|snake| snake.head())
-        .is_some_and(|head| parent.state.food.contains(&head));
+        .is_some_and(|head| context.parent.state.food.contains(&head));
     let food_gain = enemy_after
         .map(|snapshot| {
             snapshot
                 .metrics
                 .food_potential_milli
-                .saturating_sub(enemy_food_before)
+                .saturating_sub(context.enemy_food_before)
         })
         .unwrap_or(0);
-    let food_support = hypothesis.is_some_and(|candidate| candidate.support.food);
+    let food_support = context
+        .hypothesis
+        .is_some_and(|candidate| candidate.support.food);
     let food_milli = u32::from(food_gain)
         .min(350)
         .saturating_add(u32::from(food_support) * 300)
@@ -141,7 +148,8 @@ fn edge_evidence(
         .try_into()
         .unwrap_or(1000);
 
-    let direct_hunting = actor_score
+    let direct_hunting = context
+        .actor_score
         .map(|score| {
             score
                 .hunting_benefit
@@ -152,14 +160,16 @@ fn edge_evidence(
         .min(700)
         .try_into()
         .unwrap_or(700_u16);
-    let head_threat = hypothesis.is_some_and(|candidate| candidate.support.head_threat);
+    let head_threat = context
+        .hypothesis
+        .is_some_and(|candidate| candidate.support.head_threat);
     let hunting_milli = u32::from(direct_hunting)
         .saturating_add(u32::from(head_threat) * 350)
         .min(1000)
         .try_into()
         .unwrap_or(1000);
 
-    let trapping_milli = trapping_effect_milli(our_before, our_after);
+    let trapping_milli = trapping_effect_milli(context.our_before, our_after);
 
     IntentEvidence {
         food_milli,

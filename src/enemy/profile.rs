@@ -39,10 +39,6 @@ impl Default for OpponentProfile {
 }
 
 impl OpponentProfile {
-    pub(crate) fn observe(&mut self, moves: &EnemyMoveSet, observed: Direction) {
-        self.observe_with_intent(moves, observed, None);
-    }
-
     pub(crate) fn observe_with_intent(
         &mut self,
         moves: &EnemyMoveSet,
@@ -202,7 +198,7 @@ mod tests {
         let moves = set();
         let mut profile = OpponentProfile::default();
 
-        profile.observe(&moves, Direction::Down);
+        profile.observe_with_intent(&moves, Direction::Down, None);
 
         assert!(profile.hunting_bias_milli > BASE_BIAS_MILLI);
         assert!(profile.head_threat_bias_milli > BASE_BIAS_MILLI);
@@ -235,7 +231,7 @@ mod tests {
         let moves = set();
         let mut profile = OpponentProfile::default();
         for _ in 0..4 {
-            profile.observe(&moves, Direction::Down);
+            profile.observe_with_intent(&moves, Direction::Down, None);
         }
 
         let food = moves.hypothesis(Direction::Left).unwrap();

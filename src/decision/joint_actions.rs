@@ -392,7 +392,7 @@ mod tests {
         };
         let mut profile = OpponentProfile::default();
         for _ in 0..4 {
-            profile.observe(&move_set, Direction::Down);
+            profile.observe_with_intent(&move_set, Direction::Down, None);
         }
         let tracing = tracing(&state, vec![("enemy", move_set)]);
         let profiles = OpponentProfiles::from([("enemy".to_string(), profile)]);
