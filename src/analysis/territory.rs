@@ -748,7 +748,7 @@ fn competitive_snapshots(
 
     let snapshots = living
         .iter()
-        .filter_map(|(actor, snake, _)| {
+        .map(|(actor, snake, _)| {
             let builder = &builders[actor.as_usize()];
             let control_ratio_milli = if total_weight == 0 {
                 0
@@ -762,7 +762,7 @@ fn competitive_snapshots(
                     .unwrap_or(1000)
             };
 
-            Some((
+            (
                 *actor,
                 CompetitiveTerritorySnapshot {
                     snake_id: snake.id.clone(),
@@ -779,7 +779,7 @@ fn competitive_snapshots(
                     dominance_frontier_cells: builder.dominance_frontier_cells,
                     favorable_head_frontier: builder.favorable_head_frontier,
                 },
-            ))
+            )
         })
         .collect::<ActorVec<_>>();
 
