@@ -409,12 +409,13 @@ mod tests {
     }
 
     #[test]
-    fn large_space_with_low_control_is_pressured_but_not_spatially_critical() {
+    fn low_territory_alone_does_not_suppress_growth_at_equal_size() {
         let state = state(&[("ours", 6), ("enemy", 6)]);
         let weights = StrategicWeights::for_actor(&state, "ours", 1000, 120).unwrap();
 
-        assert_eq!(weights.survival, MAX_TERRITORY_ONLY_SURVIVAL_WEIGHT);
-        assert!(weights.survival < MAX_SURVIVAL_WEIGHT);
+        assert!(weights.survival <= 350);
+        assert!(weights.food > weights.survival);
+        assert!(weights.food > weights.hunting);
     }
 
     #[test]
