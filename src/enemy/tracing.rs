@@ -589,19 +589,22 @@ fn head_threat_moves(
     }))
 }
 
-fn structural_trace(state: &SimulatedGameState, mobility: &MobilityAnalysis) -> EnemyTracingOutput {
-    let mut enemies = HashMap::new();
-
-    for snake in state
+fn structural_trace(
+    state: &SimulatedGameState,
+    mobility: &MobilityAnalysis,
+) -> EnemyTracingOutput {
+    let enemies = state
         .snakes
         .iter()
-        .filter(|snake| snake.alive && snake.id != state.our_snake_id)
-    {
-        enemies.insert(
-            snake.id.clone(),
-            structural_move_set(state, mobility, snake),
-        );
-    }
+        .enumerate()
+        .filter(|(_, snake)| snake.alive && snake.id != state.our_snake_id)
+        .filter_map(|(index, snake)| {
+            Some((
+                ActorIndex::new(index)?,
+                structural_move_set(state, mobility, snake),
+            ))
+        })
+        .collect::<ActorVec<_>>();
 
     EnemyTracingOutput { enemies }
 }
