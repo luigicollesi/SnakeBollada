@@ -119,8 +119,7 @@ fn edge_evidence(context: EdgeEvidenceContext<'_>) -> IntentEvidence {
     let child_analysis = context.child.active_analysis();
     let enemy_after =
         child_analysis.and_then(|analysis| analysis.actor_snapshot(context.enemy_actor));
-    let our_after =
-        child_analysis.and_then(|analysis| analysis.actor_snapshot(context.our_actor));
+    let our_after = child_analysis.and_then(|analysis| analysis.actor_snapshot(context.our_actor));
 
     let consumed_food = context
         .child
