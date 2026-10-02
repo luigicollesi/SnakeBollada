@@ -84,12 +84,14 @@ pub(crate) fn edge_priority(
 
 pub(crate) fn ordered_child_ids_for_search(graph: &FutureGraph, node_id: NodeId) -> Vec<NodeId> {
     let node = graph.node(node_id);
-    let our_id = node.state.our_snake_id.as_str();
+    let Some(our_actor) = node.state.actor_index(&node.state.our_snake_id) else {
+        return Vec::new();
+    };
     let mut direction_scores = HashMap::<Direction, i64>::new();
     let mut ranked = Vec::with_capacity(node.children.len());
 
     for (edge_index, edge) in node.children.iter().enumerate() {
-        let Some(direction) = edge.joint_action.direction_for(our_id) else {
+        let Some(direction) = edge.joint_action.direction_for(our_actor) else {
             continue;
         };
         let priority = edge_priority(node, edge, graph.node(edge.child));
@@ -246,11 +248,12 @@ mod tests {
         let root = graph.node(graph.root());
         let ordered = ordered_child_ids_for_search(&graph, graph.root());
 
+        let our_actor = root.state.actor_index("ours").unwrap();
         let first_direction = root
             .children
             .iter()
             .find(|edge| edge.child == ordered[0])
-            .and_then(|edge| edge.joint_action.direction_for("ours"))
+            .and_then(|edge| edge.joint_action.direction_for(our_actor))
             .expect("first child must have our direction");
 
         let best_direction = crate::direction::Direction::ALL
@@ -259,7 +262,7 @@ mod tests {
                 let score = root
                     .children
                     .iter()
-                    .filter(|edge| edge.joint_action.direction_for("ours") == Some(direction))
+                    .filter(|edge| edge.joint_action.direction_for(our_actor) == Some(direction))
                     .map(|edge| {
                         edge_priority(root, edge, graph.node(edge.child)).our_search_score()
                     })
