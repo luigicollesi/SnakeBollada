@@ -60,14 +60,11 @@ impl SearchBudget {
         self.hard_expired()
     }
 
-    pub(crate) fn soft_expired(&self) -> bool {
-        Instant::now() >= self.soft_deadline
-    }
-
     pub(crate) fn hard_expired(&self) -> bool {
         Instant::now() >= self.hard_deadline
     }
 
+    #[cfg(test)]
     pub(crate) fn remaining_soft(&self) -> Duration {
         self.soft_deadline.saturating_duration_since(Instant::now())
     }
@@ -93,12 +90,9 @@ impl SearchBudget {
         self.safety_reserve
     }
 
+    #[cfg(test)]
     pub(crate) fn can_afford(&self, estimated: Duration) -> bool {
         self.can_afford_hard(estimated)
-    }
-
-    pub(crate) fn can_afford_soft(&self, estimated: Duration) -> bool {
-        !self.soft_expired() && self.remaining_soft() > estimated
     }
 
     pub(crate) fn can_afford_hard(&self, estimated: Duration) -> bool {
