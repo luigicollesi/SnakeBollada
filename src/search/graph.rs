@@ -7,7 +7,6 @@ use rayon::prelude::*;
 use crate::analysis::{BorderFobicAnalysis, EnclosureAnalysis, TerritoryAnalysis};
 use crate::decision::joint_actions::JointActionGenerator;
 use crate::decision::state_key::StateKey;
-use crate::direction::MoveMask;
 use crate::enemy::profile::OpponentProfiles;
 use crate::enemy::tracing::{trace_actor_relative_with_mobility, EnemyTracingOutput};
 use crate::evaluation::{
