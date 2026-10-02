@@ -201,7 +201,7 @@ impl DecisionState {
             .active_analysis()
             .and_then(|analysis| {
                 analysis
-                    .state
+                    .state_analysis()
                     .route_for(&root.state.our_snake_id, intent.target)
             })
             .is_some_and(|route| route.reachable && route.distance.is_some());
@@ -209,7 +209,7 @@ impl DecisionState {
         let dominant_hunt_available = root.active_analysis().is_some_and(|analysis| {
             analysis.posture().favors_dominant_hunt()
                 && analysis
-                    .hunting
+                    .hunting()
                     .plans
                     .iter()
                     .any(|plan| committable_hunt_plan(plan) && plan.score_milli >= 400)
@@ -230,7 +230,7 @@ impl DecisionState {
             .active_analysis()
             .and_then(|analysis| {
                 analysis
-                    .hunting
+                    .hunting()
                     .plans
                     .iter()
                     .find(|plan| plan.target == intent.target && plan.kind == intent.kind)
@@ -598,12 +598,12 @@ mod tests {
         let analysis = root.active_analysis().unwrap();
 
         assert!(analysis
-            .state
+            .state_analysis()
             .route_for(&root.state.our_snake_id, target)
             .is_some_and(|route| route.reachable));
         assert!(analysis.posture().favors_dominant_hunt());
         assert!(analysis
-            .hunting
+            .hunting()
             .plans
             .iter()
             .any(|plan| committable_hunt_plan(plan) && plan.score_milli >= 400));
@@ -685,7 +685,7 @@ mod tests {
             .node(graph.root())
             .active_analysis()
             .unwrap()
-            .hunting
+            .hunting()
             .plans
             .iter()
             .find(|plan| committable_hunt_plan(plan))
