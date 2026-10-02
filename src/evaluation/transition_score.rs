@@ -8,6 +8,8 @@ const FOOD_POTENTIAL_DELTA_SCALE: i64 = 3;
 const FOOD_CONSUMED: i64 = 1000;
 const TERRITORY_DELTA_SCALE: i64 = 2;
 const HUNTING_TERRITORY_BUDGET: i64 = 2000;
+const HUNTING_DENIAL_NUMERATOR: i64 = 1;
+const HUNTING_DENIAL_DENOMINATOR: i64 = 2;
 const MOBILITY_STEP: i64 = 320;
 const ENCLOSURE_STEP: i64 = 220;
 const BORDER_EXPOSURE_STEP: i64 = 1;
@@ -113,7 +115,7 @@ impl TransitionScore {
 
 impl TransitionFacts {
     fn from_parts(parent: &SearchNode, events: &[InstantEvent], child: &SearchNode) -> Self {
-        let hunting_transfers = territory_transfer_benefits(parent, child);
+        let hunting_transfers = hunting_territory_benefits(parent, child);
         let mut ate_food = ActorTable::<bool>::new();
         let mut kill_benefits = ActorTable::<i64>::new();
 
@@ -302,7 +304,7 @@ fn food_potential_delta(before: u16, after: u16) -> (i64, i64) {
     }
 }
 
-fn territory_transfer_benefits(parent: &SearchNode, child: &SearchNode) -> ActorTable<i64> {
+fn hunting_territory_benefits(parent: &SearchNode, child: &SearchNode) -> ActorTable<i64> {
     let Some(parent_territory) = parent.active_analysis().map(|analysis| &analysis.territory)
     else {
         return ActorTable::new();
@@ -319,6 +321,10 @@ fn territory_transfer_benefits(parent: &SearchNode, child: &SearchNode) -> Actor
     let cell_value = HUNTING_TERRITORY_BUDGET
         .saturating_div(i64::from(board_cells))
         .max(1);
+    let denial_value = cell_value
+        .saturating_mul(HUNTING_DENIAL_NUMERATOR)
+        .saturating_div(HUNTING_DENIAL_DENOMINATOR)
+        .max(1);
     let mut benefits = ActorTable::<i64>::new();
 
     for y in 0..parent.state.height {
@@ -327,17 +333,36 @@ fn territory_transfer_benefits(parent: &SearchNode, child: &SearchNode) -> Actor
                 x: i32::try_from(x).unwrap_or(i32::MAX),
                 y: i32::try_from(y).unwrap_or(i32::MAX),
             };
-            let before = parent_territory.competitive_owner_at(coord);
-            let after = child_territory.competitive_owner_at(coord);
-
-            let (Some(before), Some(after)) = (before, after) else {
+            let Some(previous_owner) = parent_territory.competitive_owner_at(coord) else {
                 continue;
             };
-            if before == after {
+
+            if let Some(new_owner) = child_territory.competitive_owner_at(coord) {
+                if previous_owner != new_owner {
+                    benefits.add(new_owner, cell_value);
+                }
                 continue;
             }
 
-            benefits.add(after, cell_value);
+            if !child_territory.competitive_is_contested_at(coord) {
+                continue;
+            }
+
+            let contender_count = child_territory
+                .competitive_contender_count_at(coord)
+                .max(1);
+            let split_denial = denial_value
+                .saturating_div(i64::try_from(contender_count).unwrap_or(i64::MAX))
+                .max(1);
+
+            for actor in child.state.snakes.iter().filter(|snake| snake.alive) {
+                if actor.id == previous_owner {
+                    continue;
+                }
+                if child_territory.competitive_contested_by(coord, &actor.id) {
+                    benefits.add(&actor.id, split_denial);
+                }
+            }
         }
     }
 
@@ -479,17 +504,50 @@ mod tests {
     }
 
     #[test]
-    fn hunting_credits_only_actor_receiving_enemy_owned_cells() {
+    fn hunting_credits_actor_capturing_enemy_owned_cells() {
         let parent_graph =
             FutureGraph::new(territory_state(Coord { x: 1, y: 3 }, Coord { x: 5, y: 3 }));
         let child_graph =
             FutureGraph::new(territory_state(Coord { x: 2, y: 3 }, Coord { x: 5, y: 5 }));
 
-        let benefits = territory_transfer_benefits(
+        let benefits = hunting_territory_benefits(
             parent_graph.node(parent_graph.root()),
             child_graph.node(child_graph.root()),
         );
 
+        assert!(benefits.get("ours").copied().unwrap_or(0) > 0);
+    }
+
+    #[test]
+    fn contested_denial_only_credits_actual_contender() {
+        let parent_graph =
+            FutureGraph::new(territory_state(Coord { x: 0, y: 3 }, Coord { x: 6, y: 3 }));
+        let child_graph =
+            FutureGraph::new(territory_state(Coord { x: 1, y: 3 }, Coord { x: 6, y: 3 }));
+
+        let parent = parent_graph.node(parent_graph.root());
+        let child = child_graph.node(child_graph.root());
+        let parent_territory = &parent.active_analysis().unwrap().territory;
+        let child_territory = &child.active_analysis().unwrap().territory;
+
+        let mut found_denial = false;
+        for y in 0..parent.state.height {
+            for x in 0..parent.state.width {
+                let coord = Coord {
+                    x: i32::try_from(x).unwrap(),
+                    y: i32::try_from(y).unwrap(),
+                };
+                if parent_territory.competitive_owner_at(coord) == Some("enemy")
+                    && child_territory.competitive_is_contested_at(coord)
+                    && child_territory.competitive_contested_by(coord, "ours")
+                {
+                    found_denial = true;
+                }
+            }
+        }
+
+        assert!(found_denial, "fixture must create causal contested denial");
+        let benefits = hunting_territory_benefits(parent, child);
         assert!(benefits.get("ours").copied().unwrap_or(0) > 0);
     }
 
