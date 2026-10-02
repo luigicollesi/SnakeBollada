@@ -452,8 +452,7 @@ impl TerritoryAnalysis {
         let Some(index) = index_of(self.width, self.height, coord) else {
             return false;
         };
-        let Some(CompetitiveClaim::Contested(contenders)) =
-            self.competitive_claims.get(index)
+        let Some(CompetitiveClaim::Contested(contenders)) = self.competitive_claims.get(index)
         else {
             return false;
         };
