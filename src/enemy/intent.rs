@@ -12,6 +12,32 @@ pub(crate) struct IntentContrast {
     pub(crate) information_milli: u16,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum IntentSkipReason {
+    IncompleteRoot,
+    ForcedMove,
+    LowContrast,
+    InsufficientData,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum IntentInference {
+    Learned {
+        contrast: IntentContrast,
+        survival_emergency: bool,
+    },
+    Skipped(IntentSkipReason),
+}
+
+impl IntentInference {
+    pub(crate) fn contrast(self) -> Option<IntentContrast> {
+        match self {
+            Self::Learned { contrast, .. } => Some(contrast),
+            Self::Skipped(_) => None,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 struct IntentEvidence {
     food_milli: u16,
@@ -28,6 +54,7 @@ struct EdgeEvidenceContext<'a> {
     our_actor: ActorIndex,
     enemy_food_before: u16,
     our_before: &'a crate::evaluation::ActorSnapshot,
+    our_death_attributed_to_enemy: bool,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -85,13 +112,26 @@ pub(crate) fn infer_observed_intent(
     graph: &FutureGraph,
     enemy_actor: ActorIndex,
     observed: Direction,
-) -> Option<IntentContrast> {
+) -> IntentInference {
     let root = graph.node(graph.root());
-    let analysis = root.active_analysis()?;
-    let enemy_snapshot = analysis.actor_snapshot(enemy_actor)?;
-    let our_actor = root.state.actor_index(&root.state.our_snake_id)?;
-    let our_snapshot = analysis.actor_snapshot(our_actor)?;
-    let move_set = analysis.tracing.for_actor(enemy_actor)?;
+    if !root.expansion_complete() {
+        return IntentInference::Skipped(IntentSkipReason::IncompleteRoot);
+    }
+    let Some(analysis) = root.active_analysis() else {
+        return IntentInference::Skipped(IntentSkipReason::InsufficientData);
+    };
+    let Some(enemy_snapshot) = analysis.actor_snapshot(enemy_actor) else {
+        return IntentInference::Skipped(IntentSkipReason::InsufficientData);
+    };
+    let Some(our_actor) = root.state.actor_index(&root.state.our_snake_id) else {
+        return IntentInference::Skipped(IntentSkipReason::InsufficientData);
+    };
+    let Some(our_snapshot) = analysis.actor_snapshot(our_actor) else {
+        return IntentInference::Skipped(IntentSkipReason::InsufficientData);
+    };
+    let Some(move_set) = analysis.tracing.for_actor(enemy_actor) else {
+        return IntentInference::Skipped(IntentSkipReason::InsufficientData);
+    };
 
     let mut by_direction = [IntentAccumulator::default(); 4];
     for edge in &root.children {
@@ -99,6 +139,11 @@ pub(crate) fn infer_observed_intent(
             continue;
         };
         let child = graph.node(edge.child);
+        let our_death_attributed_to_enemy = matches!(
+            edge.transition.our_elimination_attribution,
+            Some(crate::simulation::resolver::EliminationAttribution::Actor(killer))
+                if killer == enemy_actor
+        );
         let evidence = edge_evidence(EdgeEvidenceContext {
             parent: root,
             child,
@@ -108,11 +153,18 @@ pub(crate) fn infer_observed_intent(
             our_actor,
             enemy_food_before: enemy_snapshot.metrics.food_potential_milli,
             our_before: our_snapshot,
+            our_death_attributed_to_enemy,
         });
         by_direction[usize::from(direction.rank())].add(evidence);
     }
 
-    contrast_from_accumulators(by_direction, observed, enemy_snapshot.weights.survival)
+    match contrast_from_accumulators(by_direction, observed, enemy_snapshot.weights.survival) {
+        Ok(contrast) => IntentInference::Learned {
+            contrast,
+            survival_emergency: enemy_snapshot.weights.survival >= 800,
+        },
+        Err(reason) => IntentInference::Skipped(reason),
+    }
 }
 
 fn edge_evidence(context: EdgeEvidenceContext<'_>) -> IntentEvidence {
@@ -149,16 +201,7 @@ fn edge_evidence(context: EdgeEvidenceContext<'_>) -> IntentEvidence {
 
     let direct_hunting = context
         .actor_score
-        .map(|score| {
-            score
-                .hunting_benefit
-                .saturating_sub(score.hunting_harm)
-                .max(0)
-        })
-        .unwrap_or(0)
-        .min(700)
-        .try_into()
-        .unwrap_or(700_u16);
+        .map_or(0, |score| score.raw_hunting_milli);
     let head_threat = context
         .hypothesis
         .is_some_and(|candidate| candidate.support.head_threat);
@@ -168,7 +211,11 @@ fn edge_evidence(context: EdgeEvidenceContext<'_>) -> IntentEvidence {
         .try_into()
         .unwrap_or(1000);
 
-    let trapping_milli = trapping_effect_milli(context.our_before, our_after);
+    let trapping_milli = trapping_effect_milli(
+        context.our_before,
+        our_after,
+        context.our_death_attributed_to_enemy,
+    );
 
     IntentEvidence {
         food_milli,
@@ -180,9 +227,32 @@ fn edge_evidence(context: EdgeEvidenceContext<'_>) -> IntentEvidence {
 fn trapping_effect_milli(
     before: &crate::evaluation::ActorSnapshot,
     after: Option<&crate::evaluation::ActorSnapshot>,
+    our_death_attributed_to_enemy: bool,
 ) -> u16 {
     let Some(after) = after else {
-        return 1000;
+        if !our_death_attributed_to_enemy {
+            return 0;
+        }
+
+        let safe_move_pressure = match before.metrics.safe_non_reverse_moves {
+            0 => 500_u32,
+            1 => 380,
+            2 => 180,
+            _ => 0,
+        };
+        return safe_move_pressure
+            .saturating_add(u32::from(before.metrics.enclosure_risk).saturating_mul(180))
+            .saturating_add(
+                u32::from(1000_u16.saturating_sub(before.metrics.space_capacity_milli))
+                    .saturating_div(4),
+            )
+            .saturating_add(u32::from(before.metrics.border_pin_risk_milli).saturating_div(2))
+            .saturating_add(
+                u32::from(before.metrics.border_escape_pressure_milli).saturating_div(2),
+            )
+            .min(1000)
+            .try_into()
+            .unwrap_or(1000);
     };
 
     let move_loss = before
@@ -226,9 +296,11 @@ fn contrast_from_accumulators(
     by_direction: [IntentAccumulator; 4],
     observed: Direction,
     enemy_survival_weight: u16,
-) -> Option<IntentContrast> {
+) -> Result<IntentContrast, IntentSkipReason> {
     let observed_index = usize::from(observed.rank());
-    let observed = by_direction[observed_index].mean()?;
+    let Some(observed) = by_direction[observed_index].mean() else {
+        return Err(IntentSkipReason::InsufficientData);
+    };
 
     let alternatives = by_direction
         .iter()
@@ -237,7 +309,7 @@ fn contrast_from_accumulators(
         .filter_map(|(_, accumulator)| accumulator.mean())
         .collect::<Vec<_>>();
     if alternatives.is_empty() {
-        return None;
+        return Err(IntentSkipReason::ForcedMove);
     }
 
     let alternative_count = u32::try_from(alternatives.len()).unwrap_or(u32::MAX).max(1);
@@ -277,7 +349,7 @@ fn contrast_from_accumulators(
         .max()
         .unwrap_or(0);
     if strongest < MIN_MEANINGFUL_CONTRAST {
-        return None;
+        return Err(IntentSkipReason::LowContrast);
     }
 
     let survival_information_factor = match enemy_survival_weight {
@@ -293,7 +365,7 @@ fn contrast_from_accumulators(
         .try_into()
         .unwrap_or(1000);
 
-    Some(IntentContrast {
+    Ok(IntentContrast {
         food_milli: signed_i16(food),
         hunting_milli: signed_i16(hunting),
         trapping_milli: signed_i16(trapping),
@@ -346,7 +418,10 @@ mod tests {
         let mut directions = [IntentAccumulator::default(); 4];
         directions[usize::from(Direction::Down.rank())] = accumulator(100, 100, 900);
 
-        assert!(contrast_from_accumulators(directions, Direction::Down, 200).is_none());
+        assert_eq!(
+            contrast_from_accumulators(directions, Direction::Down, 200),
+            Err(IntentSkipReason::ForcedMove)
+        );
     }
 
     #[test]
@@ -359,5 +434,125 @@ mod tests {
         let emergency = contrast_from_accumulators(directions, Direction::Down, 850).unwrap();
 
         assert!(emergency.information_milli < normal.information_milli);
+    }
+
+    #[test]
+    fn unattributed_death_does_not_create_trapping_evidence() {
+        use crate::simulation::state::{RulesContext, SimulatedGameState, SimulatedSnake};
+        use crate::Coord;
+
+        let snake = |id: &str, body: &[(i32, i32)]| SimulatedSnake {
+            id: id.to_string(),
+            health: 100,
+            body: body.iter().map(|(x, y)| Coord { x: *x, y: *y }).collect(),
+            alive: true,
+        };
+        let state = SimulatedGameState {
+            turn: 1,
+            width: 7,
+            height: 7,
+            food: vec![],
+            hazards: vec![],
+            snakes: vec![
+                snake("ours", &[(2, 2), (2, 1)]),
+                snake("enemy", &[(5, 5), (5, 4)]),
+            ],
+            our_snake_id: "ours".to_string(),
+            rules: RulesContext {
+                name: "standard".to_string(),
+                max_health: 100,
+                hazard_damage_per_turn: 0,
+            },
+        };
+        let graph = FutureGraph::new(state);
+        let root = graph.node(graph.root());
+        let analysis = root.active_analysis().unwrap();
+        let ours = root.state.actor_index("ours").unwrap();
+        let before = analysis.actor_snapshot(ours).unwrap();
+
+        assert_eq!(trapping_effect_milli(before, None, false), 0);
+    }
+
+    #[test]
+    fn incomplete_root_skips_learning_without_expanding_graph() {
+        use crate::simulation::state::{RulesContext, SimulatedGameState, SimulatedSnake};
+        use crate::Coord;
+
+        let snake = |id: &str, body: &[(i32, i32)]| SimulatedSnake {
+            id: id.to_string(),
+            health: 100,
+            body: body.iter().map(|(x, y)| Coord { x: *x, y: *y }).collect(),
+            alive: true,
+        };
+        let state = SimulatedGameState {
+            turn: 1,
+            width: 7,
+            height: 7,
+            food: vec![Coord { x: 3, y: 3 }],
+            hazards: vec![],
+            snakes: vec![
+                snake("ours", &[(1, 1), (1, 0)]),
+                snake("enemy", &[(5, 5), (5, 4)]),
+            ],
+            our_snake_id: "ours".to_string(),
+            rules: RulesContext {
+                name: "standard".to_string(),
+                max_health: 100,
+                hazard_damage_per_turn: 0,
+            },
+        };
+        let graph = FutureGraph::new(state);
+        let enemy = graph.node(graph.root()).state.actor_index("enemy").unwrap();
+        let before = (graph.node_count(), graph.edge_count(), graph.performance());
+
+        assert_eq!(
+            infer_observed_intent(&graph, enemy, Direction::Left),
+            IntentInference::Skipped(IntentSkipReason::IncompleteRoot)
+        );
+        assert_eq!(
+            (graph.node_count(), graph.edge_count(), graph.performance()),
+            before
+        );
+    }
+
+    #[test]
+    fn inference_reads_expanded_graph_without_creating_work() {
+        use crate::simulation::state::{RulesContext, SimulatedGameState, SimulatedSnake};
+        use crate::Coord;
+
+        let snake = |id: &str, body: &[(i32, i32)]| SimulatedSnake {
+            id: id.to_string(),
+            health: 100,
+            body: body.iter().map(|(x, y)| Coord { x: *x, y: *y }).collect(),
+            alive: true,
+        };
+        let state = SimulatedGameState {
+            turn: 1,
+            width: 7,
+            height: 7,
+            food: vec![Coord { x: 3, y: 3 }],
+            hazards: vec![],
+            snakes: vec![
+                snake("ours", &[(1, 1), (1, 0)]),
+                snake("enemy", &[(5, 5), (5, 4)]),
+            ],
+            our_snake_id: "ours".to_string(),
+            rules: RulesContext {
+                name: "standard".to_string(),
+                max_health: 100,
+                hazard_damage_per_turn: 0,
+            },
+        };
+        let mut graph = FutureGraph::new(state);
+        graph.expand_to_depth(1).unwrap();
+        let enemy = graph.node(graph.root()).state.actor_index("enemy").unwrap();
+        let before = (graph.node_count(), graph.edge_count(), graph.performance());
+
+        let _ = infer_observed_intent(&graph, enemy, Direction::Left);
+
+        assert_eq!(
+            (graph.node_count(), graph.edge_count(), graph.performance()),
+            before
+        );
     }
 }
