@@ -8,6 +8,7 @@ pub(crate) struct ActorUtilityMetrics {
     pub(crate) enclosure_risk: u8,
     pub(crate) border_structural_risk_milli: u16,
     pub(crate) border_exposure_milli: u16,
+    pub(crate) border_pin_risk_milli: u16,
     pub(crate) territory_share_milli: u16,
     pub(crate) food_potential_milli: u16,
 }
@@ -40,6 +41,8 @@ impl ActorUtilityMetrics {
                     0
                 }
             }),
+            border_pin_risk_milli: border_snapshot
+                .map_or(0, |snapshot| snapshot.enemy_pin_risk_milli),
             territory_share_milli: territory_share_milli(
                 state,
                 territory_snapshot.exclusive_space,

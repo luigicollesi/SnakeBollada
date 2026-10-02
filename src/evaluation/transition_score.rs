@@ -14,6 +14,7 @@ const HUNTING_DENIAL_DENOMINATOR: i64 = 2;
 const MOBILITY_STEP: i64 = 320;
 const ENCLOSURE_STEP: i64 = 220;
 const BORDER_EXPOSURE_STEP: i64 = 1;
+const BORDER_PIN_RISK_STEP: i64 = 1;
 const HEALTH_PRESSURE_STEP: i64 = 1;
 const HAZARD_DAMAGE_STEP: i64 = 35;
 const KILL_BENEFIT: i64 = 1400;
@@ -29,6 +30,7 @@ struct ActorTransitionFacts {
     mobility_delta: i8,
     border_risk_improvement_milli: i16,
     border_exposure_milli: u16,
+    border_pin_risk_milli: u16,
     health_pressure_milli: u16,
     hazard_damage: u16,
     enclosure_improvement: i8,
@@ -217,6 +219,9 @@ impl TransitionFacts {
                 border_exposure_milli: after
                     .map(|snapshot| snapshot.metrics.border_exposure_milli)
                     .unwrap_or(0),
+                border_pin_risk_milli: after
+                    .map(|snapshot| snapshot.metrics.border_pin_risk_milli)
+                    .unwrap_or(0),
                 health_pressure_milli,
                 hazard_damage,
                 enclosure_improvement: after.map_or(0, |snapshot| {
@@ -281,6 +286,9 @@ fn score_actor_transition(
     );
     survival_harm = survival_harm.saturating_add(
         i64::from(facts.border_exposure_milli).saturating_mul(BORDER_EXPOSURE_STEP),
+    );
+    survival_harm = survival_harm.saturating_add(
+        i64::from(facts.border_pin_risk_milli).saturating_mul(BORDER_PIN_RISK_STEP),
     );
     survival_harm = survival_harm.saturating_add(
         i64::from(facts.health_pressure_milli).saturating_mul(HEALTH_PRESSURE_STEP),
@@ -829,6 +837,27 @@ mod tests {
         assert_eq!(second.survival_harm, 700);
         assert_eq!(first.net, -700);
         assert_eq!(second.net, -700);
+    }
+
+    #[test]
+    fn border_pin_risk_is_a_repeated_survival_harm() {
+        let weights = StrategicWeights {
+            food: 0,
+            hunting: 0,
+            survival: 1000,
+        };
+        let facts = ActorTransitionFacts {
+            border_pin_risk_milli: 650,
+            ..ActorTransitionFacts::default()
+        };
+
+        let first = score_actor_transition(facts, weights);
+        let second = score_actor_transition(facts, weights);
+
+        assert_eq!(first.survival_harm, 650);
+        assert_eq!(second.survival_harm, 650);
+        assert_eq!(first.net, -650);
+        assert_eq!(second.net, -650);
     }
 
     #[test]
