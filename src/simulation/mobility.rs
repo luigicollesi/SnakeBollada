@@ -140,7 +140,7 @@ impl MobilityAnalysis {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::simulation::state::{RulesContext};
+    use crate::simulation::state::RulesContext;
 
     fn snake(id: &str, health: i32, body: &[(i32, i32)]) -> SimulatedSnake {
         SimulatedSnake {
