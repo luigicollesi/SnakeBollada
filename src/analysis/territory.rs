@@ -995,10 +995,7 @@ mod tests {
             open: vec![false, true],
             distances: ActorVec::new(),
             snakes: ActorVec::new(),
-            competitive_claims: vec![
-                CompetitiveClaim::Owned(ours),
-                CompetitiveClaim::Owned(ours),
-            ],
+            competitive_claims: vec![CompetitiveClaim::Owned(ours), CompetitiveClaim::Owned(ours)],
         };
 
         let delta = parent.competitive_transition_to(&child);

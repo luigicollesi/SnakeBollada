@@ -147,8 +147,7 @@ impl TransitionScore {
     }
 
     pub(crate) fn route_delta(&self) -> i64 {
-        self.effective_benefit
-            .saturating_sub(self.effective_harm)
+        self.effective_benefit.saturating_sub(self.effective_harm)
     }
 }
 
@@ -434,16 +433,10 @@ fn hunting_territory_benefits(parent: &SearchNode, child: &SearchNode) -> ActorV
     let mut benefits = ActorVec::<i64>::with_capacity(parent.state.snakes.len());
 
     for (actor, captures) in transition.captures.iter() {
-        benefits.add(
-            actor,
-            i64::from(*captures).saturating_mul(cell_value),
-        );
+        benefits.add(actor, i64::from(*captures).saturating_mul(cell_value));
     }
     for (actor, denials) in transition.denials.iter() {
-        benefits.add(
-            actor,
-            i64::from(*denials).saturating_mul(denial_value),
-        );
+        benefits.add(actor, i64::from(*denials).saturating_mul(denial_value));
     }
 
     benefits
@@ -703,7 +696,11 @@ mod tests {
         let ours = actor_index(&parent.state, "ours");
 
         assert_eq!(
-            hunting_territory_benefits(parent, child).get(ours).copied().unwrap_or(0) > 0,
+            hunting_territory_benefits(parent, child)
+                .get(ours)
+                .copied()
+                .unwrap_or(0)
+                > 0,
             delta.captures.get(ours).copied().unwrap_or(0) > 0
                 || delta.denials.get(ours).copied().unwrap_or(0) > 0
         );
