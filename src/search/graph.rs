@@ -1259,10 +1259,7 @@ mod tests {
             .actor_snapshot(actor(&root.state, "ours"))
             .expect("our actor snapshot must exist");
 
-        assert!(analysis
-            .state
-            .route_for("ours", Coord { x: 3, y: 1 })
-            .is_none());
+        assert!(analysis.legacy().is_none());
         assert!(ours.metrics.food_potential_milli > 0);
         assert_eq!(
             analysis
