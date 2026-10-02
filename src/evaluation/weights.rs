@@ -7,6 +7,7 @@ const MAX_CATEGORY_WEIGHT: u16 = 900;
 const MIN_SURVIVAL_WEIGHT: u16 = 150;
 const MAX_SURVIVAL_WEIGHT: u16 = 900;
 const MAX_TERRITORY_ONLY_SURVIVAL_WEIGHT: u16 = 650;
+const SIZE_NEUTRAL_BAND_MILLI: u16 = 120;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct StrategicWeights {
@@ -195,11 +196,31 @@ fn relative_size_pressure(actor_length: u32, reference_enemy: u32) -> (u16, u16)
 
     if actor_length >= reference_enemy {
         let lead = actor_length.saturating_sub(reference_enemy);
-        (ratio_milli(lead, reference_enemy.max(1)), 0)
+        (
+            pressure_above_neutral_band(ratio_milli(lead, reference_enemy.max(1))),
+            0,
+        )
     } else {
         let deficit = reference_enemy.saturating_sub(actor_length);
-        (0, ratio_milli(deficit, actor_length.max(1)))
+        (
+            0,
+            pressure_above_neutral_band(ratio_milli(deficit, actor_length.max(1))),
+        )
     }
+}
+
+fn pressure_above_neutral_band(raw_milli: u16) -> u16 {
+    if raw_milli <= SIZE_NEUTRAL_BAND_MILLI {
+        return 0;
+    }
+
+    let remaining = 1000_u32.saturating_sub(u32::from(SIZE_NEUTRAL_BAND_MILLI));
+    u32::from(raw_milli.saturating_sub(SIZE_NEUTRAL_BAND_MILLI))
+        .saturating_mul(1000)
+        .saturating_div(remaining.max(1))
+        .min(1000)
+        .try_into()
+        .unwrap_or(1000)
 }
 
 fn ratio_milli(numerator: u32, denominator: u32) -> u16 {
@@ -370,6 +391,21 @@ mod tests {
         let weights = StrategicWeights::for_actor_metrics(&state, "ours", &current).unwrap();
 
         assert!(weights.survival <= 250);
+    }
+
+    #[test]
+    fn near_equal_sizes_stay_inside_neutral_offensive_band() {
+        assert_eq!(relative_size_pressure(10, 11), (0, 0));
+        assert_eq!(relative_size_pressure(11, 10), (0, 0));
+    }
+
+    #[test]
+    fn size_pressure_grows_smoothly_after_neutral_band() {
+        let (_, small_deficit) = relative_size_pressure(8, 9);
+        let (_, large_deficit) = relative_size_pressure(5, 10);
+
+        assert!(small_deficit < large_deficit);
+        assert!(large_deficit > 0);
     }
 
     #[test]
