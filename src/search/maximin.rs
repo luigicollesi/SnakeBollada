@@ -63,7 +63,7 @@ impl EvaluatedLine {
         transition: &TransitionScore,
     ) -> Self {
         for (actor, score) in transition.actors.iter() {
-            self.actor_utility_totals.add(actor, score.net);
+            self.actor_utility_totals.add(actor, score.actor_choice_net);
         }
 
         if self.terminal == LineTerminal::Running {

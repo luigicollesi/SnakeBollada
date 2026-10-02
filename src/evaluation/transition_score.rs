@@ -62,6 +62,8 @@ pub(crate) struct ActorTransitionScore {
     pub(crate) benefit_total: i64,
     pub(crate) harm_total: i64,
     pub(crate) net: i64,
+    pub(crate) actor_terminal: i64,
+    pub(crate) actor_choice_net: i64,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -334,12 +336,13 @@ fn score_actor_transition(
 
     let benefit_total = food_benefit
         .saturating_add(hunting_benefit)
-        .saturating_add(survival_benefit)
-        .saturating_add(terminal_benefit);
+        .saturating_add(survival_benefit);
     let harm_total = food_harm
         .saturating_add(hunting_harm)
-        .saturating_add(survival_harm)
-        .saturating_add(terminal_harm);
+        .saturating_add(survival_harm);
+    let net = benefit_total.saturating_sub(harm_total);
+    let actor_terminal = terminal_benefit.saturating_sub(terminal_harm);
+    let actor_choice_net = net.saturating_add(actor_terminal);
 
     ActorTransitionScore {
         food_benefit,
@@ -352,7 +355,9 @@ fn score_actor_transition(
         terminal_harm,
         benefit_total,
         harm_total,
-        net: benefit_total.saturating_sub(harm_total),
+        net,
+        actor_terminal,
+        actor_choice_net,
     }
 }
 
@@ -857,11 +862,56 @@ mod tests {
 
         assert_eq!(ours.terminal_benefit, TERMINAL_UTILITY);
         assert_eq!(ours.terminal_harm, 0);
-        assert!(ours.net >= TERMINAL_UTILITY);
+        assert!(ours.actor_choice_net >= TERMINAL_UTILITY);
+        assert!(ours.net < TERMINAL_UTILITY);
 
         assert_eq!(enemy.terminal_harm, TERMINAL_UTILITY);
         assert_eq!(enemy.terminal_benefit, 0);
-        assert!(enemy.net <= -TERMINAL_UTILITY);
+        assert!(enemy.actor_choice_net <= -TERMINAL_UTILITY);
+        assert!(enemy.net > -TERMINAL_UTILITY);
+        assert!(score.opponent_net_total > -TERMINAL_UTILITY);
+    }
+
+    #[test]
+    fn intermediate_enemy_death_is_not_a_global_billion_point_reward() {
+        let parent_state = SimulatedGameState {
+            turn: 1,
+            width: 7,
+            height: 7,
+            food: vec![],
+            hazards: vec![],
+            snakes: vec![
+                snake("ours", 100, &[(1, 1), (1, 0)]),
+                snake("enemy-a", 100, &[(3, 1), (3, 0)]),
+                snake("enemy-b", 100, &[(5, 5), (5, 4)]),
+            ],
+            our_snake_id: "ours".to_string(),
+            rules: RulesContext {
+                name: "standard".to_string(),
+                max_health: 100,
+                hazard_damage_per_turn: 0,
+            },
+        };
+        let mut child_state = parent_state.clone();
+        child_state.turn = 2;
+        child_state.snake_mut("enemy-a").unwrap().alive = false;
+
+        let parent_graph = FutureGraph::new(parent_state);
+        let child_graph = FutureGraph::new(child_state);
+        let score = TransitionScore::from_parts(
+            parent_graph.node(parent_graph.root()),
+            &[],
+            child_graph.node(child_graph.root()),
+        );
+
+        let parent = parent_graph.node(parent_graph.root());
+        let enemy_a = score
+            .for_actor(actor_index(&parent.state, "enemy-a"))
+            .unwrap();
+
+        assert!(enemy_a.actor_choice_net <= -TERMINAL_UTILITY);
+        assert!(enemy_a.net > -TERMINAL_UTILITY);
+        assert!(score.route_delta().abs() < TERMINAL_UTILITY);
     }
 
     #[test]
