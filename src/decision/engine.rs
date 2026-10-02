@@ -1,39 +1,13 @@
-use std::cmp::Ordering;
-use std::env;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
-use crate::analysis::StrategicPosture;
-
-use crate::decision::escape::{
-    choose_escape_direction, root_escape_pressure_milli, ESCAPE_ACTIVATION_THRESHOLD_MILLI,
-    ESCAPE_CONTINUE_THRESHOLD_MILLI,
-};
-use crate::decision::evaluation::{
-    choose_best_direction, evaluate_graph_budgeted, DagEvaluationStats, DirectionEvaluation,
-    TerminalAssessment,
-};
-use crate::decision::intent::{committable_hunt_plan, DecisionIntent, EscapeIntent, HuntIntent};
-use crate::decision::policy::ReservedCellPolicy;
-use crate::forecast::ForecastCertainty;
-use crate::modes::{food, hunting::HuntingPlanKind};
 use crate::search::beam_search::{search_beam, BeamSearchResult};
 use crate::search::budget::SearchBudget;
 use crate::search::graph::FutureGraph;
-use crate::search::scheduler::SelectiveSearchScheduler;
-use crate::simulation::state::{SimulatedGameState, SimulationSupport, OPENING_FOOD_TARGET_FRUITS};
+use crate::simulation::state::{SimulatedGameState, SimulationSupport};
 use crate::strategy::{
-    choose_move_baseline, BeamShadowMetadata, CacheInvalidationReason, Decision, DecisionReason,
-    DepthSearchStats, DirectionOutcomeSummary, SearchMetadata,
+    choose_move_baseline, BeamShadowMetadata, Decision, DecisionReason, SearchMetadata,
 };
 use crate::GameState;
-
-const TARGET_DEPTH: u8 = 3;
-const MIN_SELECTIVE_REEVALUATION_RESERVE_US: u64 = 5_000;
-const MAX_SELECTIVE_REEVALUATION_RESERVE_US: u64 = 60_000;
-const SELECTIVE_REEVALUATION_MULTIPLIER: u64 = 2;
-const MAX_BEAM_SHADOW_MS: u64 = 50;
-const MIN_BEAM_SHADOW_MS: u64 = 5;
-const BEAM_SHADOW_RESPONSE_RESERVE_MS: u64 = 5;
 
 #[derive(Debug, Default, Clone, Copy)]
 pub(crate) struct DecisionEngine;
@@ -58,7 +32,7 @@ impl DecisionEngine {
             return choose_move_baseline(state);
         }
 
-        let mut beam_graph = FutureGraph::new_beam(normalized.clone());
+        let mut beam_graph = FutureGraph::new_beam(normalized);
         if let Some(decision) = self.try_decide_beam_with_graph(state, &mut beam_graph, 0) {
             return decision;
         }
@@ -84,7 +58,7 @@ impl DecisionEngine {
                 .mobility
                 .reachable_space(&root.state, &root.state.our_snake_id, direction)
         });
-        let beam_metadata = beam_metadata(graph, &result, budget.elapsed(), None);
+        let beam_metadata = beam_metadata(graph, &result, budget.elapsed());
 
         let mut search = SearchMetadata::default();
         search.completed_depth = result.completed_depth();
@@ -112,15 +86,12 @@ impl DecisionEngine {
             search,
         })
     }
-
-
 }
 
 fn beam_metadata(
     graph: &FutureGraph,
     result: &BeamSearchResult,
     elapsed: Duration,
-    legacy_direction: Option<crate::direction::Direction>,
 ) -> BeamShadowMetadata {
     let perf = graph.performance();
     let mut metadata = BeamShadowMetadata {
@@ -146,8 +117,6 @@ fn beam_metadata(
     };
 
     metadata.direction = Some(best.root_direction);
-    metadata.agreed_with_legacy =
-        legacy_direction.is_some_and(|direction| direction == best.root_direction);
     metadata.best_value = best.value;
 
     let root_state = &graph.node(graph.root()).state;
