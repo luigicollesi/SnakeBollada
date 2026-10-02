@@ -27,6 +27,7 @@ pub(crate) struct SnakeTerritorySnapshot {
     pub(crate) reachable_space: u32,
     pub(crate) exclusive_space: u32,
     pub(crate) contested_space: u32,
+    pub(crate) competitive_control_milli: u16,
     pub(crate) escape_frontier: u8,
     pub(crate) edge_distance: u16,
     pub(crate) useful_choke_count: u8,
@@ -49,6 +50,7 @@ struct CoreSnakeTerritorySnapshot {
     reachable_space: u32,
     exclusive_space: u32,
     contested_space: u32,
+    competitive_control_milli: u16,
     escape_frontier: u8,
     edge_distance: u16,
 }
@@ -152,6 +154,11 @@ impl TerritoryCore {
 
         let competitive_claims =
             competitive_claims(state, width, height, &open, &living, &distances);
+        let competitive_controls = competitive_control_by_actor(
+            state.snakes.len(),
+            &open,
+            &competitive_claims,
+        );
 
         let mut snakes = ActorVec::with_capacity(state.snakes.len());
         for (actor, snake, head) in living {
@@ -165,6 +172,10 @@ impl TerritoryCore {
                     reachable_space,
                     exclusive_space,
                     contested_space,
+                    competitive_control_milli: competitive_controls
+                        .get(actor)
+                        .copied()
+                        .unwrap_or(0),
                     escape_frontier: escape_frontier(width, height, &open, head, snake.length()),
                     edge_distance: edge_distance(width, height, head),
                 },
@@ -383,6 +394,7 @@ impl TerritoryAnalysis {
                     reachable_space: snapshot.reachable_space,
                     exclusive_space: snapshot.exclusive_space,
                     contested_space: snapshot.contested_space,
+                    competitive_control_milli: snapshot.competitive_control_milli,
                     escape_frontier: snapshot.escape_frontier,
                     edge_distance: snapshot.edge_distance,
                     useful_choke_count,
@@ -426,38 +438,8 @@ impl TerritoryAnalysis {
     }
 
     pub(crate) fn competitive_control_milli(&self, actor: ActorIndex) -> u16 {
-        let mut actor_units = 0_u32;
-        let mut relevant_units = 0_u32;
-
-        for claim in &self.competitive_claims {
-            match claim {
-                CompetitiveClaim::Unclaimed => {}
-                CompetitiveClaim::Owned(owner) => {
-                    relevant_units = relevant_units.saturating_add(1000);
-                    if *owner == actor {
-                        actor_units = actor_units.saturating_add(1000);
-                    }
-                }
-                CompetitiveClaim::Contested(contenders) => {
-                    relevant_units = relevant_units.saturating_add(1000);
-                    if contenders.contains(actor) {
-                        let count = u32::try_from(contenders.len()).unwrap_or(u32::MAX).max(1);
-                        actor_units = actor_units.saturating_add(1000_u32.saturating_div(count));
-                    }
-                }
-            }
-        }
-
-        if relevant_units == 0 {
-            return 0;
-        }
-
-        actor_units
-            .saturating_mul(1000)
-            .saturating_div(relevant_units)
-            .min(1000)
-            .try_into()
-            .unwrap_or(1000)
+        self.for_actor(actor)
+            .map_or(0, |snapshot| snapshot.competitive_control_milli)
     }
 
     pub(crate) fn competitive_owner_actor_at(&self, coord: Coord) -> Option<ActorIndex> {
@@ -531,6 +513,14 @@ impl ActorMask {
 
     fn len(self) -> usize {
         self.0.count_ones() as usize
+    }
+
+    fn iter(self) -> impl Iterator<Item = ActorIndex> {
+        (0..u16::BITS).filter_map(move |bit| {
+            ((self.0 & (1_u16 << bit)) != 0)
+                .then(|| ActorIndex::new(bit as usize))
+                .flatten()
+        })
     }
 }
 
@@ -615,6 +605,60 @@ fn competitive_claims(
     }
 
     claims
+}
+
+fn competitive_control_by_actor(
+    actor_capacity: usize,
+    open: &[bool],
+    claims: &[CompetitiveClaim],
+) -> ActorVec<u16> {
+    let mut units = vec![0_u32; actor_capacity];
+    let mut relevant_units = 0_u32;
+
+    for (index, claim) in claims.iter().enumerate() {
+        if !open.get(index).copied().unwrap_or(false) {
+            continue;
+        }
+
+        match claim {
+            CompetitiveClaim::Unclaimed => {}
+            CompetitiveClaim::Owned(owner) => {
+                relevant_units = relevant_units.saturating_add(1000);
+                if let Some(actor_units) = units.get_mut(owner.as_usize()) {
+                    *actor_units = actor_units.saturating_add(1000);
+                }
+            }
+            CompetitiveClaim::Contested(contenders) => {
+                relevant_units = relevant_units.saturating_add(1000);
+                let count = u32::try_from(contenders.len()).unwrap_or(u32::MAX).max(1);
+                let split = 1000_u32.saturating_div(count);
+                for actor in contenders.iter() {
+                    if let Some(actor_units) = units.get_mut(actor.as_usize()) {
+                        *actor_units = actor_units.saturating_add(split);
+                    }
+                }
+            }
+        }
+    }
+
+    if relevant_units == 0 {
+        return ActorVec::new();
+    }
+
+    units
+        .into_iter()
+        .enumerate()
+        .filter_map(|(index, actor_units)| {
+            let actor = ActorIndex::new(index)?;
+            let control = actor_units
+                .saturating_mul(1000)
+                .saturating_div(relevant_units)
+                .min(1000)
+                .try_into()
+                .unwrap_or(1000);
+            Some((actor, control))
+        })
+        .collect()
 }
 
 fn bfs_distances(
@@ -866,6 +910,24 @@ mod tests {
         assert!(ours_control <= 1000);
         assert!(enemy_control <= 1000);
         assert!(ours_control.saturating_add(enemy_control) >= 990);
+    }
+
+    #[test]
+    fn competitive_control_excludes_occupied_body_cells() {
+        let open = vec![false, false, true, true];
+        let ours = ActorIndex::new(0).unwrap();
+        let enemy = ActorIndex::new(1).unwrap();
+        let claims = vec![
+            CompetitiveClaim::Owned(ours),
+            CompetitiveClaim::Owned(ours),
+            CompetitiveClaim::Owned(ours),
+            CompetitiveClaim::Owned(enemy),
+        ];
+
+        let control = competitive_control_by_actor(2, &open, &claims);
+
+        assert_eq!(control.get(ours).copied(), Some(500));
+        assert_eq!(control.get(enemy).copied(), Some(500));
     }
 
     #[test]
