@@ -135,7 +135,7 @@ pub(crate) fn ordered_child_ids_for_search(graph: &FutureGraph, node_id: NodeId)
 }
 
 fn forcing_score(parent: &SearchNode, edge: &SearchEdge) -> i64 {
-    let _ = parent;
+    let our_actor = parent.state.actor_index(&parent.state.our_snake_id);
     let mut forcing = 0_i64;
 
     for event in &edge.events {
@@ -149,10 +149,10 @@ fn forcing_score(parent: &SearchNode, edge: &SearchEdge) -> i64 {
                 _ => 0,
             },
             InstantEvent::EnemyKilled {
-                attribution: EliminationAttribution::OurSnake,
+                attribution: EliminationAttribution::Actor(killer),
                 ..
-            }
-            | InstantEvent::HeadToHeadWon { .. } => 3_000,
+            } if Some(*killer) == our_actor => 3_000,
+            InstantEvent::HeadToHeadWon { .. } => 3_000,
             InstantEvent::EnemyTrapped {
                 caused_by_ours: true,
                 ..
