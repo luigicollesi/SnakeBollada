@@ -407,6 +407,16 @@ mod tests {
     }
 
     #[test]
+    fn provisional_loss_remains_viable_for_comparison() {
+        let mut loss = line(9, Direction::Down, -50_000);
+        loss.terminal = LineTerminal::Lost;
+        loss.certainty = ForecastCertainty::FoodProvisional;
+
+        assert!(loss.is_viable());
+        assert!(!loss.is_confirmed_loss());
+    }
+
+    #[test]
     fn terminal_line_counts_as_complete_for_later_rounds() {
         let checkpoint = BeamCheckpoint::new(vec![
             line(1, Direction::Right, 900),
