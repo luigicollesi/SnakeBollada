@@ -162,8 +162,7 @@ fn normalized_moves(moves: MoveMask) -> MoveMask {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::analysis::StateAnalysis;
-    use crate::enemy::tracing::{trace, EnemyMoveSet};
+    use crate::enemy::tracing::{trace_actor_relative_with_mobility, EnemyMoveSet};
     use crate::evaluation::ActorVec;
     use crate::simulation::mobility::MobilityAnalysis;
     use crate::simulation::resolver::resolve_turn;
@@ -362,9 +361,8 @@ mod tests {
             snake("enemy-a", &[(5, 1), (5, 0)]),
             snake("enemy-b", &[(5, 5), (5, 4)]),
         ]);
-        let analysis = StateAnalysis::from_simulated(&state);
-        let tracing = trace(&state, &analysis);
         let mobility = MobilityAnalysis::from_state(&state);
+        let tracing = trace_actor_relative_with_mobility(&state, &mobility);
         let our_moves = mobility.deterministic_moves_for(&state, "ours");
 
         let generator = JointActionGenerator::new(&state, our_moves, &tracing);
