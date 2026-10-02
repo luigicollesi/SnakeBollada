@@ -65,7 +65,6 @@ impl SnakeTerritorySnapshot {
     pub(crate) fn nearest_choke(&self) -> Option<ChokePoint> {
         self.useful_chokes.first().copied()
     }
-
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
