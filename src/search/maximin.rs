@@ -763,6 +763,54 @@ mod tests {
     }
 
     #[test]
+    fn immediate_terminal_stays_confirmed_with_food_spawn_uncertainty() {
+        let mut graph = FutureGraph::new_with_context(
+            state(),
+            crate::enemy::profile::OpponentProfiles::default(),
+            crate::search::forecast::FoodForecastPolicy {
+                spawn_chance_percent: 15,
+                minimum_food: 1,
+            },
+        );
+        graph.expand_to_depth(1).unwrap();
+
+        let result = evaluate_seed_lines(&graph, 1);
+        let losses = result
+            .lines
+            .iter()
+            .filter(|line| line.terminal == LineTerminal::Lost)
+            .collect::<Vec<_>>();
+
+        assert!(!losses.is_empty());
+        assert!(losses.iter().all(|line| {
+            line.certainty == ForecastCertainty::Deterministic
+                && line.value <= -TERMINAL_VALUE
+        }));
+    }
+
+    #[test]
+    fn provisional_terminal_is_bounded_instead_of_absolute() {
+        let mut terminal = state();
+        terminal
+            .snakes
+            .iter_mut()
+            .find(|snake| snake.id == "ours")
+            .unwrap()
+            .alive = false;
+        let graph = FutureGraph::new(terminal);
+        let line = terminal_line(
+            graph.node(graph.root()),
+            ForecastCertainty::FoodProvisional,
+        )
+        .expect("terminal node must produce a line");
+
+        assert_eq!(line.terminal, LineTerminal::Lost);
+        assert_eq!(line.certainty, ForecastCertainty::FoodProvisional);
+        assert_eq!(line.value, -PROVISIONAL_TERMINAL_VALUE);
+        assert!(line.value > -TERMINAL_VALUE);
+    }
+
+    #[test]
     fn root_candidates_keep_terminal_loss_dominated() {
         let mut graph = FutureGraph::new(state());
         graph.expand_to_depth(1).unwrap();
