@@ -94,23 +94,14 @@ fn survival_weight(territory_share_milli: u16) -> u16 {
     }
 }
 
-fn interpolate(
-    value: u16,
-    x0: u16,
-    x1: u16,
-    y0: u16,
-    y1: u16,
-) -> u16 {
+fn interpolate(value: u16, x0: u16, x1: u16, y0: u16, y1: u16) -> u16 {
     let span = u32::from(x1.saturating_sub(x0)).max(1);
     let offset = u32::from(value.saturating_sub(x0).min(x1.saturating_sub(x0)));
     let drop = u32::from(y0.saturating_sub(y1))
         .saturating_mul(offset)
         .saturating_div(span);
 
-    u32::from(y0)
-        .saturating_sub(drop)
-        .try_into()
-        .unwrap_or(y1)
+    u32::from(y0).saturating_sub(drop).try_into().unwrap_or(y1)
 }
 
 fn relative_size_pressure(actor_length: u32, reference_enemy: u32) -> (u16, u16) {
