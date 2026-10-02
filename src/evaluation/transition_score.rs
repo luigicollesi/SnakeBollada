@@ -220,11 +220,7 @@ impl TransitionFacts {
                 ate_food: ate_food_now,
                 consumed_food,
                 food_consumption_factor_milli: consumed_food.map_or(1000, |food| {
-                    super::metrics::food_border_attraction_milli(
-                        &parent.state,
-                        actor_index,
-                        food,
-                    )
+                    super::metrics::food_border_attraction_milli(&parent.state, actor_index, food)
                 }),
                 food_potential_before: consumed_food.map_or(
                     before.metrics.food_potential_milli,

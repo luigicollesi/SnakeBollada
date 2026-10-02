@@ -116,8 +116,7 @@ pub(super) fn food_potential_milli_excluding(
                 ),
             };
 
-            let border_factor =
-                food_border_attraction_milli(state, actor, *food);
+            let border_factor = food_border_attraction_milli(state, actor, *food);
             Some(
                 proximity
                     .saturating_mul(claim_factor)
@@ -169,10 +168,7 @@ pub(super) fn food_border_attraction_milli(
     let progress_numerator = snake
         .length()
         .saturating_sub(BORDER_FOOD_AVERSION_START_LENGTH)
-        .min(
-            BORDER_FOOD_AVERSION_FULL_LENGTH
-                .saturating_sub(BORDER_FOOD_AVERSION_START_LENGTH),
-        );
+        .min(BORDER_FOOD_AVERSION_FULL_LENGTH.saturating_sub(BORDER_FOOD_AVERSION_START_LENGTH));
     let progress_denominator = BORDER_FOOD_AVERSION_FULL_LENGTH
         .saturating_sub(BORDER_FOOD_AVERSION_START_LENGTH)
         .max(1);
@@ -362,7 +358,9 @@ mod tests {
             body: (0..length)
                 .map(|index| Coord {
                     x: head.x,
-                    y: head.y.saturating_sub(i32::try_from(index).unwrap_or(i32::MAX)),
+                    y: head
+                        .y
+                        .saturating_sub(i32::try_from(index).unwrap_or(i32::MAX)),
                 })
                 .collect(),
             alive: true,
@@ -416,21 +414,24 @@ mod tests {
     #[test]
     fn border_food_aversion_grows_with_absolute_length() {
         let mut short = state(Coord { x: 0, y: 3 });
-        short.snakes[0] =
-            snake_with_length("ours", Coord { x: 3, y: 5 }, BORDER_FOOD_AVERSION_START_LENGTH);
+        short.snakes[0] = snake_with_length(
+            "ours",
+            Coord { x: 3, y: 5 },
+            BORDER_FOOD_AVERSION_START_LENGTH,
+        );
         let mut medium = short.clone();
         medium.snakes[0] = snake_with_length("ours", Coord { x: 3, y: 5 }, 14);
         let mut long = short.clone();
-        long.snakes[0] =
-            snake_with_length("ours", Coord { x: 3, y: 5 }, BORDER_FOOD_AVERSION_FULL_LENGTH);
+        long.snakes[0] = snake_with_length(
+            "ours",
+            Coord { x: 3, y: 5 },
+            BORDER_FOOD_AVERSION_FULL_LENGTH,
+        );
 
         let actor = short.actor_index("ours").unwrap();
-        let short_factor =
-            food_border_attraction_milli(&short, actor, Coord { x: 0, y: 3 });
-        let medium_factor =
-            food_border_attraction_milli(&medium, actor, Coord { x: 0, y: 3 });
-        let long_factor =
-            food_border_attraction_milli(&long, actor, Coord { x: 0, y: 3 });
+        let short_factor = food_border_attraction_milli(&short, actor, Coord { x: 0, y: 3 });
+        let medium_factor = food_border_attraction_milli(&medium, actor, Coord { x: 0, y: 3 });
+        let long_factor = food_border_attraction_milli(&long, actor, Coord { x: 0, y: 3 });
 
         assert_eq!(short_factor, 1000);
         assert!(medium_factor < short_factor);

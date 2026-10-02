@@ -91,10 +91,7 @@ fn strategic_weights(
             i32::from(MIN_CATEGORY_WEIGHT),
             i32::from(MAX_CATEGORY_WEIGHT),
         ) as u16;
-    let food_share = base_food_share.min(dominant_food_share_cap(
-        actor_length,
-        largest_enemy,
-    ));
+    let food_share = base_food_share.min(dominant_food_share_cap(actor_length, largest_enemy));
 
     let food = u32::from(offensive_budget)
         .saturating_mul(u32::from(food_share))
@@ -219,11 +216,10 @@ fn dominant_food_share_cap(actor_length: u32, largest_enemy: u32) -> u16 {
     let span = DOMINANT_SIZE_FULL_MILLI
         .saturating_sub(DOMINANT_SIZE_START_MILLI)
         .max(1);
-    let reduction = u32::from(
-        DOMINANT_FOOD_SHARE_AT_START.saturating_sub(DOMINANT_FOOD_SHARE_AT_FULL),
-    )
-    .saturating_mul(progress)
-    .saturating_div(span);
+    let reduction =
+        u32::from(DOMINANT_FOOD_SHARE_AT_START.saturating_sub(DOMINANT_FOOD_SHARE_AT_FULL))
+            .saturating_mul(progress)
+            .saturating_div(span);
 
     u32::from(DOMINANT_FOOD_SHARE_AT_START)
         .saturating_sub(reduction)
@@ -470,8 +466,7 @@ mod tests {
 
         assert!(weights.hunting > weights.food);
         assert!(
-            u32::from(weights.food).saturating_mul(100)
-                <= u32::from(offensive).saturating_mul(6)
+            u32::from(weights.food).saturating_mul(100) <= u32::from(offensive).saturating_mul(6)
         );
     }
 
