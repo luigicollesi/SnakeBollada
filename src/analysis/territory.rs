@@ -972,7 +972,7 @@ fn coord_of(width: u16, index: usize) -> Coord {
 
 #[cfg(test)]
 mod tests {
-    use crate::simulation::state::{AggressionState, RulesContext, SimulatedSnake};
+    use crate::simulation::state::{RulesContext, SimulatedSnake};
 
     use super::*;
 
@@ -999,8 +999,7 @@ mod tests {
                 max_health: 100,
                 hazard_damage_per_turn: 0,
             },
-            aggression: AggressionState::default(),
-        }
+                    }
     }
 
     #[test]

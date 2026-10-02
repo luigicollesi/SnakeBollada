@@ -56,7 +56,7 @@ impl StateKey {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::simulation::state::{AggressionState, SimulatedSnake};
+    use crate::simulation::state::{SimulatedSnake};
 
     fn sample_state() -> SimulatedGameState {
         SimulatedGameState {
@@ -84,10 +84,6 @@ mod tests {
                 name: "standard".to_string(),
                 max_health: 100,
                 hazard_damage_per_turn: 0,
-            },
-            aggression: AggressionState {
-                fruits_eaten: 2,
-                value: 0.375,
             },
         }
     }
@@ -136,12 +132,10 @@ mod tests {
     }
 
     #[test]
-    fn beam_key_ignores_turn_and_legacy_aggression() {
+    fn beam_key_ignores_turn() {
         let left = sample_state();
         let mut right = sample_state();
         right.turn = right.turn.saturating_add(9);
-        right.aggression.fruits_eaten = right.aggression.fruits_eaten.saturating_add(5);
-        right.aggression.value = 0.95;
 
         assert_eq!(
             StateKey::from_beam_state(&left),

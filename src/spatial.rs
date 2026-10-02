@@ -81,7 +81,7 @@ fn index_of(width: u16, height: u16, coord: Coord) -> Option<usize> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::simulation::state::{AggressionState, RulesContext, SimulatedSnake};
+    use crate::simulation::state::{RulesContext, SimulatedSnake};
 
     fn snake(id: &str, body: &[(i32, i32)]) -> SimulatedSnake {
         SimulatedSnake {
@@ -106,8 +106,7 @@ mod tests {
                 max_health: 100,
                 hazard_damage_per_turn: 0,
             },
-            aggression: AggressionState::default(),
-        }
+                    }
     }
 
     #[test]

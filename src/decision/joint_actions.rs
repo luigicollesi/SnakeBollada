@@ -166,7 +166,7 @@ mod tests {
     use crate::evaluation::ActorVec;
     use crate::simulation::mobility::MobilityAnalysis;
     use crate::simulation::resolver::resolve_turn;
-    use crate::simulation::state::{AggressionState, RulesContext, SimulatedSnake};
+    use crate::simulation::state::{RulesContext, SimulatedSnake};
     use crate::Coord;
 
     fn snake(id: &str, body: &[(i32, i32)]) -> SimulatedSnake {
@@ -192,8 +192,7 @@ mod tests {
                 max_health: 100,
                 hazard_damage_per_turn: 0,
             },
-            aggression: AggressionState::default(),
-        }
+                    }
     }
 
     fn actor(state: &SimulatedGameState, actor_id: &str) -> ActorIndex {

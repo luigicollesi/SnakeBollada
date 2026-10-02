@@ -307,7 +307,7 @@ fn is_corner(state: &SimulatedGameState, coord: Coord) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use crate::simulation::state::{AggressionState, RulesContext, SimulatedSnake};
+    use crate::simulation::state::{RulesContext, SimulatedSnake};
 
     use super::*;
 
@@ -334,8 +334,7 @@ mod tests {
                 max_health: 100,
                 hazard_damage_per_turn: 0,
             },
-            aggression: AggressionState::default(),
-        }
+                    }
     }
 
     fn analyze(state: &SimulatedGameState) -> BorderFobicAnalysis {
