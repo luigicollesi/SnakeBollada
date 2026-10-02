@@ -74,7 +74,6 @@ impl DecisionEngine {
                 .unwrap_or(u64::MAX),
             runtime_jitter_reserve_us: extra_reserve_ms.saturating_mul(1000),
             beam_shadow: beam_metadata,
-            ..SearchMetadata::default()
         };
 
         Some(Decision {
