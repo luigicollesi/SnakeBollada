@@ -678,7 +678,12 @@ mod tests {
             !edge
                 .events
                 .iter()
-                .any(|event| matches!(event, InstantEvent::AteFood { actor, .. } if *actor == our_actor))
+                .any(|event| {
+                    matches!(
+                        event,
+                        InstantEvent::AteFood { actor, .. } if *actor == our_actor
+                    )
+                })
         });
         let child = graph.node(edge.child);
         let score = TransitionScore::from_edge(root, edge, child);
