@@ -8,7 +8,7 @@ use crate::board_mask::BoardMask;
 use crate::direction::MoveMask;
 use crate::enemy::tracing::{EnemyTracingOutput, ThreatClass};
 use crate::simulation::mobility::MobilityAnalysis;
-use crate::simulation::state::SimulatedGameState;
+use crate::simulation::state::{ActorIndex, SimulatedGameState};
 
 #[derive(Debug, Clone)]
 pub(crate) struct ThreatMap {
@@ -33,16 +33,20 @@ impl ThreatMap {
             };
         };
 
-        for enemy in state
+        for (index, enemy) in state
             .snakes
             .iter()
-            .filter(|snake| snake.alive && snake.id != state.our_snake_id)
+            .enumerate()
+            .filter(|(_, snake)| snake.alive && snake.id != state.our_snake_id)
         {
+            let Some(actor) = ActorIndex::new(index) else {
+                continue;
+            };
             let Some(head) = enemy.head() else {
                 continue;
             };
             let moves = tracing
-                .for_enemy(&enemy.id)
+                .for_actor(actor)
                 .map(|set| {
                     if !set.plausible_moves.is_empty() {
                         set.plausible_moves
@@ -56,7 +60,7 @@ impl ThreatMap {
                 let target = direction.apply(head);
                 if enemy.length() >= ours.length() {
                     match tracing
-                        .for_enemy(&enemy.id)
+                        .for_actor(actor)
                         .map_or(ThreatClass::Possible, |set| set.threat_class(direction))
                     {
                         ThreatClass::Likely | ThreatClass::Forced => lethal.set(target, true),
@@ -163,9 +167,11 @@ impl TacticalStateAnalysis {
         let enemies = state
             .snakes
             .par_iter()
-            .filter(|snake| snake.alive && snake.id != state.our_snake_id)
-            .filter_map(|enemy| {
-                let move_set = tracing.for_enemy(&enemy.id)?;
+            .enumerate()
+            .filter(|(_, snake)| snake.alive && snake.id != state.our_snake_id)
+            .filter_map(|(index, enemy)| {
+                let actor = ActorIndex::new(index)?;
+                let move_set = tracing.for_actor(actor)?;
                 Some((
                     enemy.id.clone(),
                     EnemyTacticalSnapshot {
@@ -226,9 +232,11 @@ impl TacticalStateAnalysis {
                 state
                     .snakes
                     .par_iter()
-                    .filter(|snake| snake.alive && snake.id != state.our_snake_id)
-                    .filter_map(|enemy| {
-                        let move_set = tracing.for_enemy(&enemy.id)?;
+                    .enumerate()
+                    .filter(|(_, snake)| snake.alive && snake.id != state.our_snake_id)
+                    .filter_map(|(index, enemy)| {
+                        let actor = ActorIndex::new(index)?;
+                        let move_set = tracing.for_actor(actor)?;
                         let best_reachable_space = move_set
                             .search_moves()
                             .iter()
