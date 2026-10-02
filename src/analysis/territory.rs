@@ -93,8 +93,7 @@ struct TerritoryCore {
     open: Vec<bool>,
     distances: HashMap<String, Vec<u16>>,
     snakes: HashMap<String, CoreSnakeTerritorySnapshot>,
-    competitive: HashMap<String, CompetitiveTerritorySnapshot>,
-    competitive_ids: Vec<String>,
+    competitive: ActorVec<CompetitiveTerritorySnapshot>,
     competitive_claims: Vec<CompetitiveClaim>,
 }
 
@@ -187,7 +186,7 @@ impl TerritoryCore {
             }
         }
 
-        let (competitive, competitive_claims, competitive_ids) =
+        let (competitive, competitive_claims) =
             competitive_snapshots(state, width, height, &open, &living, &distances);
 
         let mut snakes = HashMap::new();
@@ -215,7 +214,6 @@ impl TerritoryCore {
             distances,
             snakes,
             competitive,
-            competitive_ids,
             competitive_claims,
         }
     }
@@ -354,7 +352,6 @@ pub(crate) struct TerritoryAnalysis {
     distances: ActorVec<Vec<u16>>,
     snakes: ActorVec<SnakeTerritorySnapshot>,
     competitive: ActorVec<CompetitiveTerritorySnapshot>,
-    competitive_ids: Vec<String>,
     competitive_claims: Vec<CompetitiveClaim>,
 }
 
@@ -390,18 +387,14 @@ impl TerritoryAnalysis {
             distances,
             snakes: core_snakes,
             competitive,
-            competitive_ids,
             competitive_claims,
             ..
         } = core;
 
         let mut distances_by_id = distances;
         let mut snakes_by_id = core_snakes;
-        let mut competitive_by_id = competitive;
-
         let mut indexed_distances = ActorVec::with_capacity(state.snakes.len());
         let mut indexed_snakes = ActorVec::with_capacity(state.snakes.len());
-        let mut indexed_competitive = ActorVec::with_capacity(state.snakes.len());
 
         for (index, snake) in state.snakes.iter().enumerate() {
             let Some(actor) = ActorIndex::new(index) else {
@@ -431,9 +424,6 @@ impl TerritoryAnalysis {
                 );
             }
 
-            if let Some(snapshot) = competitive_by_id.remove(&snake.id) {
-                indexed_competitive.insert(actor, snapshot);
-            }
         }
 
         Self {
@@ -441,8 +431,7 @@ impl TerritoryAnalysis {
             height,
             distances: indexed_distances,
             snakes: indexed_snakes,
-            competitive: indexed_competitive,
-            competitive_ids,
+            competitive,
             competitive_claims,
         }
     }
@@ -488,28 +477,38 @@ impl TerritoryAnalysis {
             .and_then(|actor| self.competitive_for_actor(actor))
     }
 
-    pub(crate) fn competitive_owner_at(&self, coord: Coord) -> Option<&str> {
+    pub(crate) fn competitive_owner_actor_at(&self, coord: Coord) -> Option<ActorIndex> {
         let index = index_of(self.width, self.height, coord)?;
         match self.competitive_claims.get(index)? {
-            CompetitiveClaim::Owned(owner) => self.competitive_ids.get(*owner).map(String::as_str),
+            CompetitiveClaim::Owned(owner) => Some(*owner),
             CompetitiveClaim::Unclaimed | CompetitiveClaim::Contested(_) => None,
         }
     }
 
-    pub(crate) fn competitive_contested_by(&self, coord: Coord, actor_id: &str) -> bool {
+    pub(crate) fn competitive_owner_at(&self, coord: Coord) -> Option<&str> {
+        let owner = self.competitive_owner_actor_at(coord)?;
+        self.snakes.get(owner).map(|snapshot| snapshot.snake_id.as_str())
+    }
+
+    pub(crate) fn competitive_contested_by_actor(
+        &self,
+        coord: Coord,
+        actor: ActorIndex,
+    ) -> bool {
         let Some(index) = index_of(self.width, self.height, coord) else {
             return false;
         };
-        let Some(CompetitiveClaim::Contested(contenders)) = self.competitive_claims.get(index)
-        else {
+        match self.competitive_claims.get(index) {
+            Some(CompetitiveClaim::Contested(contenders)) => contenders.contains(actor),
+            _ => false,
+        }
+    }
+
+    pub(crate) fn competitive_contested_by(&self, coord: Coord, actor_id: &str) -> bool {
+        let Some(actor) = self.actor_for_id(actor_id) else {
             return false;
         };
-
-        contenders.iter().any(|actor_index| {
-            self.competitive_ids
-                .get(*actor_index)
-                .is_some_and(|candidate| candidate == actor_id)
-        })
+        self.competitive_contested_by_actor(coord, actor)
     }
 
     pub(crate) fn competitive_contender_count_at(&self, coord: Coord) -> usize {
@@ -533,11 +532,40 @@ impl TerritoryAnalysis {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+struct ActorMask(u16);
+
+impl ActorMask {
+    fn insert(&mut self, actor: ActorIndex) {
+        let bit = u32::try_from(actor.as_usize()).unwrap_or(u32::MAX);
+        if bit < u16::BITS {
+            self.0 |= 1_u16 << bit;
+        }
+    }
+
+    fn contains(self, actor: ActorIndex) -> bool {
+        let bit = u32::try_from(actor.as_usize()).unwrap_or(u32::MAX);
+        bit < u16::BITS && (self.0 & (1_u16 << bit)) != 0
+    }
+
+    fn len(self) -> usize {
+        self.0.count_ones() as usize
+    }
+
+    fn iter(self) -> impl Iterator<Item = ActorIndex> {
+        (0..u16::BITS).filter_map(move |bit| {
+            ((self.0 & (1_u16 << bit)) != 0)
+                .then(|| ActorIndex::new(bit as usize))
+                .flatten()
+        })
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
 enum CompetitiveClaim {
     Unclaimed,
-    Owned(usize),
-    Contested(Vec<usize>),
+    Owned(ActorIndex),
+    Contested(ActorMask),
 }
 
 #[derive(Debug, Clone, Default)]
@@ -562,20 +590,19 @@ fn competitive_snapshots(
     open: &[bool],
     living: &[(&crate::simulation::state::SimulatedSnake, Coord)],
     distances: &HashMap<String, Vec<u16>>,
-) -> (
-    HashMap<String, CompetitiveTerritorySnapshot>,
-    Vec<CompetitiveClaim>,
-    Vec<String>,
-) {
+) -> (ActorVec<CompetitiveTerritorySnapshot>, Vec<CompetitiveClaim>) {
     let cells = open.len();
     let mut claims = vec![CompetitiveClaim::Unclaimed; cells];
     let mut dominance_owner = vec![None; cells];
     let mut favorable_head_owner = vec![None; cells];
 
-    for (snake_index, (snake, _)) in living.iter().enumerate() {
+    for (snake, _) in living {
+        let Some(actor) = state.actor_index(&snake.id) else {
+            continue;
+        };
         for segment in snake.body.iter().take(snake.body.len().saturating_sub(1)) {
             if let Some(index) = index_of(width, height, *segment) {
-                claims[index] = CompetitiveClaim::Owned(snake_index);
+                claims[index] = CompetitiveClaim::Owned(actor);
             }
         }
     }
@@ -620,21 +647,30 @@ fn competitive_snapshots(
             .filter(|snake_index| living[*snake_index].0.length() == best_length)
             .collect::<Vec<_>>();
 
-        if winners.len() == 1 && arrival_count > 1 {
-            dominance_owner[index] = Some(winners[0]);
+        let winner_actors = winners
+            .iter()
+            .filter_map(|winner| state.actor_index(&living[*winner].0.id))
+            .collect::<Vec<_>>();
+
+        if winner_actors.len() == 1 && arrival_count > 1 {
+            dominance_owner[index] = Some(winner_actors[0]);
             if best_distance == 1 {
-                favorable_head_owner[index] = Some(winners[0]);
+                favorable_head_owner[index] = Some(winner_actors[0]);
             }
         }
 
-        claims[index] = if winners.len() == 1 {
-            CompetitiveClaim::Owned(winners[0])
+        claims[index] = if winner_actors.len() == 1 {
+            CompetitiveClaim::Owned(winner_actors[0])
         } else {
-            CompetitiveClaim::Contested(winners)
+            let mut mask = ActorMask::default();
+            for actor in winner_actors {
+                mask.insert(actor);
+            }
+            CompetitiveClaim::Contested(mask)
         };
     }
 
-    let mut builders = vec![CompetitiveBuilder::default(); living.len()];
+    let mut builders = vec![CompetitiveBuilder::default(); state.snakes.len()];
     let mut total_weight = 0_u32;
 
     for (index, claim) in claims.iter().enumerate() {
@@ -644,7 +680,7 @@ fn competitive_snapshots(
             CompetitiveClaim::Unclaimed => {}
             CompetitiveClaim::Owned(owner) => {
                 total_weight = total_weight.saturating_add(weight);
-                let builder = &mut builders[*owner];
+                let builder = &mut builders[owner.as_usize()];
                 builder.controlled_cells = builder.controlled_cells.saturating_add(1);
                 builder.controlled_weight = builder.controlled_weight.saturating_add(weight);
                 if state.food.contains(&coord) {
@@ -660,8 +696,8 @@ fn competitive_snapshots(
             }
             CompetitiveClaim::Contested(winners) => {
                 total_weight = total_weight.saturating_add(weight);
-                for winner in winners {
-                    let builder = &mut builders[*winner];
+                for winner in winners.iter() {
+                    let builder = &mut builders[winner.as_usize()];
                     builder.contested_cells = builder.contested_cells.saturating_add(1);
                     builder.contested_weight = builder.contested_weight.saturating_add(weight);
                     if state.food.contains(&coord) {
@@ -677,7 +713,7 @@ fn competitive_snapshots(
             continue;
         };
         let coord = coord_of(width, index);
-        let own_length = living[*owner].0.length();
+        let own_length = state.snake_at(*owner).map_or(0, |snake| snake.length());
         let mut winning = false;
         let mut losing = false;
         let mut dominance_frontier = false;
@@ -689,36 +725,36 @@ fn competitive_snapshots(
             };
             match &claims[neighbor_index] {
                 CompetitiveClaim::Owned(other) if other != owner => {
-                    let other_length = living[*other].0.length();
+                    let other_length = state.snake_at(*other).map_or(0, |snake| snake.length());
                     winning |= own_length > other_length;
                     losing |= own_length < other_length;
                     dominance_frontier |= dominance_owner[index] == Some(*owner);
                 }
                 CompetitiveClaim::Contested(winners) => {
                     dominance_frontier |= dominance_owner[index] == Some(*owner)
-                        && winners.iter().any(|winner| winner != owner);
+                        && winners.iter().any(|winner| winner != *owner);
                 }
                 CompetitiveClaim::Unclaimed | CompetitiveClaim::Owned(_) => {}
             }
         }
 
         if winning {
-            builders[*owner].winning_frontier = builders[*owner].winning_frontier.saturating_add(1);
+            builders[owner.as_usize()].winning_frontier = builders[owner.as_usize()].winning_frontier.saturating_add(1);
         }
         if losing {
-            builders[*owner].losing_frontier = builders[*owner].losing_frontier.saturating_add(1);
+            builders[owner.as_usize()].losing_frontier = builders[owner.as_usize()].losing_frontier.saturating_add(1);
         }
         if dominance_frontier {
-            builders[*owner].dominance_frontier_cells =
-                builders[*owner].dominance_frontier_cells.saturating_add(1);
+            builders[owner.as_usize()].dominance_frontier_cells =
+                builders[owner.as_usize()].dominance_frontier_cells.saturating_add(1);
         }
     }
 
     let snapshots = living
         .iter()
-        .enumerate()
-        .map(|(index, (snake, _))| {
-            let builder = &builders[index];
+        .filter_map(|(snake, _)| {
+            let actor = state.actor_index(&snake.id)?;
+            let builder = &builders[actor.as_usize()];
             let control_ratio_milli = if total_weight == 0 {
                 0
             } else {
@@ -731,8 +767,8 @@ fn competitive_snapshots(
                     .unwrap_or(1000)
             };
 
-            (
-                snake.id.clone(),
+            Some((
+                actor,
                 CompetitiveTerritorySnapshot {
                     snake_id: snake.id.clone(),
                     controlled_cells: builder.controlled_cells,
@@ -748,15 +784,11 @@ fn competitive_snapshots(
                     dominance_frontier_cells: builder.dominance_frontier_cells,
                     favorable_head_frontier: builder.favorable_head_frontier,
                 },
-            )
+            ))
         })
-        .collect::<HashMap<_, _>>();
-    let ids = living
-        .iter()
-        .map(|(snake, _)| snake.id.clone())
-        .collect::<Vec<_>>();
+        .collect::<ActorVec<_>>();
 
-    (snapshots, claims, ids)
+    (snapshots, claims)
 }
 
 fn control_weight(state: &SimulatedGameState, coord: Coord) -> u32 {
