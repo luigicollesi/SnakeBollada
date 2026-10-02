@@ -72,7 +72,6 @@ pub(crate) struct SubtreeExpansion {
 #[derive(Debug, Clone)]
 pub(crate) struct SearchEdge {
     pub(crate) joint_action: JointAction,
-    pub(crate) events: Vec<InstantEvent>,
     pub(crate) transition: TransitionScore,
     pub(crate) child: NodeId,
 }
@@ -742,12 +741,14 @@ impl FutureGraph {
                 .into_par_iter()
                 .zip(child_ids.into_par_iter())
                 .map(|(candidate, child)| {
-                    let events = candidate.resolution_events.clone();
-                    let transition = TransitionScore::from_parts(parent, &events, &nodes[child]);
+                    let transition = TransitionScore::from_parts(
+                        parent,
+                        &candidate.resolution_events,
+                        &nodes[child],
+                    );
 
                     SearchEdge {
                         joint_action: candidate.joint_action,
-                        events,
                         transition,
                         child,
                     }
@@ -1080,7 +1081,7 @@ mod tests {
     }
 
     #[test]
-    fn edge_events_are_kept_outside_child_node() {
+    fn food_events_are_folded_into_cached_transition_scores() {
         let mut initial = state();
         initial.food = vec![Coord { x: 2, y: 1 }];
 
@@ -1095,12 +1096,9 @@ mod tests {
             .unwrap();
 
         assert!(graph.node(root).children.iter().any(|edge| {
-            edge.events.iter().any(|event| {
-                matches!(
-                    event,
-                    InstantEvent::AteFood { actor, .. } if *actor == our_actor
-                )
-            })
+            edge.transition
+                .for_actor(our_actor)
+                .is_some_and(|score| score.food_benefit > 0)
         }));
     }
 
