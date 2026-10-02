@@ -449,10 +449,17 @@ mod tests {
         }
     }
 
+    fn action(state: &SimulatedGameState, moves: &[(&str, Direction)]) -> JointAction {
+        moves.iter().fold(JointAction::new(), |action, (actor_id, direction)| {
+            let actor = state.actor_index(actor_id).expect("actor must exist");
+            action.with_move(actor, *direction)
+        })
+    }
+
     #[test]
     fn movement_prepends_head_and_vacates_tail() {
         let initial = state(vec![snake("ours", 100, &[(2, 2), (2, 1), (2, 0)])]);
-        let action = JointAction::new().with_move("ours", Direction::Right);
+        let action = action(&initial, &[("ours", Direction::Right)]);
 
         let resolved = resolve_turn(&initial, &action).unwrap();
         let ours = resolved.state.snake("ours").unwrap();
@@ -473,7 +480,7 @@ mod tests {
     fn food_restores_health_and_grows_tail() {
         let mut initial = state(vec![snake("ours", 25, &[(2, 2), (2, 1), (2, 0)])]);
         initial.food = vec![Coord { x: 3, y: 2 }];
-        let action = JointAction::new().with_move("ours", Direction::Right);
+        let action = action(&initial, &[("ours", Direction::Right)]);
 
         let resolved = resolve_turn(&initial, &action).unwrap();
         let ours = resolved.state.snake("ours").unwrap();
@@ -492,7 +499,7 @@ mod tests {
     fn our_food_updates_branch_local_aggression() {
         let mut initial = state(vec![snake("ours", 50, &[(2, 2), (2, 1)])]);
         initial.food = vec![Coord { x: 3, y: 2 }];
-        let action = JointAction::new().with_move("ours", Direction::Right);
+        let action = action(&initial, &[("ours", Direction::Right)]);
 
         let resolved = resolve_turn(&initial, &action).unwrap();
 
@@ -508,9 +515,10 @@ mod tests {
             snake("enemy", 50, &[(4, 2), (4, 1)]),
         ]);
         initial.food = vec![Coord { x: 5, y: 2 }];
-        let action = JointAction::new()
-            .with_move("ours", Direction::Up)
-            .with_move("enemy", Direction::Right);
+        let action = action(
+            &initial,
+            &[("ours", Direction::Up), ("enemy", Direction::Right)],
+        );
 
         let resolved = resolve_turn(&initial, &action).unwrap();
 
@@ -521,7 +529,7 @@ mod tests {
     fn snake_at_one_health_survives_by_eating() {
         let mut initial = state(vec![snake("ours", 1, &[(2, 2), (2, 1)])]);
         initial.food = vec![Coord { x: 3, y: 2 }];
-        let action = JointAction::new().with_move("ours", Direction::Right);
+        let action = action(&initial, &[("ours", Direction::Right)]);
 
         let resolved = resolve_turn(&initial, &action).unwrap();
 
@@ -535,7 +543,7 @@ mod tests {
         initial.rules.hazard_damage_per_turn = 14;
         initial.food = vec![Coord { x: 3, y: 2 }];
         initial.hazards = vec![Coord { x: 3, y: 2 }];
-        let action = JointAction::new().with_move("ours", Direction::Right);
+        let action = action(&initial, &[("ours", Direction::Right)]);
 
         let resolved = resolve_turn(&initial, &action).unwrap();
 
@@ -547,7 +555,7 @@ mod tests {
         let mut initial = state(vec![snake("ours", 15, &[(2, 2), (2, 1)])]);
         initial.rules.hazard_damage_per_turn = 14;
         initial.hazards = vec![Coord { x: 3, y: 2 }];
-        let action = JointAction::new().with_move("ours", Direction::Right);
+        let action = action(&initial, &[("ours", Direction::Right)]);
 
         let resolved = resolve_turn(&initial, &action).unwrap();
 
@@ -565,9 +573,10 @@ mod tests {
         ]);
         initial.rules.hazard_damage_per_turn = 14;
         initial.hazards = vec![Coord { x: 4, y: 1 }];
-        let action = JointAction::new()
-            .with_move("ours", Direction::Up)
-            .with_move("enemy", Direction::Right);
+        let action = action(
+            &initial,
+            &[("ours", Direction::Up), ("enemy", Direction::Right)],
+        );
 
         let resolved = resolve_turn(&initial, &action).unwrap();
 
@@ -583,7 +592,7 @@ mod tests {
         let mut initial = state(vec![snake("ours", 50, &[(2, 2), (2, 1)])]);
         initial.rules.hazard_damage_per_turn = 14;
         initial.hazards = vec![Coord { x: 3, y: 2 }, Coord { x: 3, y: 2 }];
-        let action = JointAction::new().with_move("ours", Direction::Right);
+        let action = action(&initial, &[("ours", Direction::Right)]);
 
         let resolved = resolve_turn(&initial, &action).unwrap();
 
@@ -593,7 +602,7 @@ mod tests {
     #[test]
     fn starvation_without_food_is_out_of_health() {
         let initial = state(vec![snake("ours", 1, &[(2, 2), (2, 1)])]);
-        let action = JointAction::new().with_move("ours", Direction::Right);
+        let action = action(&initial, &[("ours", Direction::Right)]);
 
         let resolved = resolve_turn(&initial, &action).unwrap();
 
@@ -606,7 +615,7 @@ mod tests {
     #[test]
     fn moving_out_of_bounds_is_eliminated() {
         let initial = state(vec![snake("ours", 100, &[(0, 2), (0, 1)])]);
-        let action = JointAction::new().with_move("ours", Direction::Left);
+        let action = action(&initial, &[("ours", Direction::Left)]);
 
         let resolved = resolve_turn(&initial, &action).unwrap();
 
@@ -623,7 +632,7 @@ mod tests {
             100,
             &[(2, 2), (2, 1), (1, 1), (1, 2), (1, 3), (2, 3)],
         )]);
-        let action = JointAction::new().with_move("ours", Direction::Left);
+        let action = action(&initial, &[("ours", Direction::Left)]);
 
         let resolved = resolve_turn(&initial, &action).unwrap();
 
@@ -639,9 +648,10 @@ mod tests {
             snake("ours", 100, &[(2, 2), (2, 1), (2, 0)]),
             snake("enemy", 100, &[(4, 2), (4, 1), (4, 0)]),
         ]);
-        let action = JointAction::new()
-            .with_move("ours", Direction::Right)
-            .with_move("enemy", Direction::Left);
+        let action = action(
+            &initial,
+            &[("ours", Direction::Right), ("enemy", Direction::Left)],
+        );
 
         let resolved = resolve_turn(&initial, &action).unwrap();
 
@@ -658,9 +668,10 @@ mod tests {
             snake("ours", 100, &[(2, 2), (2, 1), (2, 0), (1, 0)]),
             snake("enemy", 100, &[(4, 2), (4, 1), (4, 0)]),
         ]);
-        let action = JointAction::new()
-            .with_move("ours", Direction::Right)
-            .with_move("enemy", Direction::Left);
+        let action = action(
+            &initial,
+            &[("ours", Direction::Right), ("enemy", Direction::Left)],
+        );
 
         let resolved = resolve_turn(&initial, &action).unwrap();
 
@@ -678,10 +689,14 @@ mod tests {
             snake("enemy-a", 100, &[(4, 3), (4, 2), (4, 1), (5, 1)]),
             snake("enemy-b", 100, &[(3, 4), (3, 5), (2, 5)]),
         ]);
-        let action = JointAction::new()
-            .with_move("ours", Direction::Right)
-            .with_move("enemy-a", Direction::Left)
-            .with_move("enemy-b", Direction::Down);
+        let action = action(
+            &initial,
+            &[
+                ("ours", Direction::Right),
+                ("enemy-a", Direction::Left),
+                ("enemy-b", Direction::Down),
+            ],
+        );
 
         let resolved = resolve_turn(&initial, &action).unwrap();
 
@@ -707,10 +722,14 @@ mod tests {
             snake("enemy-a", 100, &[(4, 3), (4, 2), (4, 1), (5, 1)]),
             snake("enemy-b", 100, &[(3, 4), (3, 5), (2, 5)]),
         ]);
-        let action = JointAction::new()
-            .with_move("ours", Direction::Right)
-            .with_move("enemy-a", Direction::Left)
-            .with_move("enemy-b", Direction::Down);
+        let action = action(
+            &initial,
+            &[
+                ("ours", Direction::Right),
+                ("enemy-a", Direction::Left),
+                ("enemy-b", Direction::Down),
+            ],
+        );
 
         let resolved = resolve_turn(&initial, &action).unwrap();
 
@@ -725,9 +744,10 @@ mod tests {
             snake("ours", 100, &[(1, 2), (1, 1), (1, 0)]),
             snake("enemy", 100, &[(3, 2), (2, 2), (2, 1)]),
         ]);
-        let action = JointAction::new()
-            .with_move("ours", Direction::Right)
-            .with_move("enemy", Direction::Left);
+        let action = action(
+            &initial,
+            &[("ours", Direction::Right), ("enemy", Direction::Left)],
+        );
 
         let resolved = resolve_turn(&initial, &action).unwrap();
 
@@ -745,9 +765,10 @@ mod tests {
                 &[(4, 4), (3, 4), (2, 4), (2, 3), (2, 2), (2, 1)],
             ),
         ]);
-        let action = JointAction::new()
-            .with_move("ours", Direction::Right)
-            .with_move("enemy", Direction::Right);
+        let action = action(
+            &initial,
+            &[("ours", Direction::Right), ("enemy", Direction::Right)],
+        );
 
         let resolved = resolve_turn(&initial, &action).unwrap();
 
@@ -764,7 +785,7 @@ mod tests {
             snake("ours", 100, &[(2, 2)]),
             snake("enemy", 100, &[(5, 5)]),
         ]);
-        let action = JointAction::new().with_move("ours", Direction::Up);
+        let action = action(&initial, &[("ours", Direction::Up)]);
 
         assert_eq!(
             resolve_turn(&initial, &action),
