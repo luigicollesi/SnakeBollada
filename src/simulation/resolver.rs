@@ -34,6 +34,7 @@ pub(crate) enum InstantEvent {
     },
     Died {
         cause: EliminationCause,
+        attribution: EliminationAttribution,
     },
 }
 
@@ -154,6 +155,7 @@ fn damage_hazards(state: &mut SimulatedGameState, events: &mut Vec<InstantEvent>
             if Some(actor) == our_actor {
                 events.push(InstantEvent::Died {
                     cause: EliminationCause::Hazard,
+                    attribution: EliminationAttribution::Environment,
                 });
             } else {
                 events.push(InstantEvent::EnemyKilled {
@@ -312,27 +314,28 @@ fn eliminate_snakes(
 
         snake.alive = false;
 
+        let attribution = match elimination.cause {
+            EliminationCause::SelfCollision | EliminationCause::OutOfBounds => {
+                EliminationAttribution::SelfInflicted
+            }
+            EliminationCause::OutOfHealth | EliminationCause::Hazard => {
+                EliminationAttribution::Environment
+            }
+            EliminationCause::BodyCollision | EliminationCause::HeadToHead => {
+                match elimination.by {
+                    Some(by) if by == actor => EliminationAttribution::SelfInflicted,
+                    Some(by) => EliminationAttribution::Actor(by),
+                    None => EliminationAttribution::Environment,
+                }
+            }
+        };
+
         if Some(actor) == our_actor {
             events.push(InstantEvent::Died {
                 cause: elimination.cause,
+                attribution,
             });
         } else {
-            let attribution = match elimination.cause {
-                EliminationCause::SelfCollision | EliminationCause::OutOfBounds => {
-                    EliminationAttribution::SelfInflicted
-                }
-                EliminationCause::OutOfHealth | EliminationCause::Hazard => {
-                    EliminationAttribution::Environment
-                }
-                EliminationCause::BodyCollision | EliminationCause::HeadToHead => {
-                    match elimination.by {
-                        Some(by) if by == actor => EliminationAttribution::SelfInflicted,
-                        Some(by) => EliminationAttribution::Actor(by),
-                        None => EliminationAttribution::Environment,
-                    }
-                }
-            };
-
             events.push(InstantEvent::EnemyKilled {
                 enemy: actor,
                 cause: elimination.cause,
