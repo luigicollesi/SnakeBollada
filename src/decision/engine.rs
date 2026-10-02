@@ -7,7 +7,8 @@ use crate::search::budget::SearchBudget;
 use crate::search::graph::FutureGraph;
 use crate::simulation::state::{SimulatedGameState, SimulationSupport};
 use crate::strategy::{
-    choose_move_baseline, BeamShadowMetadata, Decision, DecisionReason, SearchMetadata,
+    choose_move_baseline, direction_stays_in_bounds, BeamShadowMetadata, Decision, DecisionReason,
+    SearchMetadata,
 };
 use crate::GameState;
 
@@ -74,6 +75,10 @@ impl DecisionEngine {
         let result = search_beam(graph, &budget).ok().flatten()?;
         let selected = select_line_with_continuity(graph, &result, incumbent_direction)?.clone();
         let direction = selected.root_direction;
+        if !direction_stays_in_bounds(state, direction) {
+            return None;
+        }
+
         let root = graph.node(graph.root());
         let reachable_cells = root.active_analysis().map_or(0, |analysis| {
             analysis
