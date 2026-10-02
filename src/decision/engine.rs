@@ -156,7 +156,7 @@ impl DecisionEngine {
         let base_robust_safe_moves = root
             .active_analysis()
             .map_or(crate::direction::MoveMask::empty(), |analysis| {
-                analysis.tactical.ours.safe_moves
+                analysis.tactical().ours.safe_moves
             });
         let base_escape_pressure_milli =
             root_escape_pressure_milli(&evaluations, base_robust_safe_moves);
@@ -210,7 +210,7 @@ impl DecisionEngine {
         let root_analysis = root
             .active_analysis()
             .expect("active root must have analysis");
-        let robust_safe_moves = root_analysis.tactical.ours.safe_moves;
+        let robust_safe_moves = root_analysis.tactical().ours.safe_moves;
         let policy = ReservedCellPolicy::default();
         let escape_pressure_milli = root_escape_pressure_milli(&evaluations, robust_safe_moves);
         let escape_choice = if escape_should_override(intent, escape_pressure_milli) {
@@ -221,7 +221,7 @@ impl DecisionEngine {
 
         let food_candidates = food::candidates(
             &root.state,
-            &root_analysis.state,
+            root_analysis.state_analysis(),
             ForecastCertainty::Deterministic,
         );
         let preferred_food = intent.and_then(DecisionIntent::food_target);
@@ -230,14 +230,14 @@ impl DecisionEngine {
             .map(|target| {
                 food::candidates_for_target(
                     &root.state,
-                    &root_analysis.state,
+                    root_analysis.state_analysis(),
                     target,
                     ForecastCertainty::Deterministic,
                 )
             })
             .unwrap_or_default();
 
-        let posture = *root_analysis.posture;
+        let posture = *root_analysis.posture();
         let guaranteed_kill_choice = escape_choice
             .is_none()
             .then(|| choose_guaranteed_kill(&evaluations, &root.state, robust_safe_moves, policy))
@@ -433,12 +433,12 @@ impl DecisionEngine {
                 dag_memo_hits: dag_stats.memo_hits,
                 dag_deterministic_evaluations: dag_stats.deterministic_evaluations,
                 dag_provisional_evaluations: dag_stats.provisional_evaluations,
-                aggression_milli: root_analysis.posture.growth_aggression_milli,
-                strategic_phase: root_analysis.posture.phase,
-                growth_aggression_milli: root_analysis.posture.growth_aggression_milli,
-                size_dominance_milli: root_analysis.posture.size_dominance_milli,
-                hunt_drive_milli: root_analysis.posture.hunt_drive_milli,
-                food_urgency_milli: root_analysis.posture.food_urgency_milli,
+                aggression_milli: root_analysis.posture().growth_aggression_milli,
+                strategic_phase: root_analysis.posture().phase,
+                growth_aggression_milli: root_analysis.posture().growth_aggression_milli,
+                size_dominance_milli: root_analysis.posture().size_dominance_milli,
+                hunt_drive_milli: root_analysis.posture().hunt_drive_milli,
+                food_urgency_milli: root_analysis.posture().food_urgency_milli,
                 our_length: root_analysis
                     .posture
                     .our_length
