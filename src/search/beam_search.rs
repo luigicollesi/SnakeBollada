@@ -81,9 +81,7 @@ mod tests {
 
     use crate::search::beam::{BEAM_WIDTH, SEED_DEPTH};
     use crate::search::maximin::evaluate_seed_beam;
-    use crate::simulation::state::{
-        RulesContext, SimulatedGameState, SimulatedSnake,
-    };
+    use crate::simulation::state::{RulesContext, SimulatedGameState, SimulatedSnake};
     use crate::Coord;
 
     use super::*;
