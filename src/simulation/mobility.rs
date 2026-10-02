@@ -140,7 +140,7 @@ impl MobilityAnalysis {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::simulation::state::{AggressionState, RulesContext};
+    use crate::simulation::state::{RulesContext};
 
     fn snake(id: &str, health: i32, body: &[(i32, i32)]) -> SimulatedSnake {
         SimulatedSnake {
@@ -165,7 +165,6 @@ mod tests {
                 max_health: 100,
                 hazard_damage_per_turn: 0,
             },
-            aggression: AggressionState::default(),
         }
     }
 
