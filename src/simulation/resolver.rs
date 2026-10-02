@@ -452,7 +452,10 @@ mod tests {
         let action = action(&initial, &[("ours", Direction::Right)]);
 
         let resolved = resolve_turn(&initial, &action).unwrap();
-        assert!(resolved.state.snake("ours").unwrap().length() > initial.snake("ours").unwrap().length());
+        assert!(
+            resolved.state.snake("ours").unwrap().length()
+                > initial.snake("ours").unwrap().length()
+        );
     }
 
     #[test]
