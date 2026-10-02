@@ -518,6 +518,7 @@ mod tests {
         assert!(!resolved.state.snake("ours").unwrap().alive);
         assert!(resolved.events.contains(&InstantEvent::Died {
             cause: EliminationCause::Hazard,
+            attribution: EliminationAttribution::Environment,
         }));
     }
 
@@ -565,6 +566,7 @@ mod tests {
         assert!(!resolved.state.snake("ours").unwrap().alive);
         assert!(resolved.events.contains(&InstantEvent::Died {
             cause: EliminationCause::OutOfHealth,
+            attribution: EliminationAttribution::Environment,
         }));
     }
 
@@ -578,6 +580,7 @@ mod tests {
         assert!(!resolved.state.snake("ours").unwrap().alive);
         assert!(resolved.events.contains(&InstantEvent::Died {
             cause: EliminationCause::OutOfBounds,
+            attribution: EliminationAttribution::SelfInflicted,
         }));
     }
 
@@ -595,6 +598,7 @@ mod tests {
         assert!(!resolved.state.snake("ours").unwrap().alive);
         assert!(resolved.events.contains(&InstantEvent::Died {
             cause: EliminationCause::SelfCollision,
+            attribution: EliminationAttribution::SelfInflicted,
         }));
     }
 
@@ -615,6 +619,7 @@ mod tests {
         assert!(!resolved.state.snake("enemy").unwrap().alive);
         assert!(resolved.events.contains(&InstantEvent::Died {
             cause: EliminationCause::HeadToHead,
+            attribution: EliminationAttribution::Actor(actor(&initial, "enemy")),
         }));
     }
 
@@ -729,6 +734,7 @@ mod tests {
         assert!(resolved.state.snake("enemy").unwrap().alive);
         assert!(resolved.events.contains(&InstantEvent::Died {
             cause: EliminationCause::BodyCollision,
+            attribution: EliminationAttribution::Actor(actor(&initial, "enemy")),
         }));
     }
 
