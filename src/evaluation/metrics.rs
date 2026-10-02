@@ -120,9 +120,7 @@ fn food_potential_milli(
 
 fn space_capacity_milli(reachable_space: u32, length: usize) -> u16 {
     let length = u32::try_from(length).unwrap_or(u32::MAX).max(1);
-    let ratio_milli = reachable_space
-        .saturating_mul(1000)
-        .saturating_div(length);
+    let ratio_milli = reachable_space.saturating_mul(1000).saturating_div(length);
 
     if ratio_milli <= 1000 {
         return 0;

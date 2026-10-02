@@ -84,8 +84,8 @@ impl StrategicWeights {
 
 fn survival_weight(space_capacity_milli: u16, territory_control_milli: u16) -> u16 {
     let spatial = space_survival_weight(space_capacity_milli);
-    let territorial = territory_survival_weight(territory_control_milli)
-        .min(MAX_TERRITORY_ONLY_SURVIVAL_WEIGHT);
+    let territorial =
+        territory_survival_weight(territory_control_milli).min(MAX_TERRITORY_ONLY_SURVIVAL_WEIGHT);
     spatial.max(territorial)
 }
 
