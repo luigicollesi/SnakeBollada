@@ -110,6 +110,7 @@ If none applies, the metric should be removed.
 | space capacity | Survival | dynamic weight + spatial-capacity delta |
 | territory control | Survival | dynamic weight + territory-control delta |
 | food potential | Food | food-potential delta |
+| food survival pressure | Survival | repeated per-turn starvation harm |
 
 Strategic weights are recomputed from the node state for every living actor. They are not persisted across turns.
 
@@ -122,6 +123,7 @@ Examples:
 - body-on-edge and leading-edge-chain are internal components of border structural risk;
 - inward control is an internal component of border pin risk;
 - spatial capacity and territory control are distinct Survival signals;
+- food opportunity for growth belongs to Food, while food runway required to stay alive belongs to Survival;
 - own territory-control gain belongs to Survival;
 - causal capture/denial of enemy ownership belongs to Hunting.
 

@@ -16,6 +16,7 @@ const MOBILITY_STEP: i64 = 320;
 const ENCLOSURE_STEP: i64 = 220;
 const BORDER_EXPOSURE_STEP: i64 = 1;
 const BORDER_PIN_RISK_STEP: i64 = 1;
+const FOOD_SURVIVAL_PRESSURE_STEP: i64 = 1;
 const HEALTH_PRESSURE_STEP: i64 = 1;
 const HAZARD_DAMAGE_STEP: i64 = 35;
 const KILL_BENEFIT: i64 = 1400;
@@ -33,6 +34,7 @@ struct ActorTransitionFacts {
     border_risk_improvement_milli: i16,
     border_exposure_milli: u16,
     border_pin_risk_milli: u16,
+    food_survival_pressure_milli: u16,
     health_pressure_milli: u16,
     hazard_damage: u16,
     enclosure_improvement: i8,
@@ -230,6 +232,9 @@ impl TransitionFacts {
                 border_pin_risk_milli: after
                     .map(|snapshot| snapshot.metrics.border_pin_risk_milli)
                     .unwrap_or(0),
+                food_survival_pressure_milli: after
+                    .map(|snapshot| snapshot.metrics.food_survival_pressure_milli)
+                    .unwrap_or(0),
                 health_pressure_milli,
                 hazard_damage,
                 enclosure_improvement: after.map_or(0, |snapshot| {
@@ -294,6 +299,10 @@ fn score_actor_transition(
     );
     survival_harm = survival_harm.saturating_add(
         i64::from(facts.border_pin_risk_milli).saturating_mul(BORDER_PIN_RISK_STEP),
+    );
+    survival_harm = survival_harm.saturating_add(
+        i64::from(facts.food_survival_pressure_milli)
+            .saturating_mul(FOOD_SURVIVAL_PRESSURE_STEP),
     );
     survival_harm = survival_harm.saturating_add(
         i64::from(facts.health_pressure_milli).saturating_mul(HEALTH_PRESSURE_STEP),
@@ -910,6 +919,27 @@ mod tests {
         assert_eq!(second.survival_harm, 700);
         assert_eq!(first.net, -700);
         assert_eq!(second.net, -700);
+    }
+
+    #[test]
+    fn starvation_pressure_is_a_repeated_survival_harm() {
+        let weights = StrategicWeights {
+            food: 0,
+            hunting: 0,
+            survival: 1000,
+        };
+        let facts = ActorTransitionFacts {
+            food_survival_pressure_milli: 600,
+            ..ActorTransitionFacts::default()
+        };
+
+        let first = score_actor_transition(facts, weights);
+        let second = score_actor_transition(facts, weights);
+
+        assert_eq!(first.survival_harm, 600);
+        assert_eq!(second.survival_harm, 600);
+        assert_eq!(first.net, -600);
+        assert_eq!(second.net, -600);
     }
 
     #[test]

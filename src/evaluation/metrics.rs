@@ -12,6 +12,7 @@ pub(crate) struct ActorUtilityMetrics {
     pub(crate) space_capacity_milli: u16,
     pub(crate) territory_control_milli: u16,
     pub(crate) food_potential_milli: u16,
+    pub(crate) food_survival_pressure_milli: u16,
 }
 
 impl ActorUtilityMetrics {
@@ -50,6 +51,7 @@ impl ActorUtilityMetrics {
             ),
             territory_control_milli: territory.competitive_control_milli(actor),
             food_potential_milli: food_potential_milli(state, territory, actor),
+            food_survival_pressure_milli: food_survival_pressure_milli(state, territory, actor),
         })
     }
 }
@@ -118,6 +120,76 @@ fn food_potential_milli(
         .unwrap_or(u16::MAX)
 }
 
+fn food_survival_pressure_milli(
+    state: &SimulatedGameState,
+    territory: &TerritoryAnalysis,
+    actor: ActorIndex,
+) -> u16 {
+    let Some(actor_snake) = state.snake_at(actor).filter(|snake| snake.alive) else {
+        return 1000;
+    };
+
+    let health = actor_snake.health.max(0) as u32;
+    if health == 0 {
+        return 1000;
+    }
+
+    let claimable_eta = state
+        .food
+        .iter()
+        .filter_map(|food| {
+            let own_distance = territory.distance_for_actor(actor, *food)?;
+            let contested_earlier_or_equal = state
+                .snakes
+                .iter()
+                .enumerate()
+                .filter(|(index, snake)| snake.alive && ActorIndex::new(*index) != Some(actor))
+                .filter_map(|(index, enemy)| {
+                    let enemy_actor = ActorIndex::new(index)?;
+                    let enemy_distance = territory.distance_for_actor(enemy_actor, *food)?;
+                    Some((enemy, enemy_distance))
+                })
+                .any(|(enemy, enemy_distance)| {
+                    enemy_distance < own_distance
+                        || (enemy_distance == own_distance
+                            && enemy.length() >= actor_snake.length())
+                });
+
+            (!contested_earlier_or_equal).then_some(own_distance)
+        })
+        .min();
+
+    let buffer = match claimable_eta {
+        Some(eta) => i32::try_from(health)
+            .unwrap_or(i32::MAX)
+            .saturating_sub(i32::from(eta)),
+        None => i32::try_from(health)
+            .unwrap_or(i32::MAX)
+            .saturating_sub(20),
+    };
+
+    runway_pressure_milli(buffer)
+}
+
+fn runway_pressure_milli(buffer_turns: i32) -> u16 {
+    match buffer_turns {
+        i32::MIN..=0 => 1000,
+        1..=3 => 900,
+        4..=6 => 800,
+        7..=10 => 650,
+        11..=15 => 450,
+        16..=20 => 250,
+        21..=30 => {
+            let offset = u32::try_from(buffer_turns.saturating_sub(20)).unwrap_or(10);
+            250_u32
+                .saturating_sub(offset.saturating_mul(25))
+                .try_into()
+                .unwrap_or(0)
+        }
+        _ => 0,
+    }
+}
+
 fn space_capacity_milli(reachable_space: u32, length: usize) -> u16 {
     let length = u32::try_from(length).unwrap_or(u32::MAX).max(1);
     let ratio_milli = reachable_space.saturating_mul(1000).saturating_div(length);
@@ -182,6 +254,54 @@ mod tests {
                 hazard_damage_per_turn: 0,
             },
         }
+    }
+
+    #[test]
+    fn starvation_pressure_is_zero_with_large_runway() {
+        assert_eq!(runway_pressure_milli(40), 0);
+        assert_eq!(runway_pressure_milli(30), 0);
+    }
+
+    #[test]
+    fn starvation_pressure_rises_as_food_runway_collapses() {
+        assert!(runway_pressure_milli(15) < runway_pressure_milli(8));
+        assert!(runway_pressure_milli(8) < runway_pressure_milli(3));
+        assert_eq!(runway_pressure_milli(0), 1000);
+    }
+
+    #[test]
+    fn claimable_near_food_reduces_low_health_survival_pressure() {
+        let mut near = state(Coord { x: 2, y: 3 });
+        near.snake_mut("ours").unwrap().health = 12;
+        let mut far = state(Coord { x: 2, y: 6 });
+        far.snake_mut("ours").unwrap().health = 12;
+
+        let near_territory = TerritoryAnalysis::from_state(&near);
+        let far_territory = TerritoryAnalysis::from_state(&far);
+        let actor = near.actor_index("ours").unwrap();
+
+        assert!(
+            food_survival_pressure_milli(&near, &near_territory, actor)
+                < food_survival_pressure_milli(&far, &far_territory, actor)
+        );
+    }
+
+    #[test]
+    fn enemy_claimed_food_does_not_relieve_starvation_pressure() {
+        let mut claimable = state(Coord { x: 2, y: 4 });
+        claimable.snake_mut("ours").unwrap().health = 18;
+
+        let mut enemy_claimed = state(Coord { x: 5, y: 4 });
+        enemy_claimed.snake_mut("ours").unwrap().health = 18;
+
+        let claimable_territory = TerritoryAnalysis::from_state(&claimable);
+        let enemy_territory = TerritoryAnalysis::from_state(&enemy_claimed);
+        let actor = claimable.actor_index("ours").unwrap();
+
+        assert!(
+            food_survival_pressure_milli(&enemy_claimed, &enemy_territory, actor)
+                > food_survival_pressure_milli(&claimable, &claimable_territory, actor)
+        );
     }
 
     #[test]
