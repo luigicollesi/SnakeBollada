@@ -6,7 +6,7 @@ use crate::direction::Direction;
 use crate::evaluation::{ActorVec, TransitionScore};
 use crate::simulation::state::ActorIndex;
 
-use super::beam::{select_seed_beam, BeamLine, BeamStep, LineId, LineTerminal};
+use super::beam::{select_seed_beam, BeamLine, BeamPath, BeamStep, LineId, LineTerminal};
 use super::bounds::ValueBound;
 use super::graph::{FutureGraph, NodeId, SearchEdge, SearchNode};
 
@@ -39,7 +39,7 @@ pub(crate) struct ContinuationEvaluation {
     pub(crate) value: i64,
     pub(crate) terminal: LineTerminal,
     pub(crate) bound: ValueBound,
-    pub(crate) steps: Vec<BeamStep>,
+    pub(crate) path: BeamPath,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -52,7 +52,7 @@ struct EvaluatedLine {
     actor_utility_totals: ActorVec<i64>,
     terminal: LineTerminal,
     bound: ValueBound,
-    steps: Vec<BeamStep>,
+    path: BeamPath,
 }
 
 impl EvaluatedLine {
@@ -79,14 +79,11 @@ impl EvaluatedLine {
             .benefit_total
             .saturating_add(transition.instant_benefit);
         self.harm_total = self.harm_total.saturating_add(transition.instant_harm);
-        self.steps.insert(
-            0,
-            BeamStep {
-                node,
-                joint_action: edge.joint_action.clone(),
-                child: edge.child,
-            },
-        );
+        self.path = self.path.prepend(BeamStep {
+            node,
+            joint_action: edge.joint_action.clone(),
+            child: edge.child,
+        });
         self
     }
 }
@@ -125,7 +122,7 @@ pub(crate) fn evaluate_seed_lines(graph: &FutureGraph, target_depth: u8) -> Seed
     for direction in Direction::ALL {
         let variants = evaluator.evaluate_direction_variants(root, direction, target_depth);
         for line in variants {
-            let depth = line.steps.len().try_into().unwrap_or(u8::MAX);
+            let depth = line.path.len().try_into().unwrap_or(u8::MAX);
             lines.push(BeamLine {
                 id: LineId(next_id),
                 root_direction: direction,
@@ -138,7 +135,7 @@ pub(crate) fn evaluate_seed_lines(graph: &FutureGraph, target_depth: u8) -> Seed
                 value: line.value,
                 terminal: line.terminal,
                 bound: line.bound,
-                steps: line.steps,
+                path: line.path,
             });
             next_id = next_id.saturating_add(1);
         }
@@ -173,7 +170,7 @@ pub(crate) fn evaluate_continuations(
         .evaluate_node_variants(start_node, target_depth)
         .into_iter()
         .map(|line| ContinuationEvaluation {
-            depth: line.steps.len().try_into().unwrap_or(u8::MAX),
+            depth: line.path.len().try_into().unwrap_or(u8::MAX),
             benefit_total: line.benefit_total,
             harm_total: line.harm_total,
             our_utility_total: line.our_utility_total,
@@ -182,7 +179,7 @@ pub(crate) fn evaluate_continuations(
             value: line.value,
             terminal: line.terminal,
             bound: line.bound,
-            steps: line.steps,
+            path: line.path,
         })
         .collect()
 }
@@ -337,7 +334,7 @@ fn frontier_line(exact: bool) -> EvaluatedLine {
         } else {
             incomplete_bound(0)
         },
-        steps: Vec::new(),
+        path: BeamPath::empty(),
     }
 }
 
@@ -356,7 +353,7 @@ fn terminal_line(node: &SearchNode) -> Option<EvaluatedLine> {
             actor_utility_totals: ActorVec::new(),
             terminal: LineTerminal::Lost,
             bound: ValueBound::Exact(-TERMINAL_VALUE),
-            steps: Vec::new(),
+            path: BeamPath::empty(),
         });
     }
 
@@ -378,7 +375,7 @@ fn terminal_line(node: &SearchNode) -> Option<EvaluatedLine> {
         actor_utility_totals: ActorVec::new(),
         terminal: LineTerminal::Won,
         bound: ValueBound::Exact(TERMINAL_VALUE),
-        steps: Vec::new(),
+        path: BeamPath::empty(),
     })
 }
 
@@ -506,8 +503,8 @@ fn same_joint_context_except_actor(
     deviating_actor: ActorIndex,
 ) -> bool {
     let (Some(left_action), Some(right_action)) = (
-        left.steps.first().map(|step| &step.joint_action),
-        right.steps.first().map(|step| &step.joint_action),
+        left.path.first().map(|step| &step.joint_action),
+        right.path.first().map(|step| &step.joint_action),
     ) else {
         return false;
     };
@@ -533,7 +530,7 @@ fn rank_and_dedup_variants(lines: &mut Vec<EvaluatedLine>, limit: usize) {
 
     for line in lines.drain(..) {
         if unique.iter().any(|existing: &EvaluatedLine| {
-            existing.steps == line.steps && existing.terminal == line.terminal
+            existing.path == line.path && existing.terminal == line.terminal
         }) {
             continue;
         }
@@ -680,12 +677,12 @@ mod tests {
             ]),
             terminal: LineTerminal::Running,
             bound: ValueBound::Exact(value),
-            steps: vec![BeamStep {
+            path: BeamPath::single(BeamStep {
                 node: 0,
                 joint_action: JointAction::new()
                     .with_move(ActorIndex::new(0).unwrap(), Direction::Up),
                 child,
-            }],
+            }),
         }
     }
 
@@ -703,12 +700,12 @@ mod tests {
             ]),
             terminal: LineTerminal::Running,
             bound: ValueBound::Exact(value),
-            steps: vec![BeamStep {
+            path: BeamPath::single(BeamStep {
                 node: 0,
                 joint_action: JointAction::new()
                     .with_move(ActorIndex::new(0).unwrap(), Direction::Up),
                 child,
-            }],
+            }),
         }
     }
 
@@ -743,7 +740,7 @@ mod tests {
         assert!(running.iter().all(|line| line.depth == SEED_DEPTH));
         assert!(running
             .iter()
-            .all(|line| line.steps.len() == usize::from(SEED_DEPTH)));
+            .all(|line| line.path.len() == usize::from(SEED_DEPTH)));
         assert!(running.iter().all(|line| line.bound.is_exact()));
     }
 
@@ -792,7 +789,7 @@ mod tests {
 
         assert!(best.terminal != LineTerminal::Running || best.depth == 2);
         assert!(best.bound.is_exact());
-        assert!(best.steps.first().is_none_or(|step| step.node == tip));
+        assert!(best.path.first().is_none_or(|step| step.node == tip));
     }
 
     #[test]
@@ -841,10 +838,14 @@ mod tests {
         child: NodeId,
     ) -> EvaluatedLine {
         let mut line = synthetic_multi_enemy_line(ours, enemy_a, enemy_b, child);
-        line.steps[0].joint_action = JointAction::new()
-            .with_move(ActorIndex::new(0).unwrap(), Direction::Up)
-            .with_move(ActorIndex::new(1).unwrap(), enemy_a_move)
-            .with_move(ActorIndex::new(2).unwrap(), enemy_b_move);
+        line.path = BeamPath::single(BeamStep {
+            node: 0,
+            joint_action: JointAction::new()
+                .with_move(ActorIndex::new(0).unwrap(), Direction::Up)
+                .with_move(ActorIndex::new(1).unwrap(), enemy_a_move)
+                .with_move(ActorIndex::new(2).unwrap(), enemy_b_move),
+            child,
+        });
         line
     }
 
@@ -864,13 +865,13 @@ mod tests {
         );
 
         assert_eq!(
-            chosen.steps[0]
+            chosen.path.first().unwrap()
                 .joint_action
                 .direction_for(ActorIndex::new(1).unwrap()),
             Some(Direction::Up)
         );
         assert_eq!(
-            chosen.steps[0]
+            chosen.path.first().unwrap()
                 .joint_action
                 .direction_for(ActorIndex::new(2).unwrap()),
             Some(Direction::Up)
@@ -918,7 +919,7 @@ mod tests {
         assert_eq!(lines[0].our_utility_total, 800);
         assert_eq!(lines[1].our_utility_total, 700);
         assert_eq!(lines[2].our_utility_total, 600);
-        assert_ne!(lines[1].steps, lines[2].steps);
+        assert_ne!(lines[1].path, lines[2].path);
     }
 
     #[test]
