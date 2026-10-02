@@ -56,7 +56,7 @@ impl StateKey {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::simulation::state::{SimulatedSnake};
+    use crate::simulation::state::SimulatedSnake;
 
     fn sample_state() -> SimulatedGameState {
         SimulatedGameState {

@@ -999,7 +999,7 @@ mod tests {
                 max_health: 100,
                 hazard_damage_per_turn: 0,
             },
-                    }
+        }
     }
 
     #[test]

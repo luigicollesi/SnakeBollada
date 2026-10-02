@@ -297,10 +297,9 @@ fn score_actor_transition(
     food_harm = weighted(food_harm, weights.food);
     hunting_benefit = weighted(hunting_benefit, weights.hunting);
     hunting_harm = weighted(hunting_harm, weights.hunting);
-    survival_benefit = weighted(survival_benefit, weights.survival)
-        .saturating_add(territory_benefit);
-    survival_harm = weighted(survival_harm, weights.survival)
-        .saturating_add(territory_harm);
+    survival_benefit =
+        weighted(survival_benefit, weights.survival).saturating_add(territory_benefit);
+    survival_harm = weighted(survival_harm, weights.survival).saturating_add(territory_harm);
 
     let terminal_benefit = if facts.sole_survivor {
         TERMINAL_UTILITY
