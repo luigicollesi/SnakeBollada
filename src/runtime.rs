@@ -1,19 +1,21 @@
+use std::collections::HashMap;
+use std::sync::Arc;
+
 use log::{info, warn};
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, RwLock};
 
 use crate::decision::session::DecisionState;
 use crate::strategy::Decision;
 use crate::GameState;
 
-#[derive(Debug)]
-struct ActiveGame {
-    game_id: String,
-    decision_state: DecisionState,
+#[derive(Debug, Default)]
+struct GameSession {
+    decision_state: Mutex<DecisionState>,
 }
 
 #[derive(Debug, Default)]
 pub(crate) struct GameRuntime {
-    active: Mutex<Option<ActiveGame>>,
+    sessions: RwLock<HashMap<String, Arc<GameSession>>>,
 }
 
 impl GameRuntime {
@@ -22,32 +24,24 @@ impl GameRuntime {
     }
 
     pub(crate) async fn start(&self, state: &GameState) {
-        let mut active = self.active.lock().await;
+        let mut sessions = self.sessions.write().await;
 
-        if let Some(current) = active.as_ref() {
-            if current.game_id == state.game.id {
-                warn!("duplicate /start for game {}", state.game.id);
-                return;
-            }
-
-            warn!(
-                "replacing active game {} with {}",
-                current.game_id, state.game.id
-            );
+        if sessions.contains_key(&state.game.id) {
+            warn!("duplicate /start for game {}", state.game.id);
+            return;
         }
 
-        *active = Some(ActiveGame {
-            game_id: state.game.id.clone(),
-            decision_state: DecisionState::default(),
-        });
-
+        sessions.insert(state.game.id.clone(), Arc::new(GameSession::default()));
         info!("GAME START {}", state.game.id);
     }
 
     pub(crate) async fn decide(&self, state: &GameState) -> Decision {
-        let mut active = self.active.lock().await;
+        let session = {
+            let sessions = self.sessions.read().await;
+            sessions.get(&state.game.id).cloned()
+        };
 
-        let Some(session) = active.as_mut() else {
+        let Some(session) = session else {
             warn!(
                 "received /move without active session for {}; using stateless fallback",
                 state.game.id
@@ -55,44 +49,31 @@ impl GameRuntime {
             return crate::strategy::choose_move(state);
         };
 
-        if session.game_id != state.game.id {
-            warn!(
-                "received /move for {} while {} is active; using stateless fallback",
-                state.game.id, session.game_id
-            );
-            return crate::strategy::choose_move(state);
-        }
-
-        session.decision_state.decide(state)
+        let mut decision_state = session.decision_state.lock().await;
+        decision_state.decide(state)
     }
 
     pub(crate) async fn end(&self, state: &GameState) {
-        let mut active = self.active.lock().await;
+        let removed = self.sessions.write().await.remove(&state.game.id);
 
-        match active.as_ref() {
-            Some(session) if session.game_id == state.game.id => {
-                *active = None;
-                info!("GAME OVER {}", state.game.id);
-            }
-            Some(session) => {
-                warn!(
-                    "received /end for {} while {} is active; keeping current session",
-                    state.game.id, session.game_id
-                );
-            }
-            None => {
-                warn!("duplicate or unknown /end for game {}", state.game.id);
-            }
+        if removed.is_some() {
+            info!("GAME OVER {}", state.game.id);
+        } else {
+            warn!("duplicate or unknown /end for game {}", state.game.id);
         }
     }
 
     #[cfg(test)]
-    async fn active_game_id(&self) -> Option<String> {
-        self.active
-            .lock()
+    async fn active_game_ids(&self) -> Vec<String> {
+        let mut ids = self
+            .sessions
+            .read()
             .await
-            .as_ref()
-            .map(|session| session.game_id.clone())
+            .keys()
+            .cloned()
+            .collect::<Vec<_>>();
+        ids.sort();
+        ids
     }
 }
 
@@ -136,42 +117,56 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn start_creates_single_active_session() {
+    async fn start_creates_active_session() {
         let runtime = GameRuntime::new();
 
         runtime.start(&state("game-a")).await;
 
-        assert_eq!(runtime.active_game_id().await.as_deref(), Some("game-a"));
+        assert_eq!(runtime.active_game_ids().await, vec!["game-a"]);
     }
 
     #[tokio::test]
-    async fn new_start_replaces_previous_session() {
+    async fn starts_keep_independent_sessions_for_multiple_games() {
         let runtime = GameRuntime::new();
 
         runtime.start(&state("game-a")).await;
         runtime.start(&state("game-b")).await;
 
-        assert_eq!(runtime.active_game_id().await.as_deref(), Some("game-b"));
+        assert_eq!(
+            runtime.active_game_ids().await,
+            vec!["game-a".to_string(), "game-b".to_string()]
+        );
     }
 
     #[tokio::test]
-    async fn end_discards_active_tree_session() {
+    async fn duplicate_start_keeps_existing_session() {
         let runtime = GameRuntime::new();
-        let game = state("game-a");
 
-        runtime.start(&game).await;
-        runtime.end(&game).await;
+        runtime.start(&state("game-a")).await;
+        runtime.start(&state("game-a")).await;
 
-        assert_eq!(runtime.active_game_id().await, None);
+        assert_eq!(runtime.active_game_ids().await, vec!["game-a"]);
     }
 
     #[tokio::test]
-    async fn unrelated_end_does_not_delete_active_session() {
+    async fn end_discards_only_target_game_session() {
+        let runtime = GameRuntime::new();
+        let game_a = state("game-a");
+
+        runtime.start(&game_a).await;
+        runtime.start(&state("game-b")).await;
+        runtime.end(&game_a).await;
+
+        assert_eq!(runtime.active_game_ids().await, vec!["game-b"]);
+    }
+
+    #[tokio::test]
+    async fn unrelated_end_does_not_delete_other_sessions() {
         let runtime = GameRuntime::new();
 
         runtime.start(&state("game-a")).await;
         runtime.end(&state("game-b")).await;
 
-        assert_eq!(runtime.active_game_id().await.as_deref(), Some("game-a"));
+        assert_eq!(runtime.active_game_ids().await, vec!["game-a"]);
     }
 }
