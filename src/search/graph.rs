@@ -19,7 +19,7 @@ use crate::enemy::tracing::{
     trace_actor_relative_with_mobility, trace_with_mobility, EnemyTracingOutput,
 };
 use crate::evaluation::{
-    ActorSnapshot, ActorTable, ActorUtilityMetrics, StrategicWeights, TransitionScore,
+    ActorSnapshot, ActorUtilityMetrics, ActorVec, StrategicWeights, TransitionScore,
 };
 use crate::modes::hunting::{self, HuntingModeOutput};
 use crate::modes::survival::{self, SurvivalModeOutput};
@@ -28,7 +28,7 @@ use crate::simulation::mobility::MobilityAnalysis;
 use crate::simulation::resolver::{
     resolve_turn, ForecastDelta, InstantEvent, ResolveError, TurnResolution,
 };
-use crate::simulation::state::SimulatedGameState;
+use crate::simulation::state::{ActorIndex, SimulatedGameState};
 use crate::spatial::SpatialOccupancy;
 
 use super::actor_priority::ordered_child_ids_for_search;
@@ -126,12 +126,12 @@ pub(crate) struct NodeAnalysis {
     pub(crate) enclosure: Arc<EnclosureAnalysis>,
     pub(crate) survival: Arc<SurvivalModeOutput>,
     pub(crate) hunting: Arc<HuntingModeOutput>,
-    pub(crate) actor_snapshots: ActorTable<ActorSnapshot>,
+    pub(crate) actor_snapshots: ActorVec<ActorSnapshot>,
 }
 
 impl NodeAnalysis {
-    pub(crate) fn actor_snapshot(&self, actor_id: &str) -> Option<&ActorSnapshot> {
-        self.actor_snapshots.get(actor_id)
+    pub(crate) fn actor_snapshot(&self, actor: ActorIndex) -> Option<&ActorSnapshot> {
+        self.actor_snapshots.get(actor)
     }
 }
 
@@ -1102,18 +1102,20 @@ fn build_node_with_key(
         let actor_snapshots = state
             .snakes
             .par_iter()
-            .filter(|snake| snake.alive)
-            .filter_map(|snake| {
+            .enumerate()
+            .filter(|(_, snake)| snake.alive)
+            .filter_map(|(index, snake)| {
+                let actor = ActorIndex::new(index)?;
                 let metrics = ActorUtilityMetrics::from_parts(
                     &state, &snake.id, &mobility, &territory, &enclosure, &border,
                 )?;
                 let weights =
                     StrategicWeights::for_actor(&state, &snake.id, metrics.territory_share_milli)?;
-                Some((snake.id.clone(), ActorSnapshot::new(metrics, weights)))
+                Some((actor, ActorSnapshot::new(metrics, weights)))
             })
             .collect::<Vec<_>>()
             .into_iter()
-            .collect::<ActorTable<_>>();
+            .collect::<ActorVec<_>>();
         Some(Arc::new(NodeAnalysis {
             state: state_analysis,
             mobility,
@@ -1176,6 +1178,11 @@ mod tests {
         }
     }
 
+    fn actor(state: &SimulatedGameState, actor_id: &str) -> ActorIndex {
+        state.actor_index(actor_id).expect("actor must exist")
+    }
+
+
     #[test]
     fn node_analysis_scores_every_living_actor() {
         let graph = FutureGraph::new(state());
@@ -1185,10 +1192,10 @@ mod tests {
             .expect("running root must have analysis");
 
         let ours = analysis
-            .actor_snapshot("ours")
+            .actor_snapshot(actor(&graph.node(graph.root()).state, "ours"))
             .expect("our actor evaluation must exist");
         let enemy = analysis
-            .actor_snapshot("enemy")
+            .actor_snapshot(actor(&graph.node(graph.root()).state, "enemy"))
             .expect("enemy actor evaluation must exist");
 
         assert_eq!(ours.weights.total(), 1000);
@@ -1208,7 +1215,7 @@ mod tests {
             .active_analysis()
             .expect("beam root must have analysis");
         let ours = analysis
-            .actor_snapshot("ours")
+            .actor_snapshot(actor(&root.state, "ours"))
             .expect("our actor snapshot must exist");
 
         assert!(analysis
