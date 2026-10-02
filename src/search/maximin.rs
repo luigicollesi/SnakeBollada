@@ -59,7 +59,7 @@ impl EvaluatedLine {
         mut self,
         node: NodeId,
         edge: &SearchEdge,
-        transition: TransitionScore,
+        transition: &TransitionScore,
     ) -> Self {
         for (actor_id, score) in transition.actors.iter() {
             self.actor_utility_totals.add(actor_id, score.net);
@@ -84,7 +84,6 @@ impl EvaluatedLine {
                 node,
                 joint_action: edge.joint_action.clone(),
                 child: edge.child,
-                transition,
             },
         );
         self
@@ -265,11 +264,10 @@ impl MaximinEvaluator<'_> {
 
         let mut edge_variants = Vec::with_capacity(edges.len());
         for edge in edges {
-            let transition = edge.transition.clone();
             let variants = self
                 .evaluate_node_variants(edge.child, remaining_depth.saturating_sub(1))
                 .into_iter()
-                .map(|line| line.shifted_by_edge(node_id, edge, transition.clone()))
+                .map(|line| line.shifted_by_edge(node_id, edge, &edge.transition))
                 .collect::<Vec<_>>();
 
             if variants.is_empty() {
@@ -682,7 +680,6 @@ mod tests {
                 node: 0,
                 joint_action: JointAction::new().with_move("ours", Direction::Up),
                 child,
-                transition: TransitionScore::default(),
             }],
         }
     }
@@ -705,7 +702,6 @@ mod tests {
                 node: 0,
                 joint_action: JointAction::new().with_move("ours", Direction::Up),
                 child,
-                transition: TransitionScore::default(),
             }],
         }
     }
