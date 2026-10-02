@@ -516,8 +516,9 @@ fn same_joint_context_except_actor(
         .iter()
         .enumerate()
         .filter(|(index, snake)| snake.alive && ActorIndex::new(*index) != Some(deviating_actor))
-        .all(|(_, snake)| {
-            left_action.direction_for(&snake.id) == right_action.direction_for(&snake.id)
+        .all(|(index, _)| {
+            let actor = ActorIndex::new(index).expect("simulated actor index must fit");
+            left_action.direction_for(actor) == right_action.direction_for(actor)
         })
 }
 
@@ -680,7 +681,7 @@ mod tests {
             bound: ValueBound::Exact(value),
             steps: vec![BeamStep {
                 node: 0,
-                joint_action: JointAction::new().with_move("ours", Direction::Up),
+                joint_action: JointAction::new().with_move(ActorIndex::new(0).unwrap(), Direction::Up),
                 child,
             }],
         }
@@ -702,7 +703,7 @@ mod tests {
             bound: ValueBound::Exact(value),
             steps: vec![BeamStep {
                 node: 0,
-                joint_action: JointAction::new().with_move("ours", Direction::Up),
+                joint_action: JointAction::new().with_move(ActorIndex::new(0).unwrap(), Direction::Up),
                 child,
             }],
         }
@@ -838,9 +839,9 @@ mod tests {
     ) -> EvaluatedLine {
         let mut line = synthetic_multi_enemy_line(ours, enemy_a, enemy_b, child);
         line.steps[0].joint_action = JointAction::new()
-            .with_move("ours", Direction::Up)
-            .with_move("enemy-a", enemy_a_move)
-            .with_move("enemy-b", enemy_b_move);
+            .with_move(ActorIndex::new(0).unwrap(), Direction::Up)
+            .with_move(ActorIndex::new(1).unwrap(), enemy_a_move)
+            .with_move(ActorIndex::new(2).unwrap(), enemy_b_move);
         line
     }
 
@@ -860,11 +861,15 @@ mod tests {
         );
 
         assert_eq!(
-            chosen.steps[0].joint_action.direction_for("enemy-a"),
+            chosen.steps[0]
+                .joint_action
+                .direction_for(ActorIndex::new(1).unwrap()),
             Some(Direction::Up)
         );
         assert_eq!(
-            chosen.steps[0].joint_action.direction_for("enemy-b"),
+            chosen.steps[0]
+                .joint_action
+                .direction_for(ActorIndex::new(2).unwrap()),
             Some(Direction::Up)
         );
     }
