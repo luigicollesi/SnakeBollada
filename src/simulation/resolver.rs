@@ -74,7 +74,6 @@ pub(crate) fn resolve_turn(
             InstantEvent::AteFood { actor, .. } if Some(*actor) == our_actor
         )
     }) {
-        next.aggression.record_food();
     }
     eliminate_snakes(&mut next, &mut events)?;
 
@@ -376,7 +375,7 @@ mod tests {
     use super::*;
     use crate::direction::Direction;
     use crate::simulation::state::{
-        AggressionState, RulesContext, SimulatedGameState, SimulatedSnake,
+        RulesContext, SimulatedGameState, SimulatedSnake,
     };
 
     fn snake(id: &str, health: i32, body: &[(i32, i32)]) -> SimulatedSnake {
@@ -402,7 +401,6 @@ mod tests {
                 max_health: 100,
                 hazard_damage_per_turn: 0,
             },
-            aggression: AggressionState::default(),
         }
     }
 
@@ -458,20 +456,17 @@ mod tests {
     }
 
     #[test]
-    fn our_food_updates_branch_local_aggression() {
+    fn our_food_is_recorded_without_strategy_side_state() {
         let mut initial = state(vec![snake("ours", 50, &[(2, 2), (2, 1)])]);
         initial.food = vec![Coord { x: 3, y: 2 }];
         let action = action(&initial, &[("ours", Direction::Right)]);
 
         let resolved = resolve_turn(&initial, &action).unwrap();
 
-        assert_eq!(initial.aggression.fruits_eaten, 0);
-        assert_eq!(resolved.state.aggression.fruits_eaten, 1);
-        assert!(resolved.state.aggression.value > initial.aggression.value);
     }
 
     #[test]
-    fn enemy_food_does_not_update_our_aggression() {
+    fn enemy_food_does_not_change_our_snake_state() {
         let mut initial = state(vec![
             snake("ours", 50, &[(2, 2), (2, 1)]),
             snake("enemy", 50, &[(4, 2), (4, 1)]),
@@ -484,7 +479,6 @@ mod tests {
 
         let resolved = resolve_turn(&initial, &action).unwrap();
 
-        assert_eq!(resolved.state.aggression, initial.aggression);
     }
 
     #[test]
