@@ -256,30 +256,30 @@ pub(crate) fn append_continuation(
         actor_utility_totals.add(actor_id, *utility);
     }
 
-    let (our_utility_total, opponent_utility_total, value, bound) =
-        if continuation.terminal == LineTerminal::Running
-            || continuation.certainty.is_provisional()
-        {
-            let ours = line
-                .our_utility_total
-                .saturating_add(continuation.our_utility_total);
-            let opponents = line
-                .opponent_utility_total
-                .saturating_add(continuation.opponent_utility_total);
-            (
-                ours,
-                opponents,
-                ours.saturating_sub(opponents),
-                shift_bound(continuation.bound, prefix_value),
-            )
-        } else {
-            (
-                continuation.our_utility_total,
-                continuation.opponent_utility_total,
-                continuation.value,
-                continuation.bound,
-            )
-        };
+    let (our_utility_total, opponent_utility_total, value, bound) = if continuation.terminal
+        == LineTerminal::Running
+        || continuation.certainty.is_provisional()
+    {
+        let ours = line
+            .our_utility_total
+            .saturating_add(continuation.our_utility_total);
+        let opponents = line
+            .opponent_utility_total
+            .saturating_add(continuation.opponent_utility_total);
+        (
+            ours,
+            opponents,
+            ours.saturating_sub(opponents),
+            shift_bound(continuation.bound, prefix_value),
+        )
+    } else {
+        (
+            continuation.our_utility_total,
+            continuation.opponent_utility_total,
+            continuation.value,
+            continuation.bound,
+        )
+    };
 
     BeamLine {
         id: line.id,
