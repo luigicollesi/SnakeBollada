@@ -306,7 +306,10 @@ mod tests {
 
         assert_eq!(decision.reason, DecisionReason::NoSafeMove);
         assert!(direction_stays_in_bounds(&state, decision.direction));
-        assert!(matches!(decision.direction, Direction::Right | Direction::Down));
+        assert!(matches!(
+            decision.direction,
+            Direction::Right | Direction::Down
+        ));
     }
 
     #[test]
