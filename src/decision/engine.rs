@@ -132,11 +132,24 @@ fn select_line_with_continuity<'a>(
         return Some(best);
     }
 
-    if root_has_survival_emergency(graph)
+    Some(select_incumbent_or_challenger(
+        best,
+        incumbent,
+        root_has_survival_emergency(graph),
+    ))
+}
+
+fn select_incumbent_or_challenger<'a>(
+    challenger: &'a BeamLine,
+    incumbent: &'a BeamLine,
+    emergency: bool,
+) -> &'a BeamLine {
+    if emergency
         || incumbent.terminal == LineTerminal::Lost
-        || (best.terminal == LineTerminal::Won && incumbent.terminal != LineTerminal::Won)
+        || (challenger.terminal == LineTerminal::Won
+            && incumbent.terminal != LineTerminal::Won)
     {
-        return Some(best);
+        return challenger;
     }
 
     let relative_margin = incumbent
@@ -146,10 +159,10 @@ fn select_line_with_continuity<'a>(
         .saturating_div(100);
     let margin = ABSOLUTE_SWITCH_MARGIN.max(relative_margin);
 
-    if best.value > incumbent.value.saturating_add(margin) {
-        Some(best)
+    if challenger.value > incumbent.value.saturating_add(margin) {
+        challenger
     } else {
-        Some(incumbent)
+        incumbent
     }
 }
 
@@ -300,6 +313,47 @@ mod tests {
             },
             you: ours,
         }
+    }
+
+    fn line(id: u32, direction: Direction, value: i64) -> BeamLine {
+        BeamLine::exact(
+            id,
+            direction,
+            3,
+            value.max(0),
+            value.max(0).saturating_sub(value),
+            LineTerminal::Running,
+        )
+    }
+
+    #[test]
+    fn marginal_challenger_does_not_replace_incumbent() {
+        let incumbent = line(1, Direction::Right, 4_000);
+        let challenger = line(2, Direction::Up, 4_100);
+
+        let chosen = select_incumbent_or_challenger(&challenger, &incumbent, false);
+
+        assert_eq!(chosen.root_direction, Direction::Right);
+    }
+
+    #[test]
+    fn meaningful_challenger_gain_replaces_incumbent() {
+        let incumbent = line(1, Direction::Right, 4_000);
+        let challenger = line(2, Direction::Up, 4_500);
+
+        let chosen = select_incumbent_or_challenger(&challenger, &incumbent, false);
+
+        assert_eq!(chosen.root_direction, Direction::Up);
+    }
+
+    #[test]
+    fn survival_emergency_bypasses_switch_margin() {
+        let incumbent = line(1, Direction::Right, 4_000);
+        let challenger = line(2, Direction::Up, 4_001);
+
+        let chosen = select_incumbent_or_challenger(&challenger, &incumbent, true);
+
+        assert_eq!(chosen.root_direction, Direction::Up);
     }
 
     #[test]
