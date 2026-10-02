@@ -179,13 +179,11 @@ impl BeamLine {
     }
 
     pub(crate) fn is_confirmed_loss(&self) -> bool {
-        self.terminal == LineTerminal::Lost
-            && self.certainty == ForecastCertainty::Deterministic
+        self.terminal == LineTerminal::Lost && self.certainty == ForecastCertainty::Deterministic
     }
 
     pub(crate) fn is_confirmed_win(&self) -> bool {
-        self.terminal == LineTerminal::Won
-            && self.certainty == ForecastCertainty::Deterministic
+        self.terminal == LineTerminal::Won && self.certainty == ForecastCertainty::Deterministic
     }
 
     pub(crate) fn completes_depth(&self, target_depth: u8) -> bool {
