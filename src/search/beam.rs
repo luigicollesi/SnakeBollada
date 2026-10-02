@@ -33,10 +33,7 @@ pub(crate) struct BeamStep {
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum BeamPathNode {
     Step(BeamStep),
-    Concat {
-        left: BeamPath,
-        right: BeamPath,
-    },
+    Concat { left: BeamPath, right: BeamPath },
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
