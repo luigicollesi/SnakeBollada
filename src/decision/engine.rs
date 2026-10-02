@@ -1,7 +1,7 @@
 use std::time::Duration;
 
 use crate::direction::Direction;
-use crate::search::beam::{BeamLine, LineTerminal};
+use crate::search::beam::BeamLine;
 use crate::search::beam_search::{search_beam, BeamSearchResult};
 use crate::search::budget::SearchBudget;
 use crate::search::forecast::{FoodForecastPolicy, ForecastCertainty, PROVISIONAL_TERMINAL_VALUE};
@@ -289,6 +289,8 @@ fn baseline_fallback(state: &GameState) -> Decision {
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
+
+    use crate::search::beam::LineTerminal;
 
     use serde_json::json;
 
