@@ -277,7 +277,6 @@ mod tests {
         ];
 
         let mut graph = FutureGraph::new(initial);
-        graph.use_beam_lean_analysis();
         let budget = SearchBudget::for_duration(Duration::from_secs(10));
 
         let result = build_seed_checkpoint(&mut graph, &budget)
