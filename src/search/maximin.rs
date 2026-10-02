@@ -8,6 +8,7 @@ use crate::simulation::state::ActorIndex;
 
 use super::beam::{select_seed_beam, BeamLine, BeamPath, BeamStep, LineId, LineTerminal};
 use super::bounds::ValueBound;
+use super::forecast::{ForecastCertainty, PROVISIONAL_TERMINAL_VALUE};
 use super::graph::{FutureGraph, NodeId, SearchEdge, SearchNode};
 
 const TERMINAL_VALUE: i64 = 1_000_000_000;
@@ -38,6 +39,7 @@ pub(crate) struct ContinuationEvaluation {
     pub(crate) actor_utility_totals: ActorVec<i64>,
     pub(crate) value: i64,
     pub(crate) terminal: LineTerminal,
+    pub(crate) certainty: ForecastCertainty,
     pub(crate) bound: ValueBound,
     pub(crate) path: BeamPath,
 }
@@ -51,6 +53,7 @@ struct EvaluatedLine {
     opponent_utility_total: i64,
     actor_utility_totals: ActorVec<i64>,
     terminal: LineTerminal,
+    certainty: ForecastCertainty,
     bound: ValueBound,
     path: BeamPath,
 }
@@ -63,10 +66,21 @@ impl EvaluatedLine {
         transition: &TransitionScore,
     ) -> Self {
         for (actor, score) in transition.actors.iter() {
-            self.actor_utility_totals.add(actor, score.actor_choice_net);
+            let actor_choice = if self.terminal != LineTerminal::Running
+                && self.certainty.is_provisional()
+                && score.actor_terminal != 0
+            {
+                score
+                    .actor_terminal
+                    .signum()
+                    .saturating_mul(PROVISIONAL_TERMINAL_VALUE)
+            } else {
+                score.actor_choice_net
+            };
+            self.actor_utility_totals.add(actor, actor_choice);
         }
 
-        if self.terminal == LineTerminal::Running {
+        if self.terminal == LineTerminal::Running || self.certainty.is_provisional() {
             self.our_utility_total = self.our_utility_total.saturating_add(transition.net);
             self.opponent_utility_total = self
                 .opponent_utility_total
@@ -92,6 +106,7 @@ impl EvaluatedLine {
 struct MemoKey {
     node: NodeId,
     remaining_depth: u8,
+    certainty: ForecastCertainty,
 }
 
 struct MaximinEvaluator<'a> {
@@ -120,7 +135,12 @@ pub(crate) fn evaluate_seed_lines(graph: &FutureGraph, target_depth: u8) -> Seed
     }
 
     for direction in Direction::ALL {
-        let variants = evaluator.evaluate_direction_variants(root, direction, target_depth);
+        let variants = evaluator.evaluate_direction_variants(
+            root,
+            direction,
+            target_depth,
+            ForecastCertainty::Deterministic,
+        );
         for line in variants {
             let depth = line.path.len().try_into().unwrap_or(u8::MAX);
             lines.push(BeamLine {
@@ -134,6 +154,7 @@ pub(crate) fn evaluate_seed_lines(graph: &FutureGraph, target_depth: u8) -> Seed
                 actor_utility_totals: line.actor_utility_totals,
                 value: line.value,
                 terminal: line.terminal,
+                certainty: line.certainty,
                 bound: line.bound,
                 path: line.path,
             });
@@ -159,6 +180,7 @@ pub(crate) fn evaluate_continuations(
     graph: &FutureGraph,
     start_node: NodeId,
     target_depth: u8,
+    certainty: ForecastCertainty,
 ) -> Vec<ContinuationEvaluation> {
     let mut evaluator = MaximinEvaluator {
         graph,
@@ -167,7 +189,7 @@ pub(crate) fn evaluate_continuations(
     };
 
     evaluator
-        .evaluate_node_variants(start_node, target_depth)
+        .evaluate_node_variants(start_node, target_depth, certainty)
         .into_iter()
         .map(|line| ContinuationEvaluation {
             depth: line.path.len().try_into().unwrap_or(u8::MAX),
@@ -178,6 +200,7 @@ pub(crate) fn evaluate_continuations(
             actor_utility_totals: line.actor_utility_totals,
             value: line.value,
             terminal: line.terminal,
+            certainty: line.certainty,
             bound: line.bound,
             path: line.path,
         })
@@ -185,21 +208,28 @@ pub(crate) fn evaluate_continuations(
 }
 
 impl MaximinEvaluator<'_> {
-    fn evaluate_node(&mut self, node_id: NodeId, remaining_depth: u8) -> EvaluatedLine {
-        self.evaluate_node_variants(node_id, remaining_depth)
+    fn evaluate_node(
+        &mut self,
+        node_id: NodeId,
+        remaining_depth: u8,
+        certainty: ForecastCertainty,
+    ) -> EvaluatedLine {
+        self.evaluate_node_variants(node_id, remaining_depth, certainty)
             .into_iter()
             .next()
-            .unwrap_or_else(|| frontier_line(false))
+            .unwrap_or_else(|| frontier_line(false, certainty))
     }
 
     fn evaluate_node_variants(
         &mut self,
         node_id: NodeId,
         remaining_depth: u8,
+        certainty: ForecastCertainty,
     ) -> Vec<EvaluatedLine> {
         let key = MemoKey {
             node: node_id,
             remaining_depth,
+            certainty,
         };
         if let Some(cached) = self.memo.get(&key) {
             self.stats.memo_hits = self.stats.memo_hits.saturating_add(1);
@@ -209,15 +239,15 @@ impl MaximinEvaluator<'_> {
         self.stats.nodes_evaluated = self.stats.nodes_evaluated.saturating_add(1);
         let node = self.graph.node(node_id);
 
-        let mut result = if let Some(terminal) = terminal_line(node) {
+        let mut result = if let Some(terminal) = terminal_line(node, certainty) {
             self.stats.exact_nodes = self.stats.exact_nodes.saturating_add(1);
             vec![terminal]
         } else if remaining_depth == 0 {
             self.stats.exact_nodes = self.stats.exact_nodes.saturating_add(1);
-            vec![frontier_line(true)]
+            vec![frontier_line(true, certainty)]
         } else if !node.expansion_complete() {
             self.stats.bounded_nodes = self.stats.bounded_nodes.saturating_add(1);
-            vec![frontier_line(false)]
+            vec![frontier_line(false, certainty)]
         } else {
             let mut variants = Vec::new();
             for direction in Direction::ALL {
@@ -225,6 +255,7 @@ impl MaximinEvaluator<'_> {
                     node_id,
                     direction,
                     remaining_depth,
+                    certainty,
                 ));
             }
 
@@ -246,6 +277,7 @@ impl MaximinEvaluator<'_> {
         node_id: NodeId,
         direction: Direction,
         remaining_depth: u8,
+        certainty: ForecastCertainty,
     ) -> Vec<EvaluatedLine> {
         let node = self.graph.node(node_id);
         let Some(our_actor) = node.state.actor_index(&node.state.our_snake_id) else {
@@ -263,8 +295,18 @@ impl MaximinEvaluator<'_> {
 
         let mut edge_variants = Vec::with_capacity(edges.len());
         for edge in edges {
+            let child = self.graph.node(edge.child);
+            let child_certainty = if child.is_terminal() {
+                certainty
+            } else {
+                certainty.after(edge.forecast_delta)
+            };
             let variants = self
-                .evaluate_node_variants(edge.child, remaining_depth.saturating_sub(1))
+                .evaluate_node_variants(
+                    edge.child,
+                    remaining_depth.saturating_sub(1),
+                    child_certainty,
+                )
                 .into_iter()
                 .map(|line| line.shifted_by_edge(node_id, edge, &edge.transition))
                 .collect::<Vec<_>>();
@@ -320,7 +362,7 @@ impl MaximinEvaluator<'_> {
     }
 }
 
-fn frontier_line(exact: bool) -> EvaluatedLine {
+fn frontier_line(exact: bool, certainty: ForecastCertainty) -> EvaluatedLine {
     EvaluatedLine {
         value: 0,
         benefit_total: 0,
@@ -329,6 +371,7 @@ fn frontier_line(exact: bool) -> EvaluatedLine {
         opponent_utility_total: 0,
         actor_utility_totals: ActorVec::new(),
         terminal: LineTerminal::Running,
+        certainty,
         bound: if exact {
             ValueBound::Exact(0)
         } else {
@@ -338,21 +381,27 @@ fn frontier_line(exact: bool) -> EvaluatedLine {
     }
 }
 
-fn terminal_line(node: &SearchNode) -> Option<EvaluatedLine> {
+fn terminal_line(node: &SearchNode, certainty: ForecastCertainty) -> Option<EvaluatedLine> {
     let ours_alive = node
         .state
         .snake(&node.state.our_snake_id)
         .is_some_and(|snake| snake.alive);
     if !ours_alive {
+        let value = if certainty.is_provisional() {
+            -PROVISIONAL_TERMINAL_VALUE
+        } else {
+            -TERMINAL_VALUE
+        };
         return Some(EvaluatedLine {
-            value: -TERMINAL_VALUE,
+            value,
             benefit_total: 0,
-            harm_total: TERMINAL_VALUE,
-            our_utility_total: -TERMINAL_VALUE,
+            harm_total: value.saturating_abs(),
+            our_utility_total: value,
             opponent_utility_total: 0,
             actor_utility_totals: ActorVec::new(),
             terminal: LineTerminal::Lost,
-            bound: ValueBound::Exact(-TERMINAL_VALUE),
+            certainty,
+            bound: ValueBound::Exact(value),
             path: BeamPath::empty(),
         });
     }
@@ -366,15 +415,21 @@ fn terminal_line(node: &SearchNode) -> Option<EvaluatedLine> {
         return None;
     }
 
+    let value = if certainty.is_provisional() {
+        PROVISIONAL_TERMINAL_VALUE
+    } else {
+        TERMINAL_VALUE
+    };
     Some(EvaluatedLine {
-        value: TERMINAL_VALUE,
-        benefit_total: TERMINAL_VALUE,
+        value,
+        benefit_total: value,
         harm_total: 0,
-        our_utility_total: TERMINAL_VALUE,
+        our_utility_total: value,
         opponent_utility_total: 0,
         actor_utility_totals: ActorVec::new(),
         terminal: LineTerminal::Won,
-        bound: ValueBound::Exact(TERMINAL_VALUE),
+        certainty,
+        bound: ValueBound::Exact(value),
         path: BeamPath::empty(),
     })
 }
@@ -672,6 +727,7 @@ mod tests {
                 (ActorIndex::new(2).unwrap(), enemy_b),
             ]),
             terminal: LineTerminal::Running,
+            certainty: ForecastCertainty::Deterministic,
             bound: ValueBound::Exact(value),
             path: BeamPath::single(BeamStep {
                 node: 0,
@@ -780,7 +836,12 @@ mod tests {
         let tip = graph.node(graph.root()).children[0].child;
         graph.expand_to_depth(3).unwrap();
 
-        let continuations = evaluate_continuations(&graph, tip, 2);
+        let continuations = evaluate_continuations(
+            &graph,
+            tip,
+            2,
+            ForecastCertainty::Deterministic,
+        );
         let best = continuations.first().expect("continuation must exist");
 
         assert!(best.terminal != LineTerminal::Running || best.depth == 2);
@@ -797,7 +858,7 @@ mod tests {
             stats: MaximinStats::default(),
         };
 
-        let line = evaluator.evaluate_node(graph.root(), 2);
+        let line = evaluator.evaluate_node(graph.root(), 2, ForecastCertainty::Deterministic);
 
         assert!(!line.bound.is_exact());
         assert_eq!(line.terminal, LineTerminal::Running);
