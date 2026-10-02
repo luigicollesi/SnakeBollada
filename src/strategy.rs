@@ -26,6 +26,7 @@ pub(crate) struct BeamShadowMetadata {
     pub(crate) direction: Option<Direction>,
     pub(crate) agreed_with_legacy: bool,
     pub(crate) completed_depth: u8,
+    pub(crate) selected_depth: u8,
     pub(crate) attempted_depth: u8,
     pub(crate) line_count: u8,
     pub(crate) best_value: i64,
@@ -46,6 +47,8 @@ pub(crate) struct BeamShadowMetadata {
     pub(crate) opponent_hunting_utility: i64,
     pub(crate) opponent_survival_utility: i64,
     pub(crate) opponent_terminal_utility: i64,
+    pub(crate) forecast_provisional: bool,
+    pub(crate) terminal_confirmed: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
