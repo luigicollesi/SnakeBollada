@@ -94,8 +94,10 @@ impl OpponentProfile {
                         self.intent_stats.skipped_incomplete_root.saturating_add(1);
                 }
                 IntentSkipReason::InsufficientData => {
-                    self.intent_stats.skipped_insufficient_data =
-                        self.intent_stats.skipped_insufficient_data.saturating_add(1);
+                    self.intent_stats.skipped_insufficient_data = self
+                        .intent_stats
+                        .skipped_insufficient_data
+                        .saturating_add(1);
                 }
             },
         }
