@@ -673,10 +673,12 @@ mod tests {
         graph.expand_to_depth(1).unwrap();
 
         let root = graph.node(graph.root());
+        let our_actor = actor_index(&root.state, "ours");
         let edge = first_edge_for(&graph, Direction::Right, |edge| {
-            !edge.events.iter().any(
-                |event| matches!(event, InstantEvent::AteFood { snake, .. } if snake == "ours"),
-            )
+            !edge
+                .events
+                .iter()
+                .any(|event| matches!(event, InstantEvent::AteFood { actor, .. } if *actor == our_actor))
         });
         let child = graph.node(edge.child);
         let score = TransitionScore::from_edge(root, edge, child);
@@ -795,10 +797,12 @@ mod tests {
         graph.expand_to_depth(1).unwrap();
 
         let root = graph.node(graph.root());
+        let our_actor = actor_index(&root.state, "ours");
         let edge = first_edge_for(&graph, Direction::Right, |edge| {
-            edge.events.iter().any(
-                |event| matches!(event, InstantEvent::AteFood { snake, .. } if snake == "ours"),
-            )
+            edge
+                .events
+                .iter()
+                .any(|event| matches!(event, InstantEvent::AteFood { actor, .. } if *actor == our_actor))
         });
         let child = graph.node(edge.child);
         let score = TransitionScore::from_edge(root, edge, child);
