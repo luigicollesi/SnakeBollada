@@ -496,8 +496,7 @@ fn weighted(raw: i64, weight_milli: u16) -> i64 {
 #[cfg(test)]
 mod tests {
     use crate::direction::Direction;
-    use crate::search::graph::FutureGraph;
-    use crate::simulation::resolver::InstantEvent;
+    use crate::search::graph::{FutureGraph, SearchEdge};
     use crate::simulation::state::{
         AggressionState, RulesContext, SimulatedGameState, SimulatedSnake,
     };
