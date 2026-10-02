@@ -885,12 +885,8 @@ fn build_node_with_key(state: SimulatedGameState, key: Arc<StateKey>) -> SearchN
                 let metrics = ActorUtilityMetrics::from_parts(
                     &state, actor, &mobility, &territory, &enclosure, &border,
                 )?;
-                let weights = StrategicWeights::for_actor(
-                    &state,
-                    &snake.id,
-                    metrics.space_capacity_milli,
-                    metrics.territory_control_milli,
-                )?;
+                let weights =
+                    StrategicWeights::for_actor_metrics(&state, &snake.id, &metrics)?;
                 Some((actor, ActorSnapshot::new(metrics, weights)))
             })
             .collect::<Vec<_>>()

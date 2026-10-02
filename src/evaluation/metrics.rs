@@ -13,6 +13,7 @@ pub(crate) struct ActorUtilityMetrics {
     pub(crate) territory_control_milli: u16,
     pub(crate) food_potential_milli: u16,
     pub(crate) food_survival_pressure_milli: u16,
+    pub(crate) health_pressure_milli: u16,
 }
 
 impl ActorUtilityMetrics {
@@ -52,6 +53,10 @@ impl ActorUtilityMetrics {
             territory_control_milli: territory.competitive_control_milli(actor),
             food_potential_milli: food_potential_milli(state, territory, actor),
             food_survival_pressure_milli: food_survival_pressure_milli(state, territory, actor),
+            health_pressure_milli: health_pressure_milli(
+                actor_snake.health,
+                state.rules.max_health,
+            ),
         })
     }
 }
@@ -118,6 +123,36 @@ fn food_potential_milli(
         .min(u32::from(u16::MAX))
         .try_into()
         .unwrap_or(u16::MAX)
+}
+
+fn health_pressure_milli(health: i32, max_health: i32) -> u16 {
+    if max_health <= 0 {
+        return 1000;
+    }
+
+    let clamped = health.clamp(0, max_health);
+    let reserve_milli = i64::from(clamped)
+        .saturating_mul(1000)
+        .saturating_div(i64::from(max_health))
+        .clamp(0, 1000) as u16;
+
+    match reserve_milli {
+        0..=100 => 1000,
+        101..=200 => interpolate_pressure(reserve_milli, 100, 200, 1000, 700),
+        201..=350 => interpolate_pressure(reserve_milli, 200, 350, 700, 350),
+        351..=500 => interpolate_pressure(reserve_milli, 350, 500, 350, 120),
+        501..=700 => interpolate_pressure(reserve_milli, 500, 700, 120, 0),
+        _ => 0,
+    }
+}
+
+fn interpolate_pressure(value: u16, x0: u16, x1: u16, y0: u16, y1: u16) -> u16 {
+    let span = u32::from(x1.saturating_sub(x0)).max(1);
+    let offset = u32::from(value.saturating_sub(x0).min(x1.saturating_sub(x0)));
+    let drop = u32::from(y0.saturating_sub(y1))
+        .saturating_mul(offset)
+        .saturating_div(span);
+    u32::from(y0).saturating_sub(drop).try_into().unwrap_or(y1)
 }
 
 fn food_survival_pressure_milli(
@@ -252,6 +287,15 @@ mod tests {
                 hazard_damage_per_turn: 0,
             },
         }
+    }
+
+    #[test]
+    fn health_pressure_tracks_current_health_reserve() {
+        assert_eq!(health_pressure_milli(100, 100), 0);
+        assert_eq!(health_pressure_milli(70, 100), 0);
+        assert!(health_pressure_milli(35, 100) >= 350);
+        assert!(health_pressure_milli(15, 100) >= 700);
+        assert_eq!(health_pressure_milli(5, 100), 1000);
     }
 
     #[test]

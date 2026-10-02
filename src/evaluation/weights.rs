@@ -1,3 +1,4 @@
+use super::ActorUtilityMetrics;
 use crate::simulation::state::SimulatedGameState;
 
 const STRATEGIC_BUDGET: u16 = 1000;
@@ -15,64 +16,29 @@ pub(crate) struct StrategicWeights {
 }
 
 impl StrategicWeights {
+    pub(crate) fn for_actor_metrics(
+        state: &SimulatedGameState,
+        actor_id: &str,
+        metrics: &ActorUtilityMetrics,
+    ) -> Option<Self> {
+        strategic_weights(
+            state,
+            actor_id,
+            survival_weight_from_metrics(metrics),
+        )
+    }
+
     pub(crate) fn for_actor(
         state: &SimulatedGameState,
         actor_id: &str,
         space_capacity_milli: u16,
         territory_control_milli: u16,
     ) -> Option<Self> {
-        let actor = state.snake(actor_id).filter(|snake| snake.alive)?;
-        let actor_length = u32::try_from(actor.length()).unwrap_or(u32::MAX);
-
-        let mut enemy_count = 0_u32;
-        let mut enemy_length_sum = 0_u32;
-        let mut largest_enemy = 0_u32;
-        for enemy in state
-            .snakes
-            .iter()
-            .filter(|snake| snake.alive && snake.id != actor_id)
-        {
-            let length = u32::try_from(enemy.length()).unwrap_or(u32::MAX);
-            enemy_count = enemy_count.saturating_add(1);
-            enemy_length_sum = enemy_length_sum.saturating_add(length);
-            largest_enemy = largest_enemy.max(length);
-        }
-
-        let reference_enemy = if enemy_count == 0 {
-            0
-        } else {
-            let mean = enemy_length_sum.saturating_div(enemy_count);
-            largest_enemy
-                .saturating_mul(7)
-                .saturating_add(mean.saturating_mul(3))
-                .saturating_div(10)
-        };
-        let (size_advantage_milli, size_disadvantage_milli) =
-            relative_size_pressure(actor_length, reference_enemy);
-
-        let survival = survival_weight(space_capacity_milli, territory_control_milli);
-        let offensive_budget = STRATEGIC_BUDGET.saturating_sub(survival);
-
-        let food_share = 500_i32
-            .saturating_add(i32::from(size_disadvantage_milli) / 2)
-            .saturating_sub(i32::from(size_advantage_milli) / 2)
-            .clamp(
-                i32::from(MIN_CATEGORY_WEIGHT),
-                i32::from(MAX_CATEGORY_WEIGHT),
-            ) as u16;
-
-        let food = u32::from(offensive_budget)
-            .saturating_mul(u32::from(food_share))
-            .saturating_div(u32::from(STRATEGIC_BUDGET))
-            .try_into()
-            .unwrap_or(offensive_budget);
-        let hunting = offensive_budget.saturating_sub(food);
-
-        Some(Self {
-            food,
-            hunting,
-            survival,
-        })
+        strategic_weights(
+            state,
+            actor_id,
+            survival_weight(space_capacity_milli, territory_control_milli),
+        )
     }
 
     pub(crate) const fn total(self) -> u16 {
@@ -80,6 +46,106 @@ impl StrategicWeights {
             .saturating_add(self.hunting)
             .saturating_add(self.survival)
     }
+}
+
+fn strategic_weights(
+    state: &SimulatedGameState,
+    actor_id: &str,
+    survival: u16,
+) -> Option<StrategicWeights> {
+    let actor = state.snake(actor_id).filter(|snake| snake.alive)?;
+    let actor_length = u32::try_from(actor.length()).unwrap_or(u32::MAX);
+
+    let mut enemy_count = 0_u32;
+    let mut enemy_length_sum = 0_u32;
+    let mut largest_enemy = 0_u32;
+    for enemy in state
+        .snakes
+        .iter()
+        .filter(|snake| snake.alive && snake.id != actor_id)
+    {
+        let length = u32::try_from(enemy.length()).unwrap_or(u32::MAX);
+        enemy_count = enemy_count.saturating_add(1);
+        enemy_length_sum = enemy_length_sum.saturating_add(length);
+        largest_enemy = largest_enemy.max(length);
+    }
+
+    let reference_enemy = if enemy_count == 0 {
+        0
+    } else {
+        let mean = enemy_length_sum.saturating_div(enemy_count);
+        largest_enemy
+            .saturating_mul(7)
+            .saturating_add(mean.saturating_mul(3))
+            .saturating_div(10)
+    };
+    let (size_advantage_milli, size_disadvantage_milli) =
+        relative_size_pressure(actor_length, reference_enemy);
+    let offensive_budget = STRATEGIC_BUDGET.saturating_sub(survival);
+
+    let food_share = 500_i32
+        .saturating_add(i32::from(size_disadvantage_milli) / 2)
+        .saturating_sub(i32::from(size_advantage_milli) / 2)
+        .clamp(
+            i32::from(MIN_CATEGORY_WEIGHT),
+            i32::from(MAX_CATEGORY_WEIGHT),
+        ) as u16;
+
+    let food = u32::from(offensive_budget)
+        .saturating_mul(u32::from(food_share))
+        .saturating_div(u32::from(STRATEGIC_BUDGET))
+        .try_into()
+        .unwrap_or(offensive_budget);
+    let hunting = offensive_budget.saturating_sub(food);
+
+    Some(StrategicWeights {
+        food,
+        hunting,
+        survival,
+    })
+}
+
+fn survival_weight_from_metrics(metrics: &ActorUtilityMetrics) -> u16 {
+    let border_pressure = metrics
+        .border_structural_risk_milli
+        .max(metrics.border_exposure_milli)
+        .max(metrics.border_pin_risk_milli);
+    let mut pressures = [
+        space_survival_weight(metrics.space_capacity_milli),
+        territory_survival_weight(metrics.territory_control_milli)
+            .min(MAX_TERRITORY_ONLY_SURVIVAL_WEIGHT),
+        match metrics.enclosure_risk {
+            0 => MIN_SURVIVAL_WEIGHT,
+            1 => 350,
+            2 => 650,
+            _ => MAX_SURVIVAL_WEIGHT,
+        },
+        pressure_to_survival_weight(border_pressure),
+        pressure_to_survival_weight(metrics.food_survival_pressure_milli),
+        pressure_to_survival_weight(metrics.health_pressure_milli),
+    ];
+    pressures.sort_unstable_by(|left, right| right.cmp(left));
+
+    let primary = pressures[0];
+    let secondary_extra = pressures[1]
+        .saturating_sub(MIN_SURVIVAL_WEIGHT)
+        .saturating_mul(200)
+        .saturating_div(1000);
+
+    primary
+        .saturating_add(secondary_extra)
+        .min(MAX_SURVIVAL_WEIGHT)
+}
+
+fn pressure_to_survival_weight(pressure_milli: u16) -> u16 {
+    let pressure = pressure_milli.min(1000);
+    MIN_SURVIVAL_WEIGHT.saturating_add(
+        u32::from(MAX_SURVIVAL_WEIGHT.saturating_sub(MIN_SURVIVAL_WEIGHT))
+            .saturating_mul(u32::from(pressure))
+            .saturating_div(1000)
+            .try_into()
+            .unwrap_or(0),
+    )
 }
 
 fn survival_weight(space_capacity_milli: u16, territory_control_milli: u16) -> u16 {
@@ -258,6 +324,56 @@ mod tests {
         for pair in samples.windows(2) {
             assert!(space_survival_weight(pair[0]) >= space_survival_weight(pair[1]));
         }
+    }
+
+    fn metrics(
+        space: u16,
+        territory: u16,
+        enclosure: u8,
+        border: u16,
+        starvation: u16,
+        health: u16,
+    ) -> ActorUtilityMetrics {
+        ActorUtilityMetrics {
+            safe_non_reverse_moves: 3,
+            enclosure_risk: enclosure,
+            border_structural_risk_milli: border,
+            border_exposure_milli: 0,
+            border_pin_risk_milli: 0,
+            space_capacity_milli: space,
+            territory_control_milli: territory,
+            food_potential_milli: 0,
+            food_survival_pressure_milli: starvation,
+            health_pressure_milli: health,
+        }
+    }
+
+    #[test]
+    fn critical_starvation_dominates_comfortable_space_and_territory() {
+        let state = state(&[("ours", 12), ("enemy", 6)]);
+        let current = metrics(1000, 800, 0, 0, 1000, 0);
+        let weights = StrategicWeights::for_actor_metrics(&state, "ours", &current).unwrap();
+
+        assert_eq!(weights.survival, MAX_SURVIVAL_WEIGHT);
+        assert!(weights.survival > weights.food.saturating_add(weights.hunting));
+    }
+
+    #[test]
+    fn critical_enclosure_dominates_size_advantage() {
+        let state = state(&[("ours", 15), ("enemy", 6)]);
+        let current = metrics(1000, 800, 3, 0, 0, 0);
+        let weights = StrategicWeights::for_actor_metrics(&state, "ours", &current).unwrap();
+
+        assert_eq!(weights.survival, MAX_SURVIVAL_WEIGHT);
+    }
+
+    #[test]
+    fn healthy_open_state_keeps_survival_low() {
+        let state = state(&[("ours", 8), ("enemy", 8)]);
+        let current = metrics(1000, 700, 0, 0, 0, 0);
+        let weights = StrategicWeights::for_actor_metrics(&state, "ours", &current).unwrap();
+
+        assert!(weights.survival <= 250);
     }
 
     #[test]
