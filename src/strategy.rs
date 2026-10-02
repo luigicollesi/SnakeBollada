@@ -406,13 +406,38 @@ mod tests {
             }),
         );
 
+        let normalized = crate::simulation::state::SimulatedGameState::from(&state);
+        let forecast_policy = crate::search::forecast::FoodForecastPolicy::from_game_state(&state);
+        let mut graph =
+            crate::search::graph::FutureGraph::new_beam_with_forecast(normalized, forecast_policy);
+        let budget = crate::search::budget::SearchBudget::from_state_with_extra_reserve(&state, 0);
+        let result = crate::search::beam_search::search_beam(&mut graph, &budget)
+            .unwrap()
+            .expect("turn 31 beam must produce candidates");
+        let candidates = result
+            .checkpoint
+            .lines
+            .iter()
+            .map(|line| {
+                (
+                    line.root_direction,
+                    line.value,
+                    line.depth,
+                    line.terminal,
+                    line.certainty,
+                    line.our_utility_total,
+                    line.opponent_utility_total,
+                )
+            })
+            .collect::<Vec<_>>();
+
         let decision = choose_move(&state);
 
         assert_eq!(decision.reason, DecisionReason::BeamUtility);
         assert_eq!(
             decision.direction,
             Direction::Down,
-            "turn 31 decision metadata: {decision:?}"
+            "turn 31 decision metadata: {decision:?}; candidates={candidates:?}"
         );
         assert_ne!(decision.direction, Direction::Right);
         assert!(decision.search.analyzed_depth <= crate::search::beam::MAX_BEAM_DEPTH);
