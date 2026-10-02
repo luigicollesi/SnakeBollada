@@ -7,7 +7,7 @@ mod weights;
 
 pub(crate) use actor_vec::ActorVec;
 pub(crate) use metrics::ActorUtilityMetrics;
-pub(crate) use transition_score::TransitionScore;
+pub(crate) use transition_score::{ActorTransitionScore, TransitionScore};
 pub(crate) use weights::StrategicWeights;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
