@@ -202,10 +202,7 @@ mod tests {
                 Coord { x: 2, y: 0 },
             ],
         );
-        let enemy = snake(
-            "enemy",
-            vec![Coord { x: 5, y: 5 }, Coord { x: 5, y: 4 }],
-        );
+        let enemy = snake("enemy", vec![Coord { x: 5, y: 5 }, Coord { x: 5, y: 4 }]);
 
         GameState {
             game: Game {
