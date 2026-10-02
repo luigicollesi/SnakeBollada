@@ -1,6 +1,7 @@
 #![allow(dead_code)]
 
-use super::{ActorTable, StrategicWeights};
+use super::{ActorVec, StrategicWeights};
+use crate::simulation::state::ActorIndex;
 use crate::search::graph::{SearchEdge, SearchNode};
 use crate::simulation::resolver::{EliminationAttribution, InstantEvent};
 
@@ -38,7 +39,7 @@ struct ActorTransitionFacts {
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 struct TransitionFacts {
-    actors: ActorTable<ActorTransitionFacts>,
+    actors: ActorVec<ActorTransitionFacts>,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -62,7 +63,7 @@ pub(crate) struct TransitionScore {
     pub(crate) instant_harm: i64,
     pub(crate) net: i64,
     pub(crate) opponent_net_total: i64,
-    pub(crate) actors: ActorTable<ActorTransitionScore>,
+    pub(crate) actors: ActorVec<ActorTransitionScore>,
 }
 
 impl TransitionScore {
@@ -76,27 +77,39 @@ impl TransitionScore {
         child: &SearchNode,
     ) -> Self {
         let facts = TransitionFacts::from_parts(parent, events, child);
-        let mut actors = ActorTable::new();
+        let mut actors = ActorVec::with_capacity(parent.state.snakes.len());
 
-        for actor in parent.state.snakes.iter().filter(|snake| snake.alive) {
+        for (index, actor) in parent
+            .state
+            .snakes
+            .iter()
+            .enumerate()
+            .filter(|(_, snake)| snake.alive)
+        {
+            let Some(actor_index) = ActorIndex::new(index) else {
+                continue;
+            };
             let (Some(parent_eval), Some(actor_facts)) = (
                 actor_evaluation(parent, &actor.id),
-                facts.actors.get(&actor.id),
+                facts.actors.get(actor_index),
             ) else {
                 continue;
             };
 
             actors.insert(
-                actor.id.clone(),
+                actor_index,
                 score_actor_transition(*actor_facts, parent_eval.weights),
             );
         }
 
-        let our_id = parent.state.our_snake_id.as_str();
-        let ours = actors.get(our_id).copied().unwrap_or_default();
+        let our_index = parent.state.actor_index(&parent.state.our_snake_id);
+        let ours = our_index
+            .and_then(|actor| actors.get(actor))
+            .copied()
+            .unwrap_or_default();
         let opponent_net_total = actors
             .iter()
-            .filter(|(actor_id, _)| *actor_id != our_id)
+            .filter(|(actor, _)| Some(*actor) != our_index)
             .fold(0_i64, |sum, (_, score)| sum.saturating_add(score.net));
 
         Self {
@@ -108,8 +121,8 @@ impl TransitionScore {
         }
     }
 
-    pub(crate) fn for_actor(&self, actor_id: &str) -> Option<&ActorTransitionScore> {
-        self.actors.get(actor_id)
+    pub(crate) fn for_actor(&self, actor: ActorIndex) -> Option<&ActorTransitionScore> {
+        self.actors.get(actor)
     }
 
     pub(crate) fn route_delta(&self) -> i64 {
@@ -120,13 +133,15 @@ impl TransitionScore {
 impl TransitionFacts {
     fn from_parts(parent: &SearchNode, events: &[InstantEvent], child: &SearchNode) -> Self {
         let hunting_transfers = hunting_territory_benefits(parent, child);
-        let mut ate_food = ActorTable::<bool>::new();
-        let mut kill_benefits = ActorTable::<i64>::new();
+        let mut ate_food = ActorVec::<bool>::with_capacity(parent.state.snakes.len());
+        let mut kill_benefits = ActorVec::<i64>::with_capacity(parent.state.snakes.len());
 
         for event in events {
             match event {
                 InstantEvent::AteFood { snake, .. } => {
-                    ate_food.insert(snake.clone(), true);
+                    if let Some(actor) = parent.state.actor_index(snake) {
+                        ate_food.insert(actor, true);
+                    }
                 }
                 InstantEvent::EnemyKilled {
                     enemy, attribution, ..
@@ -134,7 +149,9 @@ impl TransitionFacts {
                     if let Some(killer) = attributed_actor(attribution, &parent.state.our_snake_id)
                     {
                         if killer != enemy {
-                            kill_benefits.add(killer, KILL_BENEFIT);
+                            if let Some(actor) = parent.state.actor_index(killer) {
+                                kill_benefits.add(actor, KILL_BENEFIT);
+                            }
                         }
                     }
                 }
@@ -148,16 +165,25 @@ impl TransitionFacts {
             .iter()
             .filter(|snake| snake.alive)
             .count();
-        let mut actors = ActorTable::new();
+        let mut actors = ActorVec::with_capacity(parent.state.snakes.len());
 
-        for actor in parent.state.snakes.iter().filter(|snake| snake.alive) {
+        for (index, actor) in parent
+            .state
+            .snakes
+            .iter()
+            .enumerate()
+            .filter(|(_, snake)| snake.alive)
+        {
+            let Some(actor_index) = ActorIndex::new(index) else {
+                continue;
+            };
             let Some(before) = actor_evaluation(parent, &actor.id) else {
                 continue;
             };
             let after = actor_evaluation(child, &actor.id);
-            let child_actor = child.state.snake(&actor.id);
+            let child_actor = child.state.snake_at(actor_index);
             let alive_after = child_actor.is_some_and(|snake| snake.alive);
-            let ate_food_now = ate_food.get(&actor.id).copied().unwrap_or(false);
+            let ate_food_now = ate_food.get(actor_index).copied().unwrap_or(false);
             let health_pressure_milli =
                 child_actor.filter(|snake| snake.alive).map_or(0, |snake| {
                     health_pressure_milli(snake.health, child.state.rules.max_health)
@@ -204,12 +230,12 @@ impl TransitionFacts {
                             .saturating_sub(i16::from(snapshot.metrics.enclosure_risk)),
                     )
                 }),
-                hunting_territory_benefit: hunting_transfers.get(&actor.id).copied().unwrap_or(0),
-                kill_benefit: kill_benefits.get(&actor.id).copied().unwrap_or(0),
+                hunting_territory_benefit: hunting_transfers.get(actor_index).copied().unwrap_or(0),
+                kill_benefit: kill_benefits.get(actor_index).copied().unwrap_or(0),
                 died: !alive_after,
                 sole_survivor: alive_after && living_after == 1,
             };
-            actors.insert(actor.id.clone(), facts);
+            actors.insert(actor_index, facts);
         }
 
         Self { actors }
@@ -362,13 +388,13 @@ fn food_potential_delta(before: u16, after: u16) -> (i64, i64) {
     }
 }
 
-fn hunting_territory_benefits(parent: &SearchNode, child: &SearchNode) -> ActorTable<i64> {
+fn hunting_territory_benefits(parent: &SearchNode, child: &SearchNode) -> ActorVec<i64> {
     let Some(parent_territory) = parent.active_analysis().map(|analysis| &analysis.territory)
     else {
-        return ActorTable::new();
+        return ActorVec::new();
     };
     let Some(child_territory) = child.active_analysis().map(|analysis| &analysis.territory) else {
-        return ActorTable::new();
+        return ActorVec::new();
     };
 
     let board_cells = parent
@@ -383,7 +409,7 @@ fn hunting_territory_benefits(parent: &SearchNode, child: &SearchNode) -> ActorT
         .saturating_mul(HUNTING_DENIAL_NUMERATOR)
         .saturating_div(HUNTING_DENIAL_DENOMINATOR)
         .max(1);
-    let mut benefits = ActorTable::<i64>::new();
+    let mut benefits = ActorVec::<i64>::with_capacity(parent.state.snakes.len());
 
     for y in 0..parent.state.height {
         for x in 0..parent.state.width {
@@ -397,7 +423,9 @@ fn hunting_territory_benefits(parent: &SearchNode, child: &SearchNode) -> ActorT
 
             if let Some(new_owner) = child_territory.competitive_owner_at(coord) {
                 if previous_owner != new_owner {
-                    benefits.add(new_owner, cell_value);
+                    if let Some(actor) = parent.state.actor_index(new_owner) {
+                        benefits.add(actor, cell_value);
+                    }
                 }
                 continue;
             }
@@ -416,7 +444,9 @@ fn hunting_territory_benefits(parent: &SearchNode, child: &SearchNode) -> ActorT
                     continue;
                 }
                 if child_territory.competitive_contested_by(coord, &actor.id) {
-                    benefits.add(&actor.id, split_denial);
+                    if let Some(actor_index) = parent.state.actor_index(&actor.id) {
+                        benefits.add(actor_index, split_denial);
+                    }
                 }
             }
         }
