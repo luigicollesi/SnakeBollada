@@ -60,20 +60,22 @@ impl DecisionEngine {
         });
         let beam_metadata = beam_metadata(graph, &result, budget.elapsed());
 
-        let mut search = SearchMetadata::default();
-        search.completed_depth = result.completed_depth();
-        search.analyzed_depth = result.completed_depth();
-        search.nodes = graph.node_count().try_into().unwrap_or(u32::MAX);
-        search.edges = graph.edge_count();
-        search.transposition_hits = graph.transposition_hits();
-        search.elapsed_us = budget.elapsed().as_micros().try_into().unwrap_or(u64::MAX);
-        search.safety_reserve_us = budget
-            .safety_reserve()
-            .as_micros()
-            .try_into()
-            .unwrap_or(u64::MAX);
-        search.runtime_jitter_reserve_us = extra_reserve_ms.saturating_mul(1000);
-        search.beam_shadow = beam_metadata;
+        let search = SearchMetadata {
+            completed_depth: result.completed_depth(),
+            analyzed_depth: result.completed_depth(),
+            nodes: graph.node_count().try_into().unwrap_or(u32::MAX),
+            edges: graph.edge_count(),
+            transposition_hits: graph.transposition_hits(),
+            elapsed_us: budget.elapsed().as_micros().try_into().unwrap_or(u64::MAX),
+            safety_reserve_us: budget
+                .safety_reserve()
+                .as_micros()
+                .try_into()
+                .unwrap_or(u64::MAX),
+            runtime_jitter_reserve_us: extra_reserve_ms.saturating_mul(1000),
+            beam_shadow: beam_metadata,
+            ..SearchMetadata::default()
+        };
 
         Some(Decision {
             direction,
