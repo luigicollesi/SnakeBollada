@@ -430,6 +430,30 @@ mod tests {
                 )
             })
             .collect::<Vec<_>>();
+        let root = graph.root();
+        let our_actor = graph.node(root).state.actor_index("ours").unwrap();
+        let root_edges = graph
+            .node(root)
+            .children
+            .iter()
+            .filter_map(|edge| {
+                let direction = edge.joint_action.direction_for(our_actor)?;
+                let score = edge.transition.for_actor(our_actor)?;
+                let child = graph.node(edge.child);
+                let metrics = child.active_analysis()?.actor_snapshot(our_actor)?.metrics;
+                Some((
+                    direction,
+                    score.food_benefit.saturating_sub(score.food_harm),
+                    score.hunting_benefit.saturating_sub(score.hunting_harm),
+                    score.survival_benefit.saturating_sub(score.survival_harm),
+                    metrics.border_exposure_milli,
+                    metrics.border_pin_risk_milli,
+                    metrics.border_escape_pressure_milli,
+                    metrics.safe_non_reverse_moves,
+                    metrics.space_capacity_milli,
+                ))
+            })
+            .collect::<Vec<_>>();
 
         let decision = choose_move(&state);
 
@@ -437,7 +461,7 @@ mod tests {
         assert_eq!(
             decision.direction,
             Direction::Down,
-            "turn 31 decision metadata: {decision:?}; candidates={candidates:?}"
+            "turn 31 decision metadata: {decision:?}; candidates={candidates:?}; root_edges={root_edges:?}"
         );
         assert_ne!(decision.direction, Direction::Right);
         assert!(decision.search.analyzed_depth <= crate::search::beam::MAX_BEAM_DEPTH);
