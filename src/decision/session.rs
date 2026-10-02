@@ -58,8 +58,6 @@ impl DecisionState {
         self.observe_aggression(state);
         self.observe_opponents(state);
 
-        let prioritize_food = self.aggression.fruits_eaten < OPENING_FOOD_TARGET_FRUITS;
-
         let mut normalized = SimulatedGameState::from(state);
         normalized.aggression = self.aggression;
 
@@ -110,15 +108,7 @@ impl DecisionState {
         {
             decision
         } else {
-            let mut legacy_graph =
-                FutureGraph::new_with_opponent_profiles(normalized, self.opponent_profiles.clone());
-            DecisionEngine::stateless().decide_with_graph_with_reserve_and_intent(
-                state,
-                &mut legacy_graph,
-                runtime_jitter_reserve_ms,
-                None,
-                prioritize_food,
-            )
+            choose_move_baseline(state)
         };
 
         graph.retain_chosen_direction(decision.direction);
