@@ -699,7 +699,7 @@ fn hunting_intent_progress(
         });
 
     let Some(our_actor) = root.state.actor_index(&root.state.our_snake_id) else {
-        return 0;
+        return None;
     };
 
     let mut scores = Vec::new();
