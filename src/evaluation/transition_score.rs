@@ -30,6 +30,7 @@ const TERMINAL_UTILITY: i64 = 1_000_000_000;
 struct ActorTransitionFacts {
     ate_food: bool,
     consumed_food: Option<crate::Coord>,
+    food_consumption_factor_milli: u16,
     food_potential_before: u16,
     food_potential_after: u16,
     space_capacity_delta_milli: i16,
@@ -218,6 +219,13 @@ impl TransitionFacts {
             let facts = ActorTransitionFacts {
                 ate_food: ate_food_now,
                 consumed_food,
+                food_consumption_factor_milli: consumed_food.map_or(1000, |food| {
+                    super::metrics::food_border_attraction_milli(
+                        &parent.state,
+                        actor_index,
+                        food,
+                    )
+                }),
                 food_potential_before: consumed_food.map_or(
                     before.metrics.food_potential_milli,
                     |food| {
@@ -301,7 +309,11 @@ fn score_actor_transition(
     let (mut food_benefit, mut food_harm) =
         food_potential_delta(facts.food_potential_before, facts.food_potential_after);
     if facts.ate_food {
-        food_benefit = food_benefit.saturating_add(FOOD_CONSUMED);
+        food_benefit = food_benefit.saturating_add(
+            FOOD_CONSUMED
+                .saturating_mul(i64::from(facts.food_consumption_factor_milli))
+                .saturating_div(1000),
+        );
     }
 
     let mut hunting_benefit = facts
@@ -1084,6 +1096,7 @@ mod tests {
         let facts = ActorTransitionFacts {
             ate_food: true,
             consumed_food: Some(Coord { x: 3, y: 3 }),
+            food_consumption_factor_milli: 1000,
             food_potential_before: 500,
             food_potential_after: 550,
             ..ActorTransitionFacts::default()
@@ -1096,6 +1109,27 @@ mod tests {
             FOOD_CONSUMED + 30 * FOOD_POTENTIAL_DELTA_SCALE
         );
         assert_eq!(score.food_harm, 0);
+    }
+
+    #[test]
+    fn edge_food_consumption_reward_can_be_suppressed_for_large_snake() {
+        let weights = StrategicWeights {
+            food: 1000,
+            hunting: 0,
+            survival: 0,
+        };
+        let facts = ActorTransitionFacts {
+            ate_food: true,
+            consumed_food: Some(Coord { x: 0, y: 3 }),
+            food_consumption_factor_milli: 0,
+            food_potential_before: 0,
+            food_potential_after: 0,
+            ..ActorTransitionFacts::default()
+        };
+
+        let score = score_actor_transition(facts, weights);
+
+        assert_eq!(score.food_benefit, 0);
     }
 
     #[test]

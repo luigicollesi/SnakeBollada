@@ -154,3 +154,10 @@ Temporary intermediate vectors, maps, choke details, and aggregates should be co
 Enemy tracing is an ordering layer, not a pruning layer. Every deterministic legal opponent move remains in the joint-action generator. Historical opponent profiles may change move order only; they never alter actor utility and never remove a legal move.
 
 - border escape pressure is an instantaneous Survival pressure used for weighting and continuity emergency detection; it is not added as a second transition harm.
+
+
+## Size-aware food risk
+
+Food utility is reduced near the board edge as absolute snake length grows. The curve begins at length 10 and reaches full aversion at length 18: edge food has zero Food-category attraction, one-cell-from-edge food retains 10%, two-cells-from-edge food retains 50%, while food at distance 3+ is unaffected. The same factor applies to potential and immediate consumption reward. Survival remains free to choose edge food when starvation or terminal risk makes it necessary.
+
+When an actor reaches roughly a 40% length advantage over the largest living opponent, Food is capped at about 5% of the remaining offensive budget and the rest flows to Hunting. This dominance cap ramps continuously from +20% to +40% and does not alter Survival weighting.

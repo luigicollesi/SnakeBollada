@@ -2,6 +2,12 @@ use crate::analysis::{BorderFobicAnalysis, EnclosureAnalysis, TerritoryAnalysis}
 use crate::simulation::mobility::MobilityAnalysis;
 use crate::simulation::state::{ActorIndex, SimulatedGameState};
 
+const BORDER_FOOD_AVERSION_START_LENGTH: usize = 10;
+const BORDER_FOOD_AVERSION_FULL_LENGTH: usize = 18;
+const EDGE_FOOD_FULL_FACTOR_MILLI: u16 = 0;
+const NEAR_EDGE_FOOD_FULL_FACTOR_MILLI: u16 = 100;
+const EDGE_TWO_FOOD_FULL_FACTOR_MILLI: u16 = 500;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct ActorUtilityMetrics {
     pub(crate) safe_non_reverse_moves: u8,
@@ -110,7 +116,15 @@ pub(super) fn food_potential_milli_excluding(
                 ),
             };
 
-            Some(proximity.saturating_mul(claim_factor).saturating_div(1000))
+            let border_factor =
+                food_border_attraction_milli(state, actor, *food);
+            Some(
+                proximity
+                    .saturating_mul(claim_factor)
+                    .saturating_div(1000)
+                    .saturating_mul(u32::from(border_factor))
+                    .saturating_div(1000),
+            )
         })
         .collect::<Vec<_>>();
 
@@ -136,6 +150,65 @@ pub(super) fn food_potential_milli_excluding(
         .min(u32::from(u16::MAX))
         .try_into()
         .unwrap_or(u16::MAX)
+}
+
+pub(super) fn food_border_attraction_milli(
+    state: &SimulatedGameState,
+    actor: ActorIndex,
+    food: crate::Coord,
+) -> u16 {
+    let Some(snake) = state.snake_at(actor).filter(|snake| snake.alive) else {
+        return 1000;
+    };
+    let edge_distance = edge_distance(state, food);
+
+    if snake.length() <= BORDER_FOOD_AVERSION_START_LENGTH || edge_distance >= 3 {
+        return 1000;
+    }
+
+    let progress_numerator = snake
+        .length()
+        .saturating_sub(BORDER_FOOD_AVERSION_START_LENGTH)
+        .min(
+            BORDER_FOOD_AVERSION_FULL_LENGTH
+                .saturating_sub(BORDER_FOOD_AVERSION_START_LENGTH),
+        );
+    let progress_denominator = BORDER_FOOD_AVERSION_FULL_LENGTH
+        .saturating_sub(BORDER_FOOD_AVERSION_START_LENGTH)
+        .max(1);
+    let full_factor = match edge_distance {
+        0 => EDGE_FOOD_FULL_FACTOR_MILLI,
+        1 => NEAR_EDGE_FOOD_FULL_FACTOR_MILLI,
+        2 => EDGE_TWO_FOOD_FULL_FACTOR_MILLI,
+        _ => 1000,
+    };
+    let reduction = 1000_u32
+        .saturating_sub(u32::from(full_factor))
+        .saturating_mul(u32::try_from(progress_numerator).unwrap_or(u32::MAX))
+        .saturating_div(u32::try_from(progress_denominator).unwrap_or(1));
+
+    1000_u32
+        .saturating_sub(reduction)
+        .try_into()
+        .unwrap_or(full_factor)
+}
+
+fn edge_distance(state: &SimulatedGameState, coord: crate::Coord) -> u16 {
+    let max_x = i32::try_from(state.width)
+        .unwrap_or(i32::MAX)
+        .saturating_sub(1);
+    let max_y = i32::try_from(state.height)
+        .unwrap_or(i32::MAX)
+        .saturating_sub(1);
+
+    coord
+        .x
+        .min(coord.y)
+        .min(max_x.saturating_sub(coord.x))
+        .min(max_y.saturating_sub(coord.y))
+        .max(0)
+        .try_into()
+        .unwrap_or(0)
 }
 
 fn health_pressure_milli(health: i32, max_health: i32) -> u16 {
@@ -282,6 +355,20 @@ mod tests {
         }
     }
 
+    fn snake_with_length(id: &str, head: Coord, length: usize) -> SimulatedSnake {
+        SimulatedSnake {
+            id: id.to_string(),
+            health: 100,
+            body: (0..length)
+                .map(|index| Coord {
+                    x: head.x,
+                    y: head.y.saturating_sub(i32::try_from(index).unwrap_or(i32::MAX)),
+                })
+                .collect(),
+            alive: true,
+        }
+    }
+
     fn state(food: Coord) -> SimulatedGameState {
         SimulatedGameState {
             turn: 1,
@@ -300,6 +387,55 @@ mod tests {
                 hazard_damage_per_turn: 0,
             },
         }
+    }
+
+    #[test]
+    fn long_snake_ignores_edge_food_but_not_interior_food() {
+        let mut state = state(Coord { x: 0, y: 3 });
+        state.snakes[0] = snake_with_length(
+            "ours",
+            Coord { x: 3, y: 5 },
+            BORDER_FOOD_AVERSION_FULL_LENGTH,
+        );
+        let actor = state.actor_index("ours").unwrap();
+
+        assert_eq!(
+            food_border_attraction_milli(&state, actor, Coord { x: 0, y: 3 }),
+            EDGE_FOOD_FULL_FACTOR_MILLI
+        );
+        assert_eq!(
+            food_border_attraction_milli(&state, actor, Coord { x: 1, y: 3 }),
+            NEAR_EDGE_FOOD_FULL_FACTOR_MILLI
+        );
+        assert_eq!(
+            food_border_attraction_milli(&state, actor, Coord { x: 3, y: 3 }),
+            1000
+        );
+    }
+
+    #[test]
+    fn border_food_aversion_grows_with_absolute_length() {
+        let mut short = state(Coord { x: 0, y: 3 });
+        short.snakes[0] =
+            snake_with_length("ours", Coord { x: 3, y: 5 }, BORDER_FOOD_AVERSION_START_LENGTH);
+        let mut medium = short.clone();
+        medium.snakes[0] = snake_with_length("ours", Coord { x: 3, y: 5 }, 14);
+        let mut long = short.clone();
+        long.snakes[0] =
+            snake_with_length("ours", Coord { x: 3, y: 5 }, BORDER_FOOD_AVERSION_FULL_LENGTH);
+
+        let actor = short.actor_index("ours").unwrap();
+        let short_factor =
+            food_border_attraction_milli(&short, actor, Coord { x: 0, y: 3 });
+        let medium_factor =
+            food_border_attraction_milli(&medium, actor, Coord { x: 0, y: 3 });
+        let long_factor =
+            food_border_attraction_milli(&long, actor, Coord { x: 0, y: 3 });
+
+        assert_eq!(short_factor, 1000);
+        assert!(medium_factor < short_factor);
+        assert!(long_factor < medium_factor);
+        assert_eq!(long_factor, 0);
     }
 
     #[test]
