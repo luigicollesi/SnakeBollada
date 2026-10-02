@@ -40,6 +40,7 @@ pub(crate) struct GraphPerfStats {
     pub(crate) edge_score_us: u64,
 }
 
+#[cfg(test)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct ExpansionReport {
     pub(crate) completed_depth: u8,
@@ -48,17 +49,6 @@ pub(crate) struct ExpansionReport {
     pub(crate) transposition_hits: u32,
     pub(crate) elapsed_us: u64,
     pub(crate) safety_reserve_us: u64,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct NodeExpansion {
-    pub(crate) node_id: NodeId,
-    pub(crate) completed: bool,
-    pub(crate) expanded: bool,
-    pub(crate) new_nodes: u32,
-    pub(crate) new_edges: u32,
-    pub(crate) transposition_hits: u32,
-    pub(crate) elapsed_us: u64,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -313,6 +303,7 @@ impl FutureGraph {
         self.edge_count = edge_count;
     }
 
+    #[cfg(test)]
     pub(crate) fn expand_iteratively(
         &mut self,
         minimum_target_depth: u8,
@@ -394,6 +385,7 @@ impl FutureGraph {
         })
     }
 
+    #[cfg(test)]
     pub(crate) fn expand_subtree(
         &mut self,
         start_node: NodeId,
@@ -568,45 +560,6 @@ impl FutureGraph {
         })
     }
 
-    pub(crate) fn expand_frontier(
-        &mut self,
-        node_id: NodeId,
-        budget: &SearchBudget,
-    ) -> Result<NodeExpansion, SearchError> {
-        let nodes_before = self.nodes.len();
-        let edges_before = self.edge_count;
-        let transpositions_before = self.transposition_hits;
-        let already_expanded =
-            self.nodes[node_id].expansion_complete || self.nodes[node_id].is_terminal();
-        let started = std::time::Instant::now();
-
-        let completed = self.expand_node_budgeted(node_id, Some(budget))?;
-        if !completed {
-            self.garbage_collect();
-        }
-
-        Ok(NodeExpansion {
-            node_id,
-            completed,
-            expanded: completed && !already_expanded,
-            new_nodes: self
-                .nodes
-                .len()
-                .saturating_sub(nodes_before)
-                .try_into()
-                .unwrap_or(u32::MAX),
-            new_edges: self.edge_count.saturating_sub(edges_before),
-            transposition_hits: self
-                .transposition_hits
-                .saturating_sub(transpositions_before),
-            elapsed_us: started.elapsed().as_micros().try_into().unwrap_or(u64::MAX),
-        })
-    }
-
-    pub(crate) fn node_count_at_depth(&self, depth: u8) -> usize {
-        self.nodes_at_depth(depth).len()
-    }
-
     fn nodes_at_depth(&self, depth: u8) -> Vec<NodeId> {
         let mut current = vec![self.root];
 
@@ -631,6 +584,7 @@ impl FutureGraph {
         current
     }
 
+    #[cfg(test)]
     pub(crate) fn expand_to_depth(&mut self, target_depth: u8) -> Result<(), SearchError> {
         let mut queue = VecDeque::from([(self.root, 0_u8)]);
         let mut expanded = HashSet::new();
@@ -650,6 +604,7 @@ impl FutureGraph {
         Ok(())
     }
 
+    #[cfg(test)]
     fn expand_node(&mut self, node_id: NodeId) -> Result<(), SearchError> {
         self.expand_node_budgeted(node_id, None).map(|_| ())
     }
