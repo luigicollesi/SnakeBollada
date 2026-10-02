@@ -415,8 +415,11 @@ impl DagEvaluator<'_> {
         }
 
         let mut grouped: [Vec<&SearchEdge>; 4] = std::array::from_fn(|_| Vec::new());
+        let Some(our_actor) = node.state.actor_index(&node.state.our_snake_id) else {
+            return Some(Vec::new());
+        };
         for edge in &node.children {
-            let Some(direction) = edge.joint_action.direction_for(&node.state.our_snake_id) else {
+            let Some(direction) = edge.joint_action.direction_for(our_actor) else {
                 continue;
             };
             grouped[usize::from(direction.rank())].push(edge);
