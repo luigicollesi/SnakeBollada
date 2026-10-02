@@ -79,7 +79,7 @@ impl TransitionScore {
         let facts = TransitionFacts::from_parts(parent, events, child);
         let mut actors = ActorVec::with_capacity(parent.state.snakes.len());
 
-        for (index, actor) in parent
+        for (index, _) in parent
             .state
             .snakes
             .iter()
