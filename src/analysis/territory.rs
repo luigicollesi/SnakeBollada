@@ -5,7 +5,8 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use rayon::prelude::*;
 
 use crate::direction::Direction;
-use crate::simulation::state::SimulatedGameState;
+use crate::evaluation::ActorVec;
+use crate::simulation::state::{ActorIndex, SimulatedGameState};
 use crate::spatial::SpatialOccupancy;
 use crate::Coord;
 
@@ -350,9 +351,9 @@ fn structural_relevant(
 pub(crate) struct TerritoryAnalysis {
     width: u16,
     height: u16,
-    distances: HashMap<String, Vec<u16>>,
-    snakes: HashMap<String, SnakeTerritorySnapshot>,
-    competitive: HashMap<String, CompetitiveTerritorySnapshot>,
+    distances: ActorVec<Vec<u16>>,
+    snakes: ActorVec<SnakeTerritorySnapshot>,
+    competitive: ActorVec<CompetitiveTerritorySnapshot>,
     competitive_ids: Vec<String>,
     competitive_claims: Vec<CompetitiveClaim>,
 }
@@ -366,7 +367,7 @@ impl TerritoryAnalysis {
     pub(crate) fn from_spatial(state: &SimulatedGameState, spatial: &SpatialOccupancy) -> Self {
         let core = TerritoryCore::from_spatial(state, spatial);
         let structural = TerritoryStructural::from_core(state, &core);
-        Self::from_parts(core, structural)
+        Self::from_parts(state, core, structural)
     }
 
     pub(crate) fn from_spatial_actor_relative(
@@ -378,7 +379,11 @@ impl TerritoryAnalysis {
         Self::from_parts(core, structural)
     }
 
-    fn from_parts(core: TerritoryCore, mut structural: TerritoryStructural) -> Self {
+    fn from_parts(
+        state: &SimulatedGameState,
+        core: TerritoryCore,
+        mut structural: TerritoryStructural,
+    ) -> Self {
         let TerritoryCore {
             width,
             height,
@@ -390,15 +395,30 @@ impl TerritoryAnalysis {
             ..
         } = core;
 
-        let snakes = core_snakes
-            .into_iter()
-            .map(|(snake_id, snapshot)| {
+        let mut distances_by_id = distances;
+        let mut snakes_by_id = core_snakes;
+        let mut competitive_by_id = competitive;
+
+        let mut indexed_distances = ActorVec::with_capacity(state.snakes.len());
+        let mut indexed_snakes = ActorVec::with_capacity(state.snakes.len());
+        let mut indexed_competitive = ActorVec::with_capacity(state.snakes.len());
+
+        for (index, snake) in state.snakes.iter().enumerate() {
+            let Some(actor) = ActorIndex::new(index) else {
+                continue;
+            };
+
+            if let Some(field) = distances_by_id.remove(&snake.id) {
+                indexed_distances.insert(actor, field);
+            }
+
+            if let Some(snapshot) = snakes_by_id.remove(&snake.id) {
                 let useful_chokes = structural
                     .useful_chokes
-                    .remove(&snake_id)
+                    .remove(&snake.id)
                     .unwrap_or_default();
-                (
-                    snake_id,
+                indexed_snakes.insert(
+                    actor,
                     SnakeTerritorySnapshot {
                         snake_id: snapshot.snake_id,
                         reachable_space: snapshot.reachable_space,
@@ -408,36 +428,64 @@ impl TerritoryAnalysis {
                         edge_distance: snapshot.edge_distance,
                         useful_chokes,
                     },
-                )
-            })
-            .collect();
+                );
+            }
+
+            if let Some(snapshot) = competitive_by_id.remove(&snake.id) {
+                indexed_competitive.insert(actor, snapshot);
+            }
+        }
 
         Self {
             width,
             height,
-            distances,
-            snakes,
-            competitive,
+            distances: indexed_distances,
+            snakes: indexed_snakes,
+            competitive: indexed_competitive,
             competitive_ids,
             competitive_claims,
         }
     }
 
-    pub(crate) fn distance_for(&self, snake_id: &str, coord: Coord) -> Option<u16> {
+    fn actor_for_id(&self, snake_id: &str) -> Option<ActorIndex> {
+        self.snakes
+            .iter()
+            .find_map(|(actor, snapshot)| (snapshot.snake_id == snake_id).then_some(actor))
+    }
+
+    pub(crate) fn distance_for_actor(&self, actor: ActorIndex, coord: Coord) -> Option<u16> {
         let index = index_of(self.width, self.height, coord)?;
-        let distance = *self.distances.get(snake_id)?.get(index)?;
+        let distance = *self.distances.get(actor)?.get(index)?;
         (distance != u16::MAX).then_some(distance)
     }
 
+    pub(crate) fn distance_for(&self, snake_id: &str, coord: Coord) -> Option<u16> {
+        let actor = self.actor_for_id(snake_id)?;
+        self.distance_for_actor(actor, coord)
+    }
+
+    pub(crate) fn for_actor(&self, actor: ActorIndex) -> Option<&SnakeTerritorySnapshot> {
+        self.snakes.get(actor)
+    }
+
     pub(crate) fn for_snake(&self, snake_id: &str) -> Option<&SnakeTerritorySnapshot> {
-        self.snakes.get(snake_id)
+        self.actor_for_id(snake_id)
+            .and_then(|actor| self.for_actor(actor))
+    }
+
+    pub(crate) fn competitive_for_actor(
+        &self,
+        actor: ActorIndex,
+    ) -> Option<&CompetitiveTerritorySnapshot> {
+        self.competitive.get(actor)
     }
 
     pub(crate) fn competitive_for_snake(
         &self,
         snake_id: &str,
     ) -> Option<&CompetitiveTerritorySnapshot> {
-        self.competitive.get(snake_id)
+        self.actor_for_id(snake_id)
+            .and_then(|actor| self.competitive_for_actor(actor))
     }
 
     pub(crate) fn competitive_owner_at(&self, coord: Coord) -> Option<&str> {
