@@ -681,7 +681,8 @@ mod tests {
             bound: ValueBound::Exact(value),
             steps: vec![BeamStep {
                 node: 0,
-                joint_action: JointAction::new().with_move(ActorIndex::new(0).unwrap(), Direction::Up),
+                joint_action: JointAction::new()
+                    .with_move(ActorIndex::new(0).unwrap(), Direction::Up),
                 child,
             }],
         }
@@ -703,7 +704,8 @@ mod tests {
             bound: ValueBound::Exact(value),
             steps: vec![BeamStep {
                 node: 0,
-                joint_action: JointAction::new().with_move(ActorIndex::new(0).unwrap(), Direction::Up),
+                joint_action: JointAction::new()
+                    .with_move(ActorIndex::new(0).unwrap(), Direction::Up),
                 child,
             }],
         }
