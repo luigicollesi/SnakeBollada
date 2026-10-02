@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use crate::direction::Direction;
 
-use super::intent::IntentContrast;
+use super::intent::{IntentContrast, IntentInference, IntentSkipReason};
 use super::tracing::{EnemyMoveSet, OpponentMoveHypothesis};
 
 const BASE_BIAS_MILLI: u16 = 1000;
@@ -15,6 +15,21 @@ const MAX_INTENT_STEP: i32 = 50;
 
 pub(crate) type OpponentProfiles = HashMap<String, OpponentProfile>;
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) struct OpponentIntentStats {
+    pub(crate) learned_observations: u16,
+    pub(crate) skipped_forced: u16,
+    pub(crate) skipped_low_contrast: u16,
+    pub(crate) skipped_incomplete_root: u16,
+    pub(crate) skipped_insufficient_data: u16,
+    pub(crate) downweighted_survival_emergency: u16,
+    pub(crate) last_observed: Option<Direction>,
+    pub(crate) last_food_contrast: i16,
+    pub(crate) last_hunting_contrast: i16,
+    pub(crate) last_trapping_contrast: i16,
+    pub(crate) last_information_milli: u16,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct OpponentProfile {
     pub(crate) food_bias_milli: u16,
@@ -23,6 +38,7 @@ pub(crate) struct OpponentProfile {
     pub(crate) head_threat_bias_milli: u16,
     pub(crate) observations: u16,
     pub(crate) unexpected_moves: u16,
+    pub(crate) intent_stats: OpponentIntentStats,
 }
 
 impl Default for OpponentProfile {
@@ -34,11 +50,57 @@ impl Default for OpponentProfile {
             head_threat_bias_milli: BASE_BIAS_MILLI,
             observations: 0,
             unexpected_moves: 0,
+            intent_stats: OpponentIntentStats::default(),
         }
     }
 }
 
 impl OpponentProfile {
+    pub(crate) fn record_intent_inference(
+        &mut self,
+        observed: Direction,
+        inference: IntentInference,
+    ) {
+        self.intent_stats.last_observed = Some(observed);
+        match inference {
+            IntentInference::Learned {
+                contrast,
+                survival_emergency,
+            } => {
+                self.intent_stats.learned_observations =
+                    self.intent_stats.learned_observations.saturating_add(1);
+                if survival_emergency {
+                    self.intent_stats.downweighted_survival_emergency = self
+                        .intent_stats
+                        .downweighted_survival_emergency
+                        .saturating_add(1);
+                }
+                self.intent_stats.last_food_contrast = contrast.food_milli;
+                self.intent_stats.last_hunting_contrast = contrast.hunting_milli;
+                self.intent_stats.last_trapping_contrast = contrast.trapping_milli;
+                self.intent_stats.last_information_milli = contrast.information_milli;
+            }
+            IntentInference::Skipped(reason) => match reason {
+                IntentSkipReason::ForcedMove => {
+                    self.intent_stats.skipped_forced =
+                        self.intent_stats.skipped_forced.saturating_add(1);
+                }
+                IntentSkipReason::LowContrast => {
+                    self.intent_stats.skipped_low_contrast =
+                        self.intent_stats.skipped_low_contrast.saturating_add(1);
+                }
+                IntentSkipReason::IncompleteRoot => {
+                    self.intent_stats.skipped_incomplete_root =
+                        self.intent_stats.skipped_incomplete_root.saturating_add(1);
+                }
+                IntentSkipReason::InsufficientData => {
+                    self.intent_stats.skipped_insufficient_data =
+                        self.intent_stats.skipped_insufficient_data.saturating_add(1);
+                }
+            },
+        }
+    }
+
     pub(crate) fn observe_with_intent(
         &mut self,
         moves: &EnemyMoveSet,
@@ -239,5 +301,83 @@ mod tests {
 
         assert!(profile.adjusted_plausibility(hunt) > profile.adjusted_plausibility(food));
         assert_eq!(moves.hypotheses.len(), 2);
+    }
+
+    #[test]
+    fn repeated_trapping_intent_reorders_future_move_ahead_of_food() {
+        let moves = EnemyMoveSet {
+            legal_moves: MoveMask::from_iter([Direction::Left, Direction::Down]),
+            hypotheses: vec![
+                OpponentMoveHypothesis {
+                    direction: Direction::Left,
+                    support: OpponentPolicySupport {
+                        food: true,
+                        ..OpponentPolicySupport::default()
+                    },
+                    threat: ThreatClass::None,
+                    plausibility_milli: 600,
+                },
+                OpponentMoveHypothesis {
+                    direction: Direction::Down,
+                    support: OpponentPolicySupport {
+                        trapping_milli: 900,
+                        ..OpponentPolicySupport::default()
+                    },
+                    threat: ThreatClass::None,
+                    plausibility_milli: 600,
+                },
+            ],
+        };
+        let mut profile = OpponentProfile::default();
+
+        for _ in 0..3 {
+            profile.observe_with_intent(
+                &moves,
+                Direction::Down,
+                Some(IntentContrast {
+                    food_milli: -800,
+                    hunting_milli: 100,
+                    trapping_milli: 850,
+                    information_milli: 850,
+                }),
+            );
+        }
+
+        assert!(profile.trapping_bias_milli > BASE_BIAS_MILLI);
+        assert!(profile.food_bias_milli < BASE_BIAS_MILLI);
+        assert_eq!(
+            moves.ordered_legal_moves_with_profile(Some(&profile))[0],
+            Direction::Down
+        );
+    }
+
+    #[test]
+    fn intent_telemetry_records_learning_and_skip_reasons() {
+        let mut profile = OpponentProfile::default();
+        let contrast = IntentContrast {
+            food_milli: -700,
+            hunting_milli: 250,
+            trapping_milli: 800,
+            information_milli: 800,
+        };
+
+        profile.record_intent_inference(
+            Direction::Down,
+            IntentInference::Learned {
+                contrast,
+                survival_emergency: true,
+            },
+        );
+        profile.record_intent_inference(
+            Direction::Left,
+            IntentInference::Skipped(IntentSkipReason::ForcedMove),
+        );
+
+        assert_eq!(profile.intent_stats.learned_observations, 1);
+        assert_eq!(profile.intent_stats.downweighted_survival_emergency, 1);
+        assert_eq!(profile.intent_stats.skipped_forced, 1);
+        assert_eq!(profile.intent_stats.last_observed, Some(Direction::Left));
+        assert_eq!(profile.intent_stats.last_trapping_contrast, 800);
+        assert_eq!(profile.intent_stats.last_information_milli, 800);
     }
 }
