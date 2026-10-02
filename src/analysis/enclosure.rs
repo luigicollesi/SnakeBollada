@@ -69,10 +69,7 @@ impl EnclosureAnalysis {
                     useful_chokes,
                 );
 
-                Some((
-                    snake.id.clone(),
-                    EnclosureSnapshot { risk },
-                ))
+                Some((snake.id.clone(), EnclosureSnapshot { risk }))
             })
             .collect::<HashMap<_, _>>();
 
