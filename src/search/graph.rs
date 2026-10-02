@@ -15,9 +15,7 @@ use crate::evaluation::{
 };
 use crate::simulation::joint_action::JointAction;
 use crate::simulation::mobility::MobilityAnalysis;
-use crate::simulation::resolver::{
-    resolve_turn, ForecastDelta, InstantEvent, ResolveError, TurnResolution,
-};
+use crate::simulation::resolver::{resolve_turn, InstantEvent, ResolveError, TurnResolution};
 use crate::simulation::state::{ActorIndex, SimulatedGameState};
 use crate::spatial::SpatialOccupancy;
 
@@ -85,7 +83,6 @@ pub(crate) struct SubtreeExpansion {
 pub(crate) struct SearchEdge {
     pub(crate) joint_action: JointAction,
     pub(crate) events: Vec<InstantEvent>,
-    pub(crate) forecast_delta: ForecastDelta,
     pub(crate) transition: TransitionScore,
     pub(crate) child: NodeId,
 }
@@ -95,7 +92,6 @@ struct ResolvedCandidate {
     state: SimulatedGameState,
     key: StateKey,
     resolution_events: Vec<InstantEvent>,
-    forecast_delta: ForecastDelta,
 }
 
 #[derive(Debug, Clone)]
@@ -103,8 +99,6 @@ pub(crate) struct NodeAnalysis {
     pub(crate) mobility: Arc<MobilityAnalysis>,
     pub(crate) tracing: Arc<EnemyTracingOutput>,
     pub(crate) territory: Arc<TerritoryAnalysis>,
-    pub(crate) border: Arc<BorderFobicAnalysis>,
-    pub(crate) enclosure: Arc<EnclosureAnalysis>,
     pub(crate) actor_snapshots: ActorVec<ActorSnapshot>,
 }
 
@@ -724,17 +718,12 @@ impl FutureGraph {
                 .map(|joint_action| {
                     resolve_turn(&state, &joint_action).map(|resolution| {
                         let key = StateKey::from_beam_state(&resolution.state);
-                        let TurnResolution {
-                            state,
-                            events,
-                            forecast_delta,
-                        } = resolution;
+                        let TurnResolution { state, events } = resolution;
                         ResolvedCandidate {
                             joint_action,
                             state,
                             key,
                             resolution_events: events,
-                            forecast_delta,
                         }
                     })
                 })
@@ -804,7 +793,6 @@ impl FutureGraph {
                     SearchEdge {
                         joint_action: candidate.joint_action,
                         events,
-                        forecast_delta: candidate.forecast_delta,
                         transition,
                         child,
                     }
@@ -911,14 +899,13 @@ fn build_node_with_key(state: SimulatedGameState, key: StateKey) -> SearchNode {
             &state, &spatial,
         ));
         let tracing = Arc::new(trace_actor_relative_with_mobility(&state, &mobility));
-        let border = Arc::new(
-            BorderFobicAnalysis::from_parts_with_territory_actor_relative(
-                &state, &mobility, &territory,
-            ),
+        let border = BorderFobicAnalysis::from_parts_with_territory_actor_relative(
+            &state,
+            &mobility,
+            &territory,
         );
-        let enclosure = Arc::new(EnclosureAnalysis::from_parts_actor_relative(
-            &state, &territory, &mobility,
-        ));
+        let enclosure =
+            EnclosureAnalysis::from_parts_actor_relative(&state, &territory, &mobility);
 
         let actor_snapshots = state
             .snakes
@@ -942,8 +929,6 @@ fn build_node_with_key(state: SimulatedGameState, key: StateKey) -> SearchNode {
             mobility,
             tracing,
             territory,
-            border,
-            enclosure,
             actor_snapshots,
         }))
     };
