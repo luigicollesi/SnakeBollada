@@ -751,8 +751,9 @@ impl FutureGraph {
             return Ok(true);
         };
         let tracing = Arc::clone(&parent_analysis.tracing);
-        let before_tactical = (self.analysis_profile == AnalysisProfile::Full)
-            .then(|| Arc::clone(&parent_analysis.tactical));
+        let before_tactical = parent_analysis
+            .legacy()
+            .map(|legacy| Arc::clone(&legacy.tactical));
 
         let deterministic_moves = parent_analysis
             .mobility
@@ -895,7 +896,7 @@ impl FutureGraph {
                                 before_tactical,
                                 &nodes[child].state,
                                 &candidate.resolution_events,
-                                &child_analysis.tactical,
+                                child_analysis.tactical(),
                             )
                             .events
                         } else {
@@ -1276,8 +1277,7 @@ mod tests {
         assert_eq!(beam.node_count(), 1);
         assert_eq!(beam.edge_count(), 0);
         assert!(root.children.is_empty());
-        assert!(analysis.survival.candidates.is_empty());
-        assert!(analysis.hunting.candidates.is_empty());
+        assert!(analysis.legacy().is_none());
         assert!(!analysis.actor_snapshots.is_empty());
     }
 
@@ -1290,9 +1290,7 @@ mod tests {
         let child = graph.node(graph.node(graph.root()).children[0].child);
         let analysis = child.active_analysis().expect("child must be analyzable");
 
-        assert!(analysis.survival.candidates.is_empty());
-        assert!(analysis.hunting.candidates.is_empty());
-        assert!(analysis.hunting.plans.is_empty());
+        assert!(analysis.legacy().is_none());
         assert_eq!(
             analysis.actor_snapshots.len(),
             child
@@ -1600,7 +1598,7 @@ mod tests {
         let mut graph = FutureGraph::new(state());
         let root = graph.root();
         let analysis = graph.nodes[root].analysis.as_ref().unwrap();
-        let our_moves = analysis.tactical.ours.deterministic_moves;
+        let our_moves = analysis.tactical().ours.deterministic_moves;
         graph.nodes[root].pending_actions = Some(JointActionGenerator::new(
             &graph.nodes[root].state,
             our_moves,
