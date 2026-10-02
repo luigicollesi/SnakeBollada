@@ -865,13 +865,19 @@ mod tests {
         );
 
         assert_eq!(
-            chosen.path.first().unwrap()
+            chosen
+                .path
+                .first()
+                .unwrap()
                 .joint_action
                 .direction_for(ActorIndex::new(1).unwrap()),
             Some(Direction::Up)
         );
         assert_eq!(
-            chosen.path.first().unwrap()
+            chosen
+                .path
+                .first()
+                .unwrap()
                 .joint_action
                 .direction_for(ActorIndex::new(2).unwrap()),
             Some(Direction::Up)
