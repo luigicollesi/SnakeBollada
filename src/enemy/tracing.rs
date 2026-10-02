@@ -429,6 +429,4 @@ mod tests {
             .iter()
             .all(|direction| enemy.legal_moves.contains(*direction)));
     }
-
-
 }
