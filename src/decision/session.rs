@@ -2,6 +2,7 @@ use std::collections::VecDeque;
 
 use crate::decision::state_key::StateKey;
 use crate::direction::Direction;
+use crate::enemy::intent::infer_observed_intent;
 use crate::enemy::profile::OpponentProfiles;
 use crate::search::graph::FutureGraph;
 use crate::simulation::state::{SimulatedGameState, SimulationSupport};
@@ -157,10 +158,11 @@ impl DecisionState {
                 continue;
             };
 
+            let intent = infer_observed_intent(graph, actor, direction);
             self.opponent_profiles
                 .entry(enemy.id.clone())
                 .or_default()
-                .observe(move_set, direction);
+                .observe_with_intent(move_set, direction, intent);
         }
     }
 }

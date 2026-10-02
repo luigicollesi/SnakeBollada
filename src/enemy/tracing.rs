@@ -31,12 +31,15 @@ impl ThreatClass {
 pub(crate) struct OpponentPolicySupport {
     pub(crate) food: bool,
     pub(crate) hunting: bool,
+    pub(crate) trapping_milli: u16,
     pub(crate) head_threat: bool,
 }
 
 impl OpponentPolicySupport {
     pub(crate) fn count(self) -> u8 {
-        u8::from(self.food).saturating_add(u8::from(self.hunting))
+        u8::from(self.food)
+            .saturating_add(u8::from(self.hunting))
+            .saturating_add(u8::from(self.trapping_milli >= 400))
     }
 }
 
@@ -139,8 +142,15 @@ fn trace_enemy_actor_relative(
     let legal_moves = mobility.deterministic_moves_for(state, &enemy.id);
     let food_moves = cheap_food_ordering_moves(state, enemy, legal_moves);
     let hunting_moves = hunting_policy_moves(state, enemy, legal_moves);
+    let trapping_support = trapping_support_by_move(state, mobility, enemy, legal_moves);
     let threat_moves = head_threat_moves(state, mobility, enemy, legal_moves);
-    let hypotheses = build_hypotheses(legal_moves, food_moves, hunting_moves, threat_moves);
+    let hypotheses = build_hypotheses(
+        legal_moves,
+        food_moves,
+        hunting_moves,
+        trapping_support,
+        threat_moves,
+    );
 
     EnemyMoveSet {
         legal_moves,
@@ -152,6 +162,7 @@ fn build_hypotheses(
     legal_moves: MoveMask,
     food_moves: MoveMask,
     hunting_moves: MoveMask,
+    trapping_support: [u16; 4],
     threat_moves: MoveMask,
 ) -> Vec<OpponentMoveHypothesis> {
     legal_moves
@@ -160,6 +171,7 @@ fn build_hypotheses(
             let support = OpponentPolicySupport {
                 food: food_moves.contains(direction),
                 hunting: hunting_moves.contains(direction),
+                trapping_milli: trapping_support[usize::from(direction.rank())],
                 head_threat: threat_moves.contains(direction),
             };
             let threat = if !support.head_threat {
@@ -180,6 +192,13 @@ fn build_hypotheses(
             let plausibility_milli = 80_u16
                 .saturating_add(u16::from(support.food) * 220)
                 .saturating_add(u16::from(support.hunting) * 300)
+                .saturating_add(
+                    u32::from(support.trapping_milli)
+                        .saturating_mul(260)
+                        .saturating_div(1000)
+                        .try_into()
+                        .unwrap_or(260),
+                )
                 .saturating_add(threat_bonus)
                 .min(1000);
 
@@ -266,6 +285,97 @@ fn hunting_policy_moves(
     } else {
         MoveMask::empty()
     }
+}
+
+fn trapping_support_by_move(
+    state: &SimulatedGameState,
+    mobility: &MobilityAnalysis,
+    enemy: &SimulatedSnake,
+    current: MoveMask,
+) -> [u16; 4] {
+    let mut support = [0_u16; 4];
+    let Some(ours) = state.snake(&state.our_snake_id).filter(|snake| snake.alive) else {
+        return support;
+    };
+    let (Some(our_head), Some(enemy_head)) = (ours.head(), enemy.head()) else {
+        return support;
+    };
+
+    let our_moves = mobility.deterministic_moves_for(state, &state.our_snake_id);
+    let our_destinations = our_moves
+        .iter()
+        .map(|direction| direction.apply(our_head))
+        .collect::<Vec<_>>();
+    let current_distance = manhattan(enemy_head, our_head);
+    let our_edge_distance = edge_distance(state, our_head);
+    let inward_destinations = our_moves
+        .iter()
+        .map(|direction| direction.apply(our_head))
+        .filter(|destination| edge_distance(state, *destination) > our_edge_distance)
+        .collect::<Vec<_>>();
+
+    for direction in current.iter() {
+        let target = direction.apply(enemy_head);
+        let mut value = 0_u32;
+
+        let adjacent_safe_destinations = our_destinations
+            .iter()
+            .filter(|destination| manhattan(target, **destination) <= 1)
+            .count();
+        value = value.saturating_add(
+            u32::try_from(adjacent_safe_destinations)
+                .unwrap_or(u32::MAX)
+                .saturating_mul(180),
+        );
+
+        if our_destinations.contains(&target) && enemy.length() >= ours.length() {
+            value = value.saturating_add(500);
+        }
+        if manhattan(target, our_head) < current_distance {
+            value = value.saturating_add(120);
+        }
+        if our_edge_distance <= 1
+            && inward_destinations
+                .iter()
+                .any(|destination| manhattan(target, *destination) <= 1)
+        {
+            value = value.saturating_add(320);
+        }
+        if our_moves.len() <= 2 {
+            value = value.saturating_mul(5).saturating_div(4);
+        }
+
+        support[usize::from(direction.rank())] = value
+            .min(1000)
+            .try_into()
+            .unwrap_or(1000);
+    }
+
+    support
+}
+
+fn edge_distance(state: &SimulatedGameState, coord: crate::Coord) -> u16 {
+    let max_x = i32::try_from(state.width)
+        .unwrap_or(i32::MAX)
+        .saturating_sub(1);
+    let max_y = i32::try_from(state.height)
+        .unwrap_or(i32::MAX)
+        .saturating_sub(1);
+
+    coord
+        .x
+        .min(coord.y)
+        .min(max_x.saturating_sub(coord.x))
+        .min(max_y.saturating_sub(coord.y))
+        .max(0)
+        .try_into()
+        .unwrap_or(0)
+}
+
+fn manhattan(left: crate::Coord, right: crate::Coord) -> u32 {
+    left.x
+        .abs_diff(right.x)
+        .saturating_add(left.y.abs_diff(right.y))
 }
 
 fn head_threat_moves(
@@ -403,6 +513,25 @@ mod tests {
         let attack = enemy.hypothesis(Direction::Down).unwrap();
         assert!(attack.support.hunting);
         assert!(attack.support.head_threat);
+    }
+
+    #[test]
+    fn trapping_support_prefers_moves_that_pressure_limited_escape_space() {
+        let state = state(
+            vec![
+                snake("ours", 100, &[(0, 2), (0, 1), (0, 0)]),
+                snake("enemy", 100, &[(2, 2), (2, 3), (2, 4)]),
+            ],
+            vec![Coord { x: 5, y: 5 }],
+        );
+        let mobility = MobilityAnalysis::from_state(&state);
+        let output = trace_actor_relative_with_mobility(&state, &mobility);
+        let enemy = output.for_actor(actor(&state, "enemy")).unwrap();
+
+        let toward_escape = enemy.hypothesis(Direction::Left).unwrap();
+        let away = enemy.hypothesis(Direction::Right).unwrap();
+
+        assert!(toward_escape.support.trapping_milli > away.support.trapping_milli);
     }
 
     #[test]

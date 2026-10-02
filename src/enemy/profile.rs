@@ -2,6 +2,7 @@ use std::collections::HashMap;
 
 use crate::direction::Direction;
 
+use super::intent::IntentContrast;
 use super::tracing::{EnemyMoveSet, OpponentMoveHypothesis};
 
 const BASE_BIAS_MILLI: u16 = 1000;
@@ -10,6 +11,7 @@ const MAX_BIAS_MILLI: u16 = 1300;
 const SUPPORTED_REWARD: u16 = 40;
 const UNSUPPORTED_DECAY: u16 = 15;
 const HEAD_THREAT_REWARD: u16 = 50;
+const MAX_INTENT_STEP: i32 = 50;
 
 pub(crate) type OpponentProfiles = HashMap<String, OpponentProfile>;
 
@@ -17,6 +19,7 @@ pub(crate) type OpponentProfiles = HashMap<String, OpponentProfile>;
 pub(crate) struct OpponentProfile {
     pub(crate) food_bias_milli: u16,
     pub(crate) hunting_bias_milli: u16,
+    pub(crate) trapping_bias_milli: u16,
     pub(crate) head_threat_bias_milli: u16,
     pub(crate) observations: u16,
     pub(crate) unexpected_moves: u16,
@@ -27,6 +30,7 @@ impl Default for OpponentProfile {
         Self {
             food_bias_milli: BASE_BIAS_MILLI,
             hunting_bias_milli: BASE_BIAS_MILLI,
+            trapping_bias_milli: BASE_BIAS_MILLI,
             head_threat_bias_milli: BASE_BIAS_MILLI,
             observations: 0,
             unexpected_moves: 0,
@@ -36,6 +40,15 @@ impl Default for OpponentProfile {
 
 impl OpponentProfile {
     pub(crate) fn observe(&mut self, moves: &EnemyMoveSet, observed: Direction) {
+        self.observe_with_intent(moves, observed, None);
+    }
+
+    pub(crate) fn observe_with_intent(
+        &mut self,
+        moves: &EnemyMoveSet,
+        observed: Direction,
+        intent: Option<IntentContrast>,
+    ) {
         self.observations = self.observations.saturating_add(1);
 
         let Some(hypothesis) = moves.hypothesis(observed) else {
@@ -65,30 +78,56 @@ impl OpponentProfile {
             alternatives.any(|candidate| candidate.support.head_threat),
             HEAD_THREAT_REWARD,
         );
+
+        if let Some(intent) = intent {
+            self.food_bias_milli = apply_intent_contrast(
+                self.food_bias_milli,
+                intent.food_milli,
+                intent.information_milli,
+            );
+            self.hunting_bias_milli = apply_intent_contrast(
+                self.hunting_bias_milli,
+                intent.hunting_milli,
+                intent.information_milli,
+            );
+            self.trapping_bias_milli = apply_intent_contrast(
+                self.trapping_bias_milli,
+                intent.trapping_milli,
+                intent.information_milli,
+            );
+        }
     }
 
     pub(crate) fn adjusted_plausibility(&self, hypothesis: OpponentMoveHypothesis) -> u16 {
-        let mut total = 0_u32;
-        let mut count = 0_u32;
+        let mut weighted_bias = 0_u32;
+        let mut support_weight = 0_u32;
 
         if hypothesis.support.food {
-            total = total.saturating_add(u32::from(self.food_bias_milli));
-            count = count.saturating_add(1);
+            weighted_bias = weighted_bias.saturating_add(u32::from(self.food_bias_milli) * 1000);
+            support_weight = support_weight.saturating_add(1000);
         }
         if hypothesis.support.hunting {
-            total = total.saturating_add(u32::from(self.hunting_bias_milli));
-            count = count.saturating_add(1);
+            weighted_bias =
+                weighted_bias.saturating_add(u32::from(self.hunting_bias_milli) * 1000);
+            support_weight = support_weight.saturating_add(1000);
         }
         if hypothesis.support.head_threat {
-            total = total.saturating_add(u32::from(self.head_threat_bias_milli));
-            count = count.saturating_add(1);
+            weighted_bias =
+                weighted_bias.saturating_add(u32::from(self.head_threat_bias_milli) * 1000);
+            support_weight = support_weight.saturating_add(1000);
+        }
+        if hypothesis.support.trapping_milli > 0 {
+            let trapping_weight = u32::from(hypothesis.support.trapping_milli);
+            weighted_bias = weighted_bias
+                .saturating_add(u32::from(self.trapping_bias_milli) * trapping_weight);
+            support_weight = support_weight.saturating_add(trapping_weight);
         }
 
-        if count == 0 {
+        if support_weight == 0 {
             return hypothesis.plausibility_milli;
         }
 
-        let multiplier = total.saturating_div(count);
+        let multiplier = weighted_bias.saturating_div(support_weight);
         u32::from(hypothesis.plausibility_milli)
             .saturating_mul(multiplier)
             .saturating_div(1000)
@@ -96,6 +135,22 @@ impl OpponentProfile {
             .try_into()
             .unwrap_or(1000)
     }
+}
+
+fn apply_intent_contrast(current: u16, contrast: i16, information_milli: u16) -> u16 {
+    let step = i32::from(contrast)
+        .saturating_mul(MAX_INTENT_STEP)
+        .saturating_mul(i32::from(information_milli))
+        .saturating_div(1_000_000);
+    i32::from(current)
+        .saturating_add(step)
+        .clamp(i32::from(MIN_BIAS_MILLI), i32::from(MAX_BIAS_MILLI))
+        .try_into()
+        .unwrap_or(if step < 0 {
+            MIN_BIAS_MILLI
+        } else {
+            MAX_BIAS_MILLI
+        })
 }
 
 fn update_bias(current: u16, selected: bool, available: bool, reward: u16) -> u16 {
@@ -153,6 +208,27 @@ mod tests {
         assert!(profile.hunting_bias_milli > BASE_BIAS_MILLI);
         assert!(profile.head_threat_bias_milli > BASE_BIAS_MILLI);
         assert!(profile.food_bias_milli < BASE_BIAS_MILLI);
+    }
+
+    #[test]
+    fn contrastive_trapping_observation_updates_profile_gradually() {
+        let moves = set();
+        let mut profile = OpponentProfile::default();
+
+        profile.observe_with_intent(
+            &moves,
+            Direction::Down,
+            Some(IntentContrast {
+                food_milli: -800,
+                hunting_milli: 300,
+                trapping_milli: 850,
+                information_milli: 850,
+            }),
+        );
+
+        assert!(profile.trapping_bias_milli > BASE_BIAS_MILLI);
+        assert!(profile.food_bias_milli < BASE_BIAS_MILLI);
+        assert!(profile.trapping_bias_milli <= BASE_BIAS_MILLI + MAX_INTENT_STEP as u16);
     }
 
     #[test]
