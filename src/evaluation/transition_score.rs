@@ -348,9 +348,7 @@ fn hunting_territory_benefits(parent: &SearchNode, child: &SearchNode) -> ActorT
                 continue;
             }
 
-            let contender_count = child_territory
-                .competitive_contender_count_at(coord)
-                .max(1);
+            let contender_count = child_territory.competitive_contender_count_at(coord).max(1);
             let split_denial = denial_value
                 .saturating_div(i64::try_from(contender_count).unwrap_or(i64::MAX))
                 .max(1);
