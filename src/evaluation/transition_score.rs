@@ -417,8 +417,7 @@ fn hunting_territory_benefits(parent: &SearchNode, child: &SearchNode) -> ActorV
                 x: i32::try_from(x).unwrap_or(i32::MAX),
                 y: i32::try_from(y).unwrap_or(i32::MAX),
             };
-            let Some(previous_owner) = parent_territory.competitive_owner_actor_at(coord)
-            else {
+            let Some(previous_owner) = parent_territory.competitive_owner_actor_at(coord) else {
                 continue;
             };
 
