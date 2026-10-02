@@ -521,7 +521,7 @@ mod tests {
         let parent_graph =
             FutureGraph::new(territory_state(Coord { x: 0, y: 3 }, Coord { x: 6, y: 3 }));
         let child_graph =
-            FutureGraph::new(territory_state(Coord { x: 1, y: 3 }, Coord { x: 6, y: 3 }));
+            FutureGraph::new(territory_state(Coord { x: 2, y: 3 }, Coord { x: 6, y: 3 }));
 
         let parent = parent_graph.node(parent_graph.root());
         let child = child_graph.node(child_graph.root());
