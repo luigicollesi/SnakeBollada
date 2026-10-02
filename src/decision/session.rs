@@ -8,6 +8,7 @@ use crate::simulation::state::{SimulatedGameState, SimulationSupport};
 use crate::strategy::{choose_move_baseline, Decision, DecisionReason};
 use crate::GameState;
 
+use super::continuity::DecisionContinuity;
 use super::DecisionEngine;
 
 const RUNTIME_HISTORY_LIMIT: usize = 8;
@@ -42,6 +43,7 @@ pub(crate) struct DecisionState {
     previous_observed_food: Option<Vec<crate::Coord>>,
     opponent_profiles: OpponentProfiles,
     runtime_history: RuntimeHistory,
+    continuity: DecisionContinuity,
 }
 
 impl DecisionState {
@@ -52,6 +54,7 @@ impl DecisionState {
         let normalized = SimulatedGameState::from(state);
         if normalized.rules.simulation_support() != SimulationSupport::StandardLike {
             self.graph = None;
+            self.continuity.clear();
             self.previous_observed_food = Some(normalized_food(&normalized.food));
             return baseline_fallback(state);
         }
@@ -90,9 +93,24 @@ impl DecisionState {
         };
         graph.set_opponent_profiles(self.opponent_profiles.clone());
 
-        let decision = DecisionEngine::stateless()
-            .try_decide_beam_with_graph(state, &mut graph, runtime_jitter_reserve_ms)
-            .unwrap_or_else(|| baseline_fallback(state));
+        let incumbent_direction = self.continuity.incumbent_for(&actual_key);
+        let outcome = DecisionEngine::stateless().try_decide_beam_with_continuity(
+            state,
+            &mut graph,
+            runtime_jitter_reserve_ms,
+            incumbent_direction,
+        );
+        let decision = match outcome {
+            Some(outcome) => {
+                self.continuity
+                    .replace_from_line(&graph, &outcome.selected_line);
+                outcome.decision
+            }
+            None => {
+                self.continuity.clear();
+                baseline_fallback(state)
+            }
+        };
 
         graph.retain_chosen_direction(decision.direction);
         self.graph = Some(graph);

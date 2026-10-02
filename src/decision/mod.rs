@@ -1,3 +1,4 @@
+mod continuity;
 mod engine;
 pub(crate) mod joint_actions;
 pub(crate) mod session;

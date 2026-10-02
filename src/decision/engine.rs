@@ -1,5 +1,7 @@
 use std::time::Duration;
 
+use crate::direction::Direction;
+use crate::search::beam::{BeamLine, LineTerminal};
 use crate::search::beam_search::{search_beam, BeamSearchResult};
 use crate::search::budget::SearchBudget;
 use crate::search::graph::FutureGraph;
@@ -8,6 +10,15 @@ use crate::strategy::{
     choose_move_baseline, BeamShadowMetadata, Decision, DecisionReason, SearchMetadata,
 };
 use crate::GameState;
+
+const ABSOLUTE_SWITCH_MARGIN: i64 = 150;
+const RELATIVE_SWITCH_MARGIN_PERCENT: i64 = 8;
+
+#[derive(Debug, Clone)]
+pub(crate) struct BeamDecisionOutcome {
+    pub(crate) decision: Decision,
+    pub(crate) selected_line: BeamLine,
+}
 
 #[derive(Debug, Default, Clone, Copy)]
 pub(crate) struct DecisionEngine;
@@ -46,19 +57,35 @@ impl DecisionEngine {
         graph: &mut FutureGraph,
         extra_reserve_ms: u64,
     ) -> Option<Decision> {
+        self.try_decide_beam_with_continuity(
+            state,
+            graph,
+            extra_reserve_ms,
+            None,
+        )
+        .map(|outcome| outcome.decision)
+    }
+
+    pub(crate) fn try_decide_beam_with_continuity(
+        &self,
+        state: &GameState,
+        graph: &mut FutureGraph,
+        extra_reserve_ms: u64,
+        incumbent_direction: Option<Direction>,
+    ) -> Option<BeamDecisionOutcome> {
         let budget = SearchBudget::from_state_with_extra_reserve(state, extra_reserve_ms);
         graph.reset_performance();
 
         let result = search_beam(graph, &budget).ok().flatten()?;
-        let best = result.best_line()?;
-        let direction = best.root_direction;
+        let selected = select_line_with_continuity(graph, &result, incumbent_direction)?.clone();
+        let direction = selected.root_direction;
         let root = graph.node(graph.root());
         let reachable_cells = root.active_analysis().map_or(0, |analysis| {
             analysis
                 .mobility
                 .reachable_space(&root.state, &root.state.our_snake_id, direction)
         });
-        let beam_metadata = beam_metadata(graph, &result, budget.elapsed());
+        let beam_metadata = beam_metadata_for_line(graph, &result, &selected, budget.elapsed());
 
         let search = SearchMetadata {
             completed_depth: result.completed_depth(),
@@ -76,18 +103,83 @@ impl DecisionEngine {
             beam_shadow: beam_metadata,
         };
 
-        Some(Decision {
-            direction,
-            reason: DecisionReason::BeamUtility,
-            reachable_cells,
-            search,
+        Some(BeamDecisionOutcome {
+            decision: Decision {
+                direction,
+                reason: DecisionReason::BeamUtility,
+                reachable_cells,
+                search,
+            },
+            selected_line: selected,
         })
     }
 }
 
-fn beam_metadata(
+fn select_line_with_continuity<'a>(
+    graph: &FutureGraph,
+    result: &'a BeamSearchResult,
+    incumbent_direction: Option<Direction>,
+) -> Option<&'a BeamLine> {
+    let best = result.best_line()?;
+    let Some(direction) = incumbent_direction else {
+        return Some(best);
+    };
+    let Some(incumbent) = result
+        .checkpoint
+        .lines
+        .iter()
+        .find(|line| line.root_direction == direction && line.is_viable())
+    else {
+        return Some(best);
+    };
+
+    if incumbent.root_direction == best.root_direction {
+        return Some(best);
+    }
+
+    if root_has_survival_emergency(graph)
+        || incumbent.terminal == LineTerminal::Lost
+        || (best.terminal == LineTerminal::Won && incumbent.terminal != LineTerminal::Won)
+    {
+        return Some(best);
+    }
+
+    let relative_margin = incumbent
+        .value
+        .saturating_abs()
+        .saturating_mul(RELATIVE_SWITCH_MARGIN_PERCENT)
+        .saturating_div(100);
+    let margin = ABSOLUTE_SWITCH_MARGIN.max(relative_margin);
+
+    if best.value > incumbent.value.saturating_add(margin) {
+        Some(best)
+    } else {
+        Some(incumbent)
+    }
+}
+
+fn root_has_survival_emergency(graph: &FutureGraph) -> bool {
+    let root = graph.node(graph.root());
+    let Some(analysis) = root.active_analysis() else {
+        return true;
+    };
+    let Some(actor) = root.state.actor_index(&root.state.our_snake_id) else {
+        return true;
+    };
+    let Some(snapshot) = analysis.actor_snapshot(actor) else {
+        return true;
+    };
+
+    snapshot.metrics.space_capacity_milli <= 100
+        || snapshot.metrics.enclosure_risk >= 3
+        || snapshot.metrics.food_survival_pressure_milli >= 800
+        || snapshot.metrics.health_pressure_milli >= 800
+}
+
+fn beam_metadata_for_line(
     graph: &FutureGraph,
     result: &BeamSearchResult,
+    selected: &BeamLine,
     elapsed: Duration,
 ) -> BeamShadowMetadata {
     let perf = graph.performance();
@@ -109,16 +201,12 @@ fn beam_metadata(
         ..BeamShadowMetadata::default()
     };
 
-    let Some(best) = result.best_line() else {
-        return metadata;
-    };
-
-    metadata.direction = Some(best.root_direction);
-    metadata.best_value = best.value;
+    metadata.direction = Some(selected.root_direction);
+    metadata.best_value = selected.value;
 
     let root_state = &graph.node(graph.root()).state;
     let our_index = root_state.actor_index(&root_state.our_snake_id);
-    for step in best.path.steps() {
+    for step in selected.path.steps() {
         let Some(edge) = graph
             .node(step.node)
             .children
