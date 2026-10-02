@@ -8,6 +8,10 @@ const MIN_SURVIVAL_WEIGHT: u16 = 150;
 const MAX_SURVIVAL_WEIGHT: u16 = 900;
 const MAX_TERRITORY_ONLY_SURVIVAL_WEIGHT: u16 = 650;
 const SIZE_NEUTRAL_BAND_MILLI: u16 = 120;
+const DOMINANT_SIZE_START_MILLI: u32 = 1200;
+const DOMINANT_SIZE_FULL_MILLI: u32 = 1400;
+const DOMINANT_FOOD_SHARE_AT_START: u16 = 500;
+const DOMINANT_FOOD_SHARE_AT_FULL: u16 = 50;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct StrategicWeights {
@@ -80,13 +84,14 @@ fn strategic_weights(
         relative_size_pressure(actor_length, reference_enemy);
     let offensive_budget = STRATEGIC_BUDGET.saturating_sub(survival);
 
-    let food_share = 500_i32
+    let base_food_share = 500_i32
         .saturating_add(i32::from(size_disadvantage_milli) / 2)
         .saturating_sub(i32::from(size_advantage_milli) / 2)
         .clamp(
             i32::from(MIN_CATEGORY_WEIGHT),
             i32::from(MAX_CATEGORY_WEIGHT),
         ) as u16;
+    let food_share = base_food_share.min(dominant_food_share_cap(actor_length, largest_enemy));
 
     let food = u32::from(offensive_budget)
         .saturating_mul(u32::from(food_share))
@@ -188,6 +193,38 @@ fn interpolate(value: u16, x0: u16, x1: u16, y0: u16, y1: u16) -> u16 {
         .saturating_div(span);
 
     u32::from(y0).saturating_sub(drop).try_into().unwrap_or(y1)
+}
+
+fn dominant_food_share_cap(actor_length: u32, largest_enemy: u32) -> u16 {
+    if largest_enemy == 0 {
+        return DOMINANT_FOOD_SHARE_AT_FULL;
+    }
+
+    let ratio_milli = u64::from(actor_length)
+        .saturating_mul(1000)
+        .saturating_div(u64::from(largest_enemy))
+        .min(u64::from(u32::MAX)) as u32;
+
+    if ratio_milli <= DOMINANT_SIZE_START_MILLI {
+        return STRATEGIC_BUDGET;
+    }
+    if ratio_milli >= DOMINANT_SIZE_FULL_MILLI {
+        return DOMINANT_FOOD_SHARE_AT_FULL;
+    }
+
+    let progress = ratio_milli.saturating_sub(DOMINANT_SIZE_START_MILLI);
+    let span = DOMINANT_SIZE_FULL_MILLI
+        .saturating_sub(DOMINANT_SIZE_START_MILLI)
+        .max(1);
+    let reduction =
+        u32::from(DOMINANT_FOOD_SHARE_AT_START.saturating_sub(DOMINANT_FOOD_SHARE_AT_FULL))
+            .saturating_mul(progress)
+            .saturating_div(span);
+
+    u32::from(DOMINANT_FOOD_SHARE_AT_START)
+        .saturating_sub(reduction)
+        .try_into()
+        .unwrap_or(DOMINANT_FOOD_SHARE_AT_FULL)
 }
 
 fn relative_size_pressure(actor_length: u32, reference_enemy: u32) -> (u16, u16) {
@@ -419,6 +456,29 @@ mod tests {
 
         assert!(small_deficit < large_deficit);
         assert!(large_deficit > 0);
+    }
+
+    #[test]
+    fn forty_percent_size_lead_almost_eliminates_food_weight() {
+        let state = state(&[("ours", 14), ("enemy-a", 10), ("enemy-b", 8)]);
+        let weights = StrategicWeights::for_actor(&state, "ours", 1000, 650).unwrap();
+        let offensive = weights.food.saturating_add(weights.hunting);
+
+        assert!(weights.hunting > weights.food);
+        assert!(
+            u32::from(weights.food).saturating_mul(100) <= u32::from(offensive).saturating_mul(6)
+        );
+    }
+
+    #[test]
+    fn dominant_food_cap_tightens_smoothly_toward_forty_percent_lead() {
+        let cap_20 = dominant_food_share_cap(12, 10);
+        let cap_30 = dominant_food_share_cap(13, 10);
+        let cap_40 = dominant_food_share_cap(14, 10);
+
+        assert!(cap_20 > cap_30);
+        assert!(cap_30 > cap_40);
+        assert_eq!(cap_40, DOMINANT_FOOD_SHARE_AT_FULL);
     }
 
     #[test]

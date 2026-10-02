@@ -154,3 +154,21 @@ Temporary intermediate vectors, maps, choke details, and aggregates should be co
 Enemy tracing is an ordering layer, not a pruning layer. Every deterministic legal opponent move remains in the joint-action generator. Historical opponent profiles may change move order only; they never alter actor utility and never remove a legal move.
 
 - border escape pressure is an instantaneous Survival pressure used for weighting and continuity emergency detection; it is not added as a second transition harm.
+
+
+## Size-aware food risk
+
+Food utility is reduced near the board edge as absolute snake length grows. The curve begins at length 10 and reaches full aversion at length 18: edge food has zero Food-category attraction, one-cell-from-edge food retains 10%, two-cells-from-edge food retains 50%, while food at distance 3+ is unaffected. The same factor applies to potential and immediate consumption reward. Survival remains free to choose edge food when starvation or terminal risk makes it necessary.
+
+When an actor reaches roughly a 40% length advantage over the largest living opponent, Food is capped at about 5% of the remaining offensive budget and the rest flows to Hunting. This dominance cap ramps continuously from +20% to +40% and does not alter Survival weighting.
+
+
+## Opponent intent learning
+
+Opponent intent learning reuses the previous request's retained root children and never expands new nodes. After our chosen root direction is retained, the next request observes each enemy's real direction and compares the already-resolved children for that direction against the alternatives that were available under the same move we actually sent.
+
+The retrospective evidence is contrastive: Food uses food-potential change, food consumption, and the previous food hypothesis; Hunting uses direct hunting transition benefit and head threats; Trapping measures the effect on our mobility, space capacity, territory, enclosure, border pin, and border escape pressure. Effects are averaged across the other enemies' joint-action combinations so one opponent is not credited for a single arbitrary response by another opponent.
+
+If the enemy had no alternative, no intent is learned. Small contrasts are ignored. When the enemy's own Survival weight is high, the information gain is discounted because a trapping-looking move may simply be self-preservation.
+
+The learned profile adds a continuous trapping bias alongside Food, Hunting, and head-threat biases. Current tracing estimates future trapping support using only existing MobilityAnalysis, head positions, legal destinations, edge distance, and immediate geometric pressure. It does not call resolve_turn, create nodes, run BFS, or remove legal moves. The profile only changes move ordering.

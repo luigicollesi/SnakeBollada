@@ -30,6 +30,7 @@ const TERMINAL_UTILITY: i64 = 1_000_000_000;
 struct ActorTransitionFacts {
     ate_food: bool,
     consumed_food: Option<crate::Coord>,
+    food_consumption_factor_milli: u16,
     food_potential_before: u16,
     food_potential_after: u16,
     space_capacity_delta_milli: i16,
@@ -45,6 +46,7 @@ struct ActorTransitionFacts {
     enclosure_improvement: i8,
     hunting_territory_benefit: i64,
     kill_benefit: i64,
+    attributed_kill: bool,
     died: bool,
     sole_survivor: bool,
 }
@@ -52,6 +54,7 @@ struct ActorTransitionFacts {
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 struct TransitionFacts {
     actors: ActorVec<ActorTransitionFacts>,
+    our_elimination_attribution: Option<EliminationAttribution>,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -60,6 +63,8 @@ pub(crate) struct ActorTransitionScore {
     pub(crate) food_harm: i64,
     pub(crate) hunting_benefit: i64,
     pub(crate) hunting_harm: i64,
+    pub(crate) raw_hunting_milli: u16,
+    pub(crate) attributed_kill: bool,
     pub(crate) survival_benefit: i64,
     pub(crate) survival_harm: i64,
     pub(crate) terminal_benefit: i64,
@@ -82,6 +87,7 @@ pub(crate) struct TransitionScore {
     pub(crate) net: i64,
     pub(crate) opponent_net_total: i64,
     pub(crate) actors: ActorVec<ActorTransitionScore>,
+    pub(crate) our_elimination_attribution: Option<EliminationAttribution>,
 }
 
 impl TransitionScore {
@@ -144,6 +150,7 @@ impl TransitionScore {
             net: ours.net,
             opponent_net_total,
             actors,
+            our_elimination_attribution: facts.our_elimination_attribution,
         }
     }
 
@@ -161,6 +168,10 @@ impl TransitionFacts {
         let hunting_transfers = hunting_territory_benefits(parent, child);
         let mut ate_food = ActorVec::<crate::Coord>::with_capacity(parent.state.snakes.len());
         let mut kill_benefits = ActorVec::<i64>::with_capacity(parent.state.snakes.len());
+        let our_elimination_attribution = events.iter().find_map(|event| match event {
+            InstantEvent::Died { attribution, .. } => Some(*attribution),
+            _ => None,
+        });
 
         for event in events {
             match event {
@@ -214,10 +225,19 @@ impl TransitionFacts {
             } else {
                 child_actor.map_or(0, |snake| extra_hazard_damage(actor.health, snake.health))
             };
+            let kill_benefit = kill_benefits.get(actor_index).copied().unwrap_or(0);
+            let attributed_kill = kill_benefit > 0
+                || matches!(
+                    our_elimination_attribution,
+                    Some(EliminationAttribution::Actor(killer)) if killer == actor_index
+                );
 
             let facts = ActorTransitionFacts {
                 ate_food: ate_food_now,
                 consumed_food,
+                food_consumption_factor_milli: consumed_food.map_or(1000, |food| {
+                    super::metrics::food_border_attraction_milli(&parent.state, actor_index, food)
+                }),
                 food_potential_before: consumed_food.map_or(
                     before.metrics.food_potential_milli,
                     |food| {
@@ -283,14 +303,18 @@ impl TransitionFacts {
                     )
                 }),
                 hunting_territory_benefit: hunting_transfers.get(actor_index).copied().unwrap_or(0),
-                kill_benefit: kill_benefits.get(actor_index).copied().unwrap_or(0),
+                kill_benefit,
+                attributed_kill,
                 died: !alive_after,
                 sole_survivor: alive_after && living_after == 1,
             };
             actors.insert(actor_index, facts);
         }
 
-        Self { actors }
+        Self {
+            actors,
+            our_elimination_attribution,
+        }
     }
 }
 
@@ -301,9 +325,23 @@ fn score_actor_transition(
     let (mut food_benefit, mut food_harm) =
         food_potential_delta(facts.food_potential_before, facts.food_potential_after);
     if facts.ate_food {
-        food_benefit = food_benefit.saturating_add(FOOD_CONSUMED);
+        food_benefit = food_benefit.saturating_add(
+            FOOD_CONSUMED
+                .saturating_mul(i64::from(facts.food_consumption_factor_milli))
+                .saturating_div(1000),
+        );
     }
 
+    let raw_hunting_milli = facts
+        .hunting_territory_benefit
+        .saturating_add(if facts.attributed_kill {
+            KILL_BENEFIT
+        } else {
+            0
+        })
+        .clamp(0, 1000)
+        .try_into()
+        .unwrap_or(1000);
     let mut hunting_benefit = facts
         .hunting_territory_benefit
         .saturating_add(facts.kill_benefit);
@@ -392,6 +430,8 @@ fn score_actor_transition(
         food_harm,
         hunting_benefit,
         hunting_harm,
+        raw_hunting_milli,
+        attributed_kill: facts.attributed_kill,
         survival_benefit,
         survival_harm,
         terminal_benefit,
@@ -581,6 +621,77 @@ mod tests {
             food_potential_delta(500, 550),
             (30 * FOOD_POTENTIAL_DELTA_SCALE, 0)
         );
+    }
+
+    #[test]
+    fn raw_hunting_signal_is_independent_from_strategic_weight() {
+        let facts = ActorTransitionFacts {
+            hunting_territory_benefit: 700,
+            ..ActorTransitionFacts::default()
+        };
+        let low_hunting = StrategicWeights {
+            food: 450,
+            hunting: 100,
+            survival: 450,
+        };
+        let high_hunting = StrategicWeights {
+            food: 100,
+            hunting: 800,
+            survival: 100,
+        };
+
+        let low = score_actor_transition(facts, low_hunting);
+        let high = score_actor_transition(facts, high_hunting);
+
+        assert_eq!(low.raw_hunting_milli, high.raw_hunting_milli);
+        assert_eq!(low.raw_hunting_milli, 700);
+        assert!(high.hunting_benefit > low.hunting_benefit);
+    }
+
+    #[test]
+    fn our_death_attributes_intent_kill_only_to_causal_enemy() {
+        let parent_state = SimulatedGameState {
+            turn: 1,
+            width: 7,
+            height: 7,
+            food: vec![],
+            hazards: vec![],
+            snakes: vec![
+                snake("ours", 100, &[(2, 2), (2, 1)]),
+                snake("enemy-a", 100, &[(3, 2), (3, 1)]),
+                snake("enemy-b", 100, &[(5, 5), (5, 4)]),
+            ],
+            our_snake_id: "ours".to_string(),
+            rules: RulesContext {
+                name: "standard".to_string(),
+                max_health: 100,
+                hazard_damage_per_turn: 0,
+            },
+        };
+        let mut child_state = parent_state.clone();
+        child_state.turn = 2;
+        child_state.snake_mut("ours").unwrap().alive = false;
+
+        let parent_graph = FutureGraph::new(parent_state);
+        let child_graph = FutureGraph::new(child_state);
+        let parent = parent_graph.node(parent_graph.root());
+        let child = child_graph.node(child_graph.root());
+        let enemy_a = actor_index(&parent.state, "enemy-a");
+        let enemy_b = actor_index(&parent.state, "enemy-b");
+        let events = vec![InstantEvent::Died {
+            cause: crate::simulation::resolver::EliminationCause::BodyCollision,
+            attribution: EliminationAttribution::Actor(enemy_a),
+        }];
+
+        let score = TransitionScore::from_parts(parent, &events, child);
+
+        assert_eq!(
+            score.our_elimination_attribution,
+            Some(EliminationAttribution::Actor(enemy_a))
+        );
+        assert!(score.for_actor(enemy_a).unwrap().attributed_kill);
+        assert!(!score.for_actor(enemy_b).unwrap().attributed_kill);
+        assert_eq!(score.for_actor(enemy_a).unwrap().raw_hunting_milli, 1000);
     }
 
     #[test]
@@ -1084,6 +1195,7 @@ mod tests {
         let facts = ActorTransitionFacts {
             ate_food: true,
             consumed_food: Some(Coord { x: 3, y: 3 }),
+            food_consumption_factor_milli: 1000,
             food_potential_before: 500,
             food_potential_after: 550,
             ..ActorTransitionFacts::default()
@@ -1096,6 +1208,27 @@ mod tests {
             FOOD_CONSUMED + 30 * FOOD_POTENTIAL_DELTA_SCALE
         );
         assert_eq!(score.food_harm, 0);
+    }
+
+    #[test]
+    fn edge_food_consumption_reward_can_be_suppressed_for_large_snake() {
+        let weights = StrategicWeights {
+            food: 1000,
+            hunting: 0,
+            survival: 0,
+        };
+        let facts = ActorTransitionFacts {
+            ate_food: true,
+            consumed_food: Some(Coord { x: 0, y: 3 }),
+            food_consumption_factor_milli: 0,
+            food_potential_before: 0,
+            food_potential_after: 0,
+            ..ActorTransitionFacts::default()
+        };
+
+        let score = score_actor_transition(facts, weights);
+
+        assert_eq!(score.food_benefit, 0);
     }
 
     #[test]
