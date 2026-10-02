@@ -154,11 +154,8 @@ impl TerritoryCore {
 
         let competitive_claims =
             competitive_claims(state, width, height, &open, &living, &distances);
-        let competitive_controls = competitive_control_by_actor(
-            state.snakes.len(),
-            &open,
-            &competitive_claims,
-        );
+        let competitive_controls =
+            competitive_control_by_actor(state.snakes.len(), &open, &competitive_claims);
 
         let mut snakes = ActorVec::with_capacity(state.snakes.len());
         for (actor, snake, head) in living {
