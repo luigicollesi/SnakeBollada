@@ -60,12 +60,6 @@ pub(crate) enum InstantEvent {
     },
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum ForecastDelta {
-    None,
-    FoodUncertainty,
-}
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum ResolveError {
     MissingMove(String),
@@ -76,7 +70,6 @@ pub(crate) enum ResolveError {
 pub(crate) struct TurnResolution {
     pub(crate) state: SimulatedGameState,
     pub(crate) events: Vec<InstantEvent>,
-    pub(crate) forecast_delta: ForecastDelta,
 }
 
 #[derive(Debug, Clone)]
@@ -96,7 +89,7 @@ pub(crate) fn resolve_turn(
     reduce_health(&mut next);
     damage_hazards(&mut next, &mut events);
 
-    let ate_food = feed_snakes(&mut next, &mut events)?;
+    feed_snakes(&mut next, &mut events)?;
     let our_actor = next.actor_index(&next.our_snake_id);
     if events.iter().any(|event| {
         matches!(
@@ -113,11 +106,6 @@ pub(crate) fn resolve_turn(
     Ok(TurnResolution {
         state: next,
         events,
-        forecast_delta: if ate_food {
-            ForecastDelta::FoodUncertainty
-        } else {
-            ForecastDelta::None
-        },
     })
 }
 
@@ -213,9 +201,8 @@ fn damage_hazards(state: &mut SimulatedGameState, events: &mut Vec<InstantEvent>
 fn feed_snakes(
     state: &mut SimulatedGameState,
     events: &mut Vec<InstantEvent>,
-) -> Result<bool, ResolveError> {
+) -> Result<(), ResolveError> {
     let mut remaining_food = Vec::with_capacity(state.food.len());
-    let mut any_eaten = false;
 
     for food in state.food.iter().copied() {
         let mut eaten = false;
@@ -245,7 +232,6 @@ fn feed_snakes(
             snake.health = state.rules.max_health;
             events.push(InstantEvent::AteFood { actor, food });
             eaten = true;
-            any_eaten = true;
         }
 
         if !eaten {
@@ -254,7 +240,7 @@ fn feed_snakes(
     }
 
     state.food = remaining_food;
-    Ok(any_eaten)
+    Ok(())
 }
 
 fn eliminate_snakes(
@@ -497,7 +483,6 @@ mod tests {
         assert_eq!(ours.health, 100);
         assert_eq!(ours.length(), 4);
         assert_eq!(resolved.state.food, Vec::<Coord>::new());
-        assert_eq!(resolved.forecast_delta, ForecastDelta::FoodUncertainty);
         assert!(resolved.events.contains(&InstantEvent::AteFood {
             actor: initial.actor_index("ours").unwrap(),
             food: Coord { x: 3, y: 2 },
