@@ -9,6 +9,7 @@ use crate::forecast::ForecastCertainty;
 use crate::search::budget::SearchBudget;
 use crate::search::graph::{FutureGraph, NodeId, SearchEdge, SearchNode};
 use crate::simulation::resolver::{EliminationAttribution, ForecastDelta, InstantEvent};
+use crate::simulation::state::ActorIndex;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum TerminalAssessment {
@@ -544,7 +545,7 @@ fn apply_edge(
     let (border_tick, corner_tick, border_cost_milli) = border_exposure_cost(&edge.events);
     let guaranteed_enemy_kills = child
         .guaranteed_enemy_kills
-        .saturating_add(edge_enemy_kills(edge));
+        .saturating_add(edge_enemy_kills(parent, edge));
 
     let (food_discount, hunting_discount) = certainty_discounts(certainty);
     let (food_drive, hunt_drive) = strategic_drives(child_node);
@@ -648,7 +649,8 @@ fn apply_edge(
             average_leaf_hunting_potential: child.strategic.average_leaf_hunting_potential,
         },
         guaranteed_enemy_kills,
-        reserved_override_all: causal_reserved_event(&edge.events) || child.reserved_override_all,
+        reserved_override_all: causal_reserved_event(parent, &edge.events)
+            || child.reserved_override_all,
     }
 }
 
@@ -888,7 +890,8 @@ fn border_exposure_cost(events: &[InstantEvent]) -> (bool, bool, u16) {
 }
 
 fn edge_hunting_delta(parent: &SearchNode, edge: &SearchEdge) -> f32 {
-    let mut target_levels: HashMap<&str, f32> = HashMap::new();
+    let mut target_levels: HashMap<ActorIndex, f32> = HashMap::new();
+    let our_actor = parent.state.actor_index(&parent.state.our_snake_id);
 
     for event in &edge.events {
         let target = match event {
@@ -896,17 +899,17 @@ fn edge_hunting_delta(parent: &SearchNode, edge: &SearchEdge) -> f32 {
                 enemy,
                 caused_by_ours: true,
                 ..
-            } => Some((enemy.as_str(), 0.25)),
+            } => Some((*enemy, 0.25)),
             InstantEvent::EnemyTrapped {
                 enemy,
                 caused_by_ours: true,
-            } => Some((enemy.as_str(), 0.60)),
+            } => Some((*enemy, 0.60)),
             InstantEvent::EnemyKilled {
                 enemy,
-                attribution: EliminationAttribution::OurSnake,
+                attribution: EliminationAttribution::Actor(killer),
                 ..
-            }
-            | InstantEvent::HeadToHeadWon { enemy } => Some((enemy.as_str(), 1.0)),
+            } if Some(*killer) == our_actor => Some((*enemy, 1.0)),
+            InstantEvent::HeadToHeadWon { enemy } => Some((*enemy, 1.0)),
             _ => None,
         };
 
@@ -927,7 +930,10 @@ fn edge_hunting_delta(parent: &SearchNode, edge: &SearchEdge) -> f32 {
         .sum()
 }
 
-fn enemy_pressure_level(node: &SearchNode, enemy_id: &str) -> f32 {
+fn enemy_pressure_level(node: &SearchNode, enemy: ActorIndex) -> f32 {
+    let Some(enemy_id) = node.state.actor_id(enemy) else {
+        return 0.0;
+    };
     let Some(enemy) = node
         .active_analysis()
         .and_then(|analysis| analysis.tactical.enemies.get(enemy_id))
@@ -1002,18 +1008,21 @@ fn competitive_territory_delta(parent: &SearchNode, child: &SearchNode) -> f32 {
     (our_gain * 0.40 + enemy_denial * 0.50 + frontier_delta * 0.10).clamp(-0.60, 0.60)
 }
 
-fn edge_enemy_kills(edge: &SearchEdge) -> u16 {
+fn edge_enemy_kills(parent: &SearchNode, edge: &SearchEdge) -> u16 {
+    let our_actor = parent.state.actor_index(&parent.state.our_snake_id);
     let mut killed = HashSet::new();
 
     for event in &edge.events {
         match event {
             InstantEvent::EnemyKilled {
                 enemy,
-                attribution: EliminationAttribution::OurSnake,
+                attribution: EliminationAttribution::Actor(killer),
                 ..
+            } if Some(*killer) == our_actor => {
+                killed.insert(*enemy);
             }
-            | InstantEvent::HeadToHeadWon { enemy } => {
-                killed.insert(enemy.as_str());
+            InstantEvent::HeadToHeadWon { enemy } => {
+                killed.insert(*enemy);
             }
             _ => {}
         }
@@ -1022,17 +1031,21 @@ fn edge_enemy_kills(edge: &SearchEdge) -> u16 {
     killed.len().try_into().unwrap_or(u16::MAX)
 }
 
-fn causal_reserved_event(events: &[InstantEvent]) -> bool {
+fn causal_reserved_event(parent: &SearchNode, events: &[InstantEvent]) -> bool {
+    let our_actor = parent.state.actor_index(&parent.state.our_snake_id);
     events.iter().any(|event| {
         matches!(
             event,
             InstantEvent::EnemyTrapped {
                 caused_by_ours: true,
                 ..
-            } | InstantEvent::EnemyKilled {
-                attribution: EliminationAttribution::OurSnake,
-                ..
             } | InstantEvent::HeadToHeadWon { .. }
+        ) || matches!(
+            event,
+            InstantEvent::EnemyKilled {
+                attribution: EliminationAttribution::Actor(killer),
+                ..
+            } if Some(*killer) == our_actor
         )
     })
 }
