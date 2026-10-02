@@ -80,6 +80,19 @@ impl RulesContext {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub(crate) struct ActorIndex(u8);
+
+impl ActorIndex {
+    pub(crate) fn new(index: usize) -> Option<Self> {
+        u8::try_from(index).ok().map(Self)
+    }
+
+    pub(crate) const fn as_usize(self) -> usize {
+        self.0 as usize
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub(crate) struct SimulatedSnake {
     pub(crate) id: String,
@@ -123,6 +136,23 @@ pub(crate) struct SimulatedGameState {
 }
 
 impl SimulatedGameState {
+    pub(crate) fn actor_index(&self, id: &str) -> Option<ActorIndex> {
+        self.snakes
+            .iter()
+            .position(|snake| snake.id == id)
+            .and_then(ActorIndex::new)
+    }
+
+    pub(crate) fn actor_id(&self, index: ActorIndex) -> Option<&str> {
+        self.snakes
+            .get(index.as_usize())
+            .map(|snake| snake.id.as_str())
+    }
+
+    pub(crate) fn snake_at(&self, index: ActorIndex) -> Option<&SimulatedSnake> {
+        self.snakes.get(index.as_usize())
+    }
+
     pub(crate) fn snake(&self, id: &str) -> Option<&SimulatedSnake> {
         self.snakes.iter().find(|snake| snake.id == id)
     }
@@ -188,6 +218,40 @@ mod tests {
             aggression.record_food();
         }
         assert_eq!(aggression.value, MAX_AGGRESSION);
+    }
+
+    #[test]
+    fn actor_index_is_stable_for_snake_order() {
+        let ours = snake("ours", 87, vec![Coord { x: 2, y: 2 }]);
+        let enemy = snake("enemy", 90, vec![Coord { x: 5, y: 5 }]);
+        let state = GameState {
+            game: Game {
+                id: "game".to_string(),
+                ruleset: HashMap::from([
+                    ("name".to_string(), json!("standard")),
+                    ("settings".to_string(), json!({ "hazardDamagePerTurn": 0 })),
+                ]),
+                timeout: 500,
+            },
+            turn: 1,
+            board: Board {
+                height: 11,
+                width: 11,
+                food: vec![],
+                snakes: vec![ours.clone(), enemy.clone()],
+                hazards: vec![],
+            },
+            you: ours,
+        };
+        let simulated = SimulatedGameState::from(&state);
+
+        let ours_index = simulated.actor_index("ours").unwrap();
+        let enemy_index = simulated.actor_index("enemy").unwrap();
+
+        assert_eq!(ours_index.as_usize(), 0);
+        assert_eq!(enemy_index.as_usize(), 1);
+        assert_eq!(simulated.actor_id(ours_index), Some("ours"));
+        assert_eq!(simulated.actor_id(enemy_index), Some("enemy"));
     }
 
     #[test]
