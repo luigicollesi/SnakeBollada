@@ -117,12 +117,6 @@ impl MoveMask {
         self.0.count_ones() as u8
     }
 
-    pub(crate) fn union_with(&mut self, other: MoveMask) -> bool {
-        let previous = self.0;
-        self.0 |= other.0;
-        self.0 != previous
-    }
-
     pub(crate) fn iter(self) -> impl Iterator<Item = Direction> {
         Direction::ALL
             .into_iter()
