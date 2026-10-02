@@ -6,6 +6,10 @@ use crate::simulation::resolver::{EliminationAttribution, InstantEvent};
 use crate::simulation::state::ActorIndex;
 
 const FOOD_POTENTIAL_DELTA_SCALE: i64 = 3;
+const FOOD_POTENTIAL_DEADBAND: u16 = 20;
+const SPACE_CAPACITY_DEADBAND: i16 = 20;
+const TERRITORY_CONTROL_DEADBAND: i16 = 15;
+const BORDER_RISK_DEADBAND: i16 = 20;
 const FOOD_CONSUMED: i64 = 1000;
 const SPACE_CAPACITY_DELTA_SCALE: i64 = 2;
 const TERRITORY_CONTROL_DELTA_SCALE: i64 = 4;
@@ -287,13 +291,16 @@ fn score_actor_transition(
         .saturating_add(facts.kill_benefit);
     let mut hunting_harm = 0_i64;
     let (space_benefit, space_harm) = weighted_survival_delta(
-        facts.space_capacity_delta_milli,
+        deadband_i16(facts.space_capacity_delta_milli, SPACE_CAPACITY_DEADBAND),
         SPACE_CAPACITY_DELTA_SCALE,
         weights.survival,
         facts.survival_weight_after,
     );
     let (territory_benefit, territory_harm) = weighted_survival_delta(
-        facts.territory_control_delta_milli,
+        deadband_i16(
+            facts.territory_control_delta_milli,
+            TERRITORY_CONTROL_DEADBAND,
+        ),
         TERRITORY_CONTROL_DELTA_SCALE,
         weights.survival,
         facts.survival_weight_after,
@@ -307,7 +314,10 @@ fn score_actor_transition(
         &mut survival_harm,
     );
     add_signed_delta(
-        i64::from(facts.border_risk_improvement_milli),
+        i64::from(deadband_i16(
+            facts.border_risk_improvement_milli,
+            BORDER_RISK_DEADBAND,
+        )),
         &mut survival_benefit,
         &mut survival_harm,
     );
@@ -393,18 +403,41 @@ fn extra_hazard_damage(before_health: i32, after_health: i32) -> u16 {
 }
 
 fn food_potential_delta(before: u16, after: u16) -> (i64, i64) {
-    if after > before {
+    let raw = i32::from(after).saturating_sub(i32::from(before));
+    let delta = deadband_i32(raw, i32::from(FOOD_POTENTIAL_DEADBAND));
+
+    if delta > 0 {
         (
-            i64::from(after.saturating_sub(before)).saturating_mul(FOOD_POTENTIAL_DELTA_SCALE),
+            i64::from(delta).saturating_mul(FOOD_POTENTIAL_DELTA_SCALE),
             0,
         )
-    } else if before > after {
+    } else if delta < 0 {
         (
             0,
-            i64::from(before.saturating_sub(after)).saturating_mul(FOOD_POTENTIAL_DELTA_SCALE),
+            i64::from(delta.saturating_neg()).saturating_mul(FOOD_POTENTIAL_DELTA_SCALE),
         )
     } else {
         (0, 0)
+    }
+}
+
+fn deadband_i16(value: i16, deadband: i16) -> i16 {
+    if value > deadband {
+        value.saturating_sub(deadband)
+    } else if value < deadband.saturating_neg() {
+        value.saturating_add(deadband)
+    } else {
+        0
+    }
+}
+
+fn deadband_i32(value: i32, deadband: i32) -> i32 {
+    if value > deadband {
+        value.saturating_sub(deadband)
+    } else if value < deadband.saturating_neg() {
+        value.saturating_add(deadband)
+    } else {
+        0
     }
 }
 
@@ -513,6 +546,24 @@ mod tests {
     use crate::Coord;
 
     use super::*;
+
+    #[test]
+    fn tiny_strategic_deltas_are_absorbed_by_deadbands() {
+        assert_eq!(deadband_i16(20, SPACE_CAPACITY_DEADBAND), 0);
+        assert_eq!(deadband_i16(-15, TERRITORY_CONTROL_DEADBAND), 0);
+        assert_eq!(deadband_i16(20, BORDER_RISK_DEADBAND), 0);
+        assert_eq!(food_potential_delta(500, 520), (0, 0));
+    }
+
+    #[test]
+    fn meaningful_deltas_keep_only_signal_beyond_deadband() {
+        assert_eq!(deadband_i16(50, SPACE_CAPACITY_DEADBAND), 30);
+        assert_eq!(deadband_i16(-35, TERRITORY_CONTROL_DEADBAND), -20);
+        assert_eq!(
+            food_potential_delta(500, 550),
+            (30 * FOOD_POTENTIAL_DELTA_SCALE, 0)
+        );
+    }
 
     #[test]
     fn space_capacity_collapse_is_survival_harm_and_uses_child_pressure() {
