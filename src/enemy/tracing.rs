@@ -7,10 +7,11 @@ use rayon::prelude::*;
 use crate::analysis::StateAnalysis;
 use crate::direction::{Direction, MoveMask};
 use crate::enemy::profile::OpponentProfile;
+use crate::evaluation::ActorVec;
 use crate::forecast::ForecastCertainty;
 use crate::modes::food;
 use crate::simulation::mobility::{DeterministicMoveBlock, MobilityAnalysis};
-use crate::simulation::state::{SimulatedGameState, SimulatedSnake};
+use crate::simulation::state::{ActorIndex, SimulatedGameState, SimulatedSnake};
 
 pub(crate) const FOOD_PRESSURE_HEALTH: i32 = 40;
 pub(crate) const FOOD_NEAR_DISTANCE: u16 = 3;
@@ -185,12 +186,12 @@ impl EnemyMoveSet {
 
 #[derive(Debug, Clone, Default)]
 pub(crate) struct EnemyTracingOutput {
-    pub(crate) enemies: HashMap<String, EnemyMoveSet>,
+    pub(crate) enemies: ActorVec<EnemyMoveSet>,
 }
 
 impl EnemyTracingOutput {
-    pub(crate) fn for_enemy(&self, snake_id: &str) -> Option<&EnemyMoveSet> {
-        self.enemies.get(snake_id)
+    pub(crate) fn for_actor(&self, actor: ActorIndex) -> Option<&EnemyMoveSet> {
+        self.enemies.get(actor)
     }
 }
 
@@ -207,14 +208,17 @@ pub(crate) fn trace_with_mobility(
     let enemies = state
         .snakes
         .par_iter()
-        .filter(|snake| snake.alive && snake.id != state.our_snake_id)
-        .map(|enemy| {
-            (
-                enemy.id.clone(),
+        .enumerate()
+        .filter(|(_, snake)| snake.alive && snake.id != state.our_snake_id)
+        .filter_map(|(index, enemy)| {
+            Some((
+                ActorIndex::new(index)?,
                 trace_enemy(state, analysis, mobility, enemy),
-            )
+            ))
         })
-        .collect::<HashMap<_, _>>();
+        .collect::<Vec<_>>()
+        .into_iter()
+        .collect::<ActorVec<_>>();
 
     EnemyTracingOutput { enemies }
 }
@@ -226,14 +230,17 @@ pub(crate) fn trace_actor_relative_with_mobility(
     let enemies = state
         .snakes
         .par_iter()
-        .filter(|snake| snake.alive && snake.id != state.our_snake_id)
-        .map(|enemy| {
-            (
-                enemy.id.clone(),
+        .enumerate()
+        .filter(|(_, snake)| snake.alive && snake.id != state.our_snake_id)
+        .filter_map(|(index, enemy)| {
+            Some((
+                ActorIndex::new(index)?,
                 trace_enemy_actor_relative(state, mobility, enemy),
-            )
+            ))
         })
-        .collect::<HashMap<_, _>>();
+        .collect::<Vec<_>>()
+        .into_iter()
+        .collect::<ActorVec<_>>();
 
     EnemyTracingOutput { enemies }
 }
@@ -689,6 +696,11 @@ mod tests {
         StateAnalysis::from_simulated(state)
     }
 
+    fn actor(state: &SimulatedGameState, actor_id: &str) -> ActorIndex {
+        state.actor_index(actor_id).expect("actor must exist")
+    }
+
+
     #[test]
     fn actor_relative_trace_keeps_every_legal_move_without_space_pruning() {
         let state = state(
@@ -701,7 +713,7 @@ mod tests {
         let mobility = MobilityAnalysis::from_state(&state);
 
         let traced = trace_actor_relative_with_mobility(&state, &mobility);
-        let enemy = traced.for_enemy("enemy").unwrap();
+        let enemy = traced.for_actor(actor(&state, "enemy")).unwrap();
         let deterministic = mobility.deterministic_moves_for(&state, "enemy");
 
         assert_eq!(enemy.legal_moves, deterministic);
@@ -767,7 +779,7 @@ mod tests {
             vec![],
         );
         let output = trace(&state, &analyze(&state));
-        let enemy = output.for_enemy("enemy").unwrap();
+        let enemy = output.for_actor(actor(&state, "enemy")).unwrap();
 
         assert!(!enemy.legal_moves.contains(Direction::Left));
         assert!(!enemy.legal_moves.contains(Direction::Down));
@@ -784,7 +796,7 @@ mod tests {
             vec![],
         );
         let output = trace(&state, &analyze(&state));
-        let enemy = output.for_enemy("enemy").unwrap();
+        let enemy = output.for_actor(actor(&state, "enemy")).unwrap();
 
         assert!(enemy.legal_moves.contains(Direction::Down));
         assert!(enemy.plausible_moves.contains(Direction::Down));
@@ -805,7 +817,7 @@ mod tests {
             vec![],
         );
         let output = trace(&state, &analyze(&state));
-        let enemy = output.for_enemy("enemy").unwrap();
+        let enemy = output.for_actor(actor(&state, "enemy")).unwrap();
 
         assert!(enemy.legal_moves.contains(Direction::Right));
         assert!(!enemy.plausible_moves.contains(Direction::Right));
@@ -823,7 +835,7 @@ mod tests {
             vec![food],
         );
         let output = trace(&state, &analyze(&state));
-        let enemy = output.for_enemy("enemy").unwrap();
+        let enemy = output.for_actor(actor(&state, "enemy")).unwrap();
 
         assert!(enemy.plausible_moves.contains(Direction::Up));
         assert!(enemy.plausible_moves.contains(Direction::Right));
@@ -841,7 +853,7 @@ mod tests {
             vec![food],
         );
         let output = trace(&state, &analyze(&state));
-        let enemy = output.for_enemy("enemy").unwrap();
+        let enemy = output.for_actor(actor(&state, "enemy")).unwrap();
 
         assert!(enemy.legal_moves.contains(Direction::Down));
         assert!(enemy.plausible_moves.contains(Direction::Right));
@@ -887,7 +899,7 @@ mod tests {
             vec![food],
         );
         let output = trace(&state, &analyze(&state));
-        let enemy = output.for_enemy("enemy").unwrap();
+        let enemy = output.for_actor(actor(&state, "enemy")).unwrap();
 
         assert!(enemy.plausible_moves.len() >= 2);
     }
@@ -905,7 +917,7 @@ mod tests {
         state.rules.hazard_damage_per_turn = 100;
 
         let output = trace(&state, &analyze(&state));
-        let enemy = output.for_enemy("enemy").unwrap();
+        let enemy = output.for_actor(actor(&state, "enemy")).unwrap();
 
         assert!(enemy.legal_moves.is_empty());
         assert_eq!(enemy.search_moves(), MoveMask::all());
