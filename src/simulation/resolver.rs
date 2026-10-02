@@ -368,9 +368,7 @@ fn eliminate_snakes(
                 cause: elimination.cause,
             });
         } else {
-            if elimination.cause == EliminationCause::HeadToHead
-                && elimination.by == our_actor
-            {
+            if elimination.cause == EliminationCause::HeadToHead && elimination.by == our_actor {
                 events.push(InstantEvent::HeadToHeadWon { enemy: actor });
             }
 
@@ -462,6 +460,11 @@ mod tests {
                 action.with_move(actor, *direction)
             })
     }
+
+    fn actor(state: &SimulatedGameState, actor_id: &str) -> ActorIndex {
+        state.actor_index(actor_id).expect("actor must exist")
+    }
+
 
     #[test]
     fn movement_prepends_head_and_vacates_tail() {
@@ -588,7 +591,7 @@ mod tests {
         let resolved = resolve_turn(&initial, &action).unwrap();
 
         assert!(resolved.events.contains(&InstantEvent::EnemyKilled {
-            enemy: "enemy".to_string(),
+            enemy: actor(&initial, "enemy"),
             cause: EliminationCause::Hazard,
             attribution: EliminationAttribution::Environment,
         }));
@@ -685,7 +688,7 @@ mod tests {
         assert!(resolved.state.snake("ours").unwrap().alive);
         assert!(!resolved.state.snake("enemy").unwrap().alive);
         assert!(resolved.events.contains(&InstantEvent::HeadToHeadWon {
-            enemy: "enemy".to_string(),
+            enemy: actor(&initial, "enemy"),
         }));
     }
 
@@ -711,14 +714,14 @@ mod tests {
         assert!(!resolved.state.snake("enemy-a").unwrap().alive);
         assert!(!resolved.state.snake("enemy-b").unwrap().alive);
         assert!(resolved.events.contains(&InstantEvent::EnemyKilled {
-            enemy: "enemy-a".to_string(),
+            enemy: actor(&initial, "enemy-a"),
             cause: EliminationCause::HeadToHead,
-            attribution: EliminationAttribution::OurSnake,
+            attribution: EliminationAttribution::Actor(actor(&initial, "ours")),
         }));
         assert!(resolved.events.contains(&InstantEvent::EnemyKilled {
-            enemy: "enemy-b".to_string(),
+            enemy: actor(&initial, "enemy-b"),
             cause: EliminationCause::HeadToHead,
-            attribution: EliminationAttribution::OurSnake,
+            attribution: EliminationAttribution::Actor(actor(&initial, "ours")),
         }));
     }
 
