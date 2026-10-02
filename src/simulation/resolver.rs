@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use crate::Coord;
 
-use super::state::{SimulatedGameState, SimulatedSnake};
+use super::state::{ActorIndex, SimulatedGameState, SimulatedSnake};
 
 use super::joint_action::JointAction;
 
@@ -127,9 +127,15 @@ fn move_snakes(
     state: &mut SimulatedGameState,
     joint_action: &JointAction,
 ) -> Result<(), ResolveError> {
-    for snake in state.snakes.iter_mut().filter(|snake| snake.alive) {
+    for (index, snake) in state
+        .snakes
+        .iter_mut()
+        .enumerate()
+        .filter(|(_, snake)| snake.alive)
+    {
+        let actor = ActorIndex::new(index).ok_or_else(|| ResolveError::MissingMove(snake.id.clone()))?;
         let direction = joint_action
-            .direction_for(&snake.id)
+            .direction_for(actor)
             .ok_or_else(|| ResolveError::MissingMove(snake.id.clone()))?;
         let head = snake
             .head()
