@@ -1446,7 +1446,11 @@ mod tests {
         assert_eq!(graph.node(graph.root()).key, child_key);
         assert_eq!(graph.node_count(), old_count);
 
-        let our_id = graph.node(graph.root()).state.our_snake_id.clone();
+        let our_actor = graph
+            .node(graph.root())
+            .state
+            .actor_index(&graph.node(graph.root()).state.our_snake_id)
+            .unwrap();
         let direction = graph.node(graph.root()).children[0]
             .joint_action
             .direction_for(our_actor)
