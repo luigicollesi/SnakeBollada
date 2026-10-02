@@ -1385,7 +1385,8 @@ mod tests {
             .children
             .iter()
             .filter(|edge| {
-                edge.joint_action.direction_for(our_actor) == Some(crate::direction::Direction::Left)
+                edge.joint_action.direction_for(our_actor)
+                    == Some(crate::direction::Direction::Left)
             })
             .collect::<Vec<_>>();
 
