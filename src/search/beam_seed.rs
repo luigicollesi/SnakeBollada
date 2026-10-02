@@ -119,7 +119,7 @@ fn deepen_seed_one_layer(
         if line.terminal != LineTerminal::Running {
             continue;
         }
-        let Some(tip) = line.steps.last().map(|step| step.child) else {
+        let Some(tip) = line.path.last().map(|step| step.child) else {
             return Ok(None);
         };
         if !tips.contains(&tip) {
@@ -141,7 +141,7 @@ fn deepen_seed_one_layer(
             continue;
         }
 
-        let Some(tip) = line.steps.last().map(|step| step.child) else {
+        let Some(tip) = line.path.last().map(|step| step.child) else {
             return Ok(None);
         };
         let continuations = evaluate_continuations(graph, tip, 1);
