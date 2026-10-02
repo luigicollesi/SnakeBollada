@@ -158,13 +158,15 @@ impl SelectiveSearchScheduler {
 fn base_frontier(graph: &FutureGraph, base_depth: u8) -> Vec<(NodeId, NodeId, Direction, u8)> {
     let root = graph.root();
     let root_state = &graph.node(root).state;
-    let our_id = root_state.our_snake_id.clone();
+    let Some(our_actor) = root_state.actor_index(&root_state.our_snake_id) else {
+        return Vec::new();
+    };
     let mut queue = VecDeque::new();
     let mut seen = HashSet::new();
     let mut frontier = Vec::new();
 
     for edge in &graph.node(root).children {
-        let Some(direction) = edge.joint_action.direction_for(&our_id) else {
+        let Some(direction) = edge.joint_action.direction_for(our_actor) else {
             continue;
         };
         queue.push_back((edge.child, root, direction, 1_u8));
