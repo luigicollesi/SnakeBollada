@@ -16,6 +16,7 @@ pub(crate) struct BorderFobicSnapshot {
     pub(crate) head_edge_distance: u16,
     pub(crate) body_on_edge: u16,
     pub(crate) leading_edge_chain: u16,
+    pub(crate) safe_move_count: u8,
     pub(crate) inward_safe_moves: u8,
     pub(crate) corner_contact: bool,
     pub(crate) preference_milli: u16,
@@ -60,6 +61,7 @@ impl BorderFobicAnalysis {
                     .count()
                     .try_into()
                     .unwrap_or(u16::MAX);
+                let safe_move_count = safe_moves.len().min(3);
                 let inward_safe_moves = safe_moves
                     .iter()
                     .filter(|direction| {
@@ -129,6 +131,7 @@ impl BorderFobicAnalysis {
                 };
                 let escape_pressure_milli = border_escape_pressure_milli(
                     head_edge_distance,
+                    safe_move_count,
                     inward_safe_moves,
                     enemy_pin_risk_milli,
                     corner_contact,
@@ -141,6 +144,7 @@ impl BorderFobicAnalysis {
                         head_edge_distance,
                         body_on_edge,
                         leading_edge_chain,
+                        safe_move_count,
                         inward_safe_moves,
                         corner_contact,
                         preference_milli,
@@ -274,6 +278,7 @@ fn length_fear_milli(state: &SimulatedGameState, length: usize) -> u16 {
 
 fn border_escape_pressure_milli(
     head_edge_distance: u16,
+    safe_move_count: u8,
     inward_safe_moves: u8,
     enemy_pin_risk_milli: u16,
     corner_contact: bool,
@@ -282,26 +287,42 @@ fn border_escape_pressure_milli(
         return 0;
     }
 
-    let exit_pressure = match (head_edge_distance, inward_safe_moves) {
+    let mobility_pressure = match (head_edge_distance, safe_move_count) {
+        (0, 0..=1) => 1000_u32,
+        (0, 2) => 750,
+        (0, _) => 400,
+        (1, 0..=1) => 850,
+        (1, 2) => 500,
+        (1, _) => 150,
+        _ => 0,
+    };
+    let inward_pressure = match (head_edge_distance, inward_safe_moves) {
         (0, 0) => 1000_u32,
-        (0, 1) => 550,
-        (0, _) => 150,
-        (1, 0) => 750,
-        (1, 1) => 350,
-        (1, _) => 100,
+        (0, 1) => 450,
+        (0, _) => 100,
+        (1, 0) => 700,
+        (1, 1) => 300,
+        (1, _) => 50,
         _ => 0,
     };
     let pin = u32::from(enemy_pin_risk_milli);
-    let primary = exit_pressure.max(pin);
-    let secondary = exit_pressure.min(pin);
+    let primary = mobility_pressure.max(inward_pressure).max(pin);
+    let secondary = [mobility_pressure, inward_pressure, pin]
+        .into_iter()
+        .filter(|value| *value < primary)
+        .max()
+        .unwrap_or(0);
     let mut combined = primary
         .saturating_add(secondary.saturating_mul(200).saturating_div(1000))
         .min(1000);
 
-    if head_edge_distance == 0 && inward_safe_moves <= 1 && enemy_pin_risk_milli >= 500 {
+    if head_edge_distance == 0 && safe_move_count <= 2 && enemy_pin_risk_milli >= 250 {
         combined = combined.max(850);
     }
-    if corner_contact && enemy_pin_risk_milli >= 400 {
+    if head_edge_distance == 0 && safe_move_count <= 1 {
+        combined = 1000;
+    }
+    if corner_contact && (safe_move_count <= 2 || enemy_pin_risk_milli >= 300) {
         combined = combined.max(900);
     }
 
@@ -473,8 +494,9 @@ mod tests {
         let snapshot = *analyze(&state).ours().unwrap();
 
         assert_eq!(snapshot.head_edge_distance, 0);
+        assert!(snapshot.safe_move_count <= 2);
         assert!(snapshot.inward_safe_moves <= 1);
-        assert!(snapshot.enemy_pin_risk_milli >= 500);
+        assert!(snapshot.enemy_pin_risk_milli > 0);
         assert!(snapshot.escape_pressure_milli >= 850);
     }
 
@@ -484,6 +506,8 @@ mod tests {
         let snapshot = *analyze(&state).ours().unwrap();
 
         assert_eq!(snapshot.head_edge_distance, 0);
+        assert_eq!(snapshot.safe_move_count, 2);
+        assert!(snapshot.enemy_pin_risk_milli < 250);
         assert!(snapshot.escape_pressure_milli < 800);
     }
 
