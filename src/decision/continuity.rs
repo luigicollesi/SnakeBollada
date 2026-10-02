@@ -21,9 +21,7 @@ pub(crate) struct DecisionContinuity {
 
 impl DecisionContinuity {
     pub(crate) fn incumbent_for(&mut self, actual: &StateKey) -> Option<Direction> {
-        let Some(step) = self.steps.first() else {
-            return None;
-        };
+        let step = self.steps.first()?;
 
         if step.expected_state.as_ref() != actual {
             self.clear();
