@@ -1168,7 +1168,7 @@ mod tests {
     }
 
     #[test]
-    fn entering_border_emits_exposure_event() {
+    fn entering_border_is_penalized_by_transition_utility() {
         let mut graph = FutureGraph::new(state());
         graph.expand_to_depth(1).unwrap();
 
@@ -1190,9 +1190,9 @@ mod tests {
 
         assert!(!border_edges.is_empty());
         assert!(border_edges.iter().all(|edge| {
-            edge.events
-                .iter()
-                .any(|event| matches!(event, InstantEvent::SelfBorderExposure { .. }))
+            edge.transition
+                .for_actor(our_actor)
+                .is_some_and(|score| score.survival_harm > 0)
         }));
     }
 
@@ -1262,9 +1262,7 @@ mod tests {
     }
 
     #[test]
-    fn evaluation_and_expansion_support_non_zero_root() {
-        use crate::decision::evaluation::evaluate_graph;
-
+    fn expansion_supports_non_zero_root() {
         let mut graph = FutureGraph::new(state());
         graph.expand_to_depth(2).unwrap();
 
@@ -1273,12 +1271,10 @@ mod tests {
 
         assert_ne!(graph.root(), 0);
 
-        let evaluations = evaluate_graph(&graph, 1);
-        assert!(!evaluations.is_empty());
-
         let budget = SearchBudget::for_duration(Duration::from_secs(1));
         let report = graph.expand_depth(1, &budget).unwrap();
         assert!(report.completed);
+        assert!(!graph.node(graph.root()).children.is_empty());
     }
 
     #[test]
@@ -1400,13 +1396,13 @@ mod tests {
             .node(graph.node(graph.root()).children[0].child)
             .state
             .clone();
-        let child_key = StateKey::from_state(&child_state);
+        let child_key = StateKey::from_beam_state(&child_state);
 
         assert!(graph.root_children_match_food(&child_key));
 
         let mut unexpected = child_state;
         unexpected.food = vec![Coord { x: 0, y: 0 }];
-        assert!(!graph.root_children_match_food(&StateKey::from_state(&unexpected)));
+        assert!(!graph.root_children_match_food(&StateKey::from_beam_state(&unexpected)));
     }
 
     #[test]
