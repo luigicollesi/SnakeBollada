@@ -1182,7 +1182,6 @@ mod tests {
         state.actor_index(actor_id).expect("actor must exist")
     }
 
-
     #[test]
     fn node_analysis_scores_every_living_actor() {
         let graph = FutureGraph::new(state());
