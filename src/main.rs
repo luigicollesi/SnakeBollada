@@ -19,7 +19,6 @@ mod decision;
 mod direction;
 mod enemy;
 mod evaluation;
-mod forecast;
 mod logic;
 mod navigation;
 mod runtime;
