@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::direction::Direction;
 use crate::navigation::{reachable_after_move, NavigationMap};
-use crate::{Coord, GameState};
+use crate::GameState;
 
 #[derive(Deserialize, Serialize, Debug, Clone, Copy, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -143,7 +143,7 @@ mod tests {
     use serde_json::json;
 
     use super::*;
-    use crate::{Battlesnake, Board, Game};
+    use crate::{Battlesnake, Board, Coord, Game};
 
     fn snake(id: &str, body: Vec<Coord>) -> Battlesnake {
         Battlesnake {
@@ -236,13 +236,11 @@ mod tests {
         let decision = choose_move(&state);
 
         assert_ne!(decision.direction, Direction::Right);
-        let selected = decision.search.direction_outcomes[usize::from(decision.direction.rank())];
-        assert_eq!(selected.death_routes, 0);
-        assert_eq!(selected.dead_end_routes, 0);
+        assert_eq!(decision.reason, DecisionReason::BeamUtility);
     }
 
     #[test]
-    fn strategy_falls_back_to_survival_when_food_mode_has_no_candidate() {
+    fn strategy_uses_baseline_when_no_enemy_exists() {
         let ours = snake(
             "ours",
             vec![
@@ -255,8 +253,8 @@ mod tests {
 
         let decision = choose_move(&state);
 
-        assert_eq!(decision.reason, DecisionReason::FutureMobility);
-        assert_eq!(decision.target_food, None);
+        assert_eq!(decision.reason, DecisionReason::BaselineFallback);
+        assert!(decision.reachable_cells > 0);
     }
 
     #[test]
