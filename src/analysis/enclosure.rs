@@ -29,12 +29,7 @@ impl EnclosureRisk {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct EnclosureSnapshot {
-    pub(crate) snake_id: String,
     pub(crate) risk: EnclosureRisk,
-    pub(crate) space_to_length_milli: u32,
-    pub(crate) escape_frontier: u8,
-    pub(crate) edge_distance: u16,
-    pub(crate) useful_chokes: u8,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -76,14 +71,7 @@ impl EnclosureAnalysis {
 
                 Some((
                     snake.id.clone(),
-                    EnclosureSnapshot {
-                        snake_id: snake.id.clone(),
-                        risk,
-                        space_to_length_milli: ratio,
-                        escape_frontier: territory_snapshot.escape_frontier,
-                        edge_distance: territory_snapshot.edge_distance,
-                        useful_chokes,
-                    },
+                    EnclosureSnapshot { risk },
                 ))
             })
             .collect::<HashMap<_, _>>();
