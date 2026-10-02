@@ -900,12 +900,9 @@ fn build_node_with_key(state: SimulatedGameState, key: StateKey) -> SearchNode {
         ));
         let tracing = Arc::new(trace_actor_relative_with_mobility(&state, &mobility));
         let border = BorderFobicAnalysis::from_parts_with_territory_actor_relative(
-            &state,
-            &mobility,
-            &territory,
+            &state, &mobility, &territory,
         );
-        let enclosure =
-            EnclosureAnalysis::from_parts_actor_relative(&state, &territory, &mobility);
+        let enclosure = EnclosureAnalysis::from_parts_actor_relative(&state, &territory, &mobility);
 
         let actor_snapshots = state
             .snakes
