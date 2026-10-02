@@ -3,8 +3,6 @@
 use std::collections::HashMap;
 
 use crate::direction::Direction;
-use crate::simulation::resolver::{EliminationAttribution, InstantEvent};
-
 use super::graph::{FutureGraph, NodeId, SearchEdge, SearchNode};
 
 const FORCING_SCALE: i64 = 4_000;
@@ -136,37 +134,24 @@ pub(crate) fn ordered_child_ids_for_search(graph: &FutureGraph, node_id: NodeId)
 
 fn forcing_score(parent: &SearchNode, edge: &SearchEdge) -> i64 {
     let our_actor = parent.state.actor_index(&parent.state.our_snake_id);
-    let mut forcing = 0_i64;
 
-    for event in &edge.events {
-        let value = match event {
-            InstantEvent::Died { .. } => FORCING_SCALE,
-            InstantEvent::HeadToHeadLost { .. } => FORCING_SCALE,
-            InstantEvent::SelfDeadEnd => FORCING_SCALE,
-            InstantEvent::SelfConstrained { remaining_moves } => match remaining_moves {
-                0 | 1 => 3_000,
-                2 => 1_500,
-                _ => 0,
-            },
-            InstantEvent::EnemyKilled {
-                attribution: EliminationAttribution::Actor(killer),
-                ..
-            } if Some(*killer) == our_actor => 3_000,
-            InstantEvent::HeadToHeadWon { .. } => 3_000,
-            InstantEvent::EnemyTrapped {
-                caused_by_ours: true,
-                ..
-            } => 2_500,
-            InstantEvent::EnemyForced {
-                caused_by_ours: true,
-                ..
-            } => 1_500,
-            _ => 0,
-        };
-        forcing = forcing.max(value);
+    if our_actor
+        .and_then(|actor| edge.transition.for_actor(actor))
+        .is_some_and(|score| score.terminal_harm > 0)
+    {
+        return FORCING_SCALE;
     }
 
-    forcing
+    if edge
+        .transition
+        .actors
+        .iter()
+        .any(|(actor, score)| Some(actor) != our_actor && score.terminal_harm > 0)
+    {
+        return 3_000;
+    }
+
+    0
 }
 
 #[cfg(test)]
