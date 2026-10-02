@@ -552,7 +552,9 @@ mod tests {
         let our_actor = root.state.actor_index("ours").expect("ours must exist");
         root.children
             .iter()
-            .find(|edge| edge.joint_action.direction_for(our_actor) == Some(direction) && predicate(edge))
+            .find(|edge| {
+                edge.joint_action.direction_for(our_actor) == Some(direction) && predicate(edge)
+            })
             .expect("expected matching edge")
     }
 
