@@ -495,7 +495,6 @@ impl ActorMask {
     fn len(self) -> usize {
         self.0.count_ones() as usize
     }
-
 }
 
 #[derive(Debug, Clone, Copy)]
