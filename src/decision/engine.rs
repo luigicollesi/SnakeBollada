@@ -257,7 +257,7 @@ mod tests {
         assert!(!analysis.actor_snapshots.is_empty());
         assert!(analysis
             .territory
-            .competitive_for_snake(&graph.node(graph.root()).state.our_snake_id)
+            .for_snake(&graph.node(graph.root()).state.our_snake_id)
             .is_some());
     }
 
