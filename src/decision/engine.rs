@@ -320,7 +320,7 @@ impl DecisionEngine {
             && critical_food_choice.is_none())
         .then(|| {
             root_analysis
-                .hunting
+                .hunting()
                 .plans
                 .iter()
                 .find(|plan| committable_hunt_plan(plan) && plan.score_milli >= 400)
@@ -498,12 +498,12 @@ impl DecisionEngine {
                 hunt_drive_milli: root_analysis.posture().hunt_drive_milli,
                 food_urgency_milli: root_analysis.posture().food_urgency_milli,
                 our_length: root_analysis
-                    .posture
+                    .posture()
                     .our_length
                     .try_into()
                     .unwrap_or(u16::MAX),
                 largest_enemy_length: root_analysis
-                    .posture
+                    .posture()
                     .largest_enemy_length
                     .try_into()
                     .unwrap_or(u16::MAX),
@@ -782,7 +782,7 @@ fn hunting_intent_progress(
         .map(|snapshot| snapshot.structural_risk_milli)
         .unwrap_or(0);
     let before_plan = root_analysis
-        .hunting
+        .hunting()
         .plans
         .iter()
         .find(|plan| plan.target == intent.target && plan.kind == intent.kind)
@@ -866,7 +866,7 @@ fn hunting_intent_progress(
         let border_growth = i32::from(after_border).saturating_sub(i32::from(before_border));
 
         let after_plan = analysis
-            .hunting
+            .hunting()
             .plans
             .iter()
             .find(|plan| plan.target == intent.target && plan.kind == intent.kind)
