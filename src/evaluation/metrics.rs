@@ -601,10 +601,7 @@ mod tests {
         current.snakes[1] = snake_with_length("enemy", Coord { x: 5, y: 5 }, 22);
         let actor = current.actor_index("ours").unwrap();
 
-        assert!(
-            food_border_attraction_milli(&current, actor, Coord { x: 0, y: 3 })
-                >= 400
-        );
+        assert!(food_border_attraction_milli(&current, actor, Coord { x: 0, y: 3 }) >= 400);
     }
 
     #[test]
