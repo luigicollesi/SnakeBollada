@@ -151,7 +151,7 @@ fn deepen_seed_one_layer(
         let Some(tip) = line.path.last().map(|step| step.child) else {
             return Ok(None);
         };
-        let continuations = evaluate_continuations(graph, tip, 1);
+        let continuations = evaluate_continuations(graph, tip, 1, line.certainty);
         for continuation in continuations
             .into_iter()
             .filter(|continuation| continuation.bound.is_exact())
