@@ -599,7 +599,13 @@ mod tests {
         let score = score_actor_transition(facts, weights);
 
         assert_eq!(score.survival_benefit, 0);
-        assert_eq!(score.survival_harm, 180);
+        assert_eq!(
+            score.survival_harm,
+            i64::from(100 - SPACE_CAPACITY_DEADBAND)
+                .saturating_mul(SPACE_CAPACITY_DELTA_SCALE)
+                .saturating_mul(900)
+                .saturating_div(1000)
+        );
     }
 
     #[test]
@@ -643,7 +649,13 @@ mod tests {
         let score = score_actor_transition(facts, weights);
 
         assert_eq!(score.survival_benefit, 0);
-        assert_eq!(score.survival_harm, 150);
+        assert_eq!(
+            score.survival_harm,
+            i64::from(50 - TERRITORY_CONTROL_DEADBAND)
+                .saturating_mul(TERRITORY_CONTROL_DELTA_SCALE)
+                .saturating_mul(750)
+                .saturating_div(1000)
+        );
     }
 
     #[test]
