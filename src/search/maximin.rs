@@ -836,12 +836,8 @@ mod tests {
         let tip = graph.node(graph.root()).children[0].child;
         graph.expand_to_depth(3).unwrap();
 
-        let continuations = evaluate_continuations(
-            &graph,
-            tip,
-            2,
-            ForecastCertainty::Deterministic,
-        );
+        let continuations =
+            evaluate_continuations(&graph, tip, 2, ForecastCertainty::Deterministic);
         let best = continuations.first().expect("continuation must exist");
 
         assert!(best.terminal != LineTerminal::Running || best.depth == 2);
