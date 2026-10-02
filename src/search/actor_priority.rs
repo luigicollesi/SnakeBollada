@@ -157,9 +157,7 @@ fn forcing_score(parent: &SearchNode, edge: &SearchEdge) -> i64 {
 #[cfg(test)]
 mod tests {
     use crate::search::graph::FutureGraph;
-    use crate::simulation::state::{
-        RulesContext, SimulatedGameState, SimulatedSnake,
-    };
+    use crate::simulation::state::{RulesContext, SimulatedGameState, SimulatedSnake};
     use crate::Coord;
 
     use super::*;
