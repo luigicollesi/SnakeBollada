@@ -63,15 +63,7 @@ impl DecisionEngine {
             return decision;
         }
 
-        let prioritize_food = normalized.aggression.fruits_eaten < OPENING_FOOD_TARGET_FRUITS;
-        let mut legacy_graph = FutureGraph::new(normalized);
-        self.decide_with_graph_with_reserve_and_intent(
-            state,
-            &mut legacy_graph,
-            0,
-            None,
-            prioritize_food,
-        )
+        baseline_fallback(state)
     }
 
     pub(crate) fn try_decide_beam_with_graph(
