@@ -255,10 +255,15 @@ mod tests {
             decision.search.completed_depth,
             decision.search.beam_shadow.completed_depth
         );
-        assert!(graph
+        let analysis = graph
             .node(graph.root())
             .active_analysis()
-            .is_some_and(|analysis| analysis.legacy().is_none()));
+            .expect("beam root must keep actor-relative analysis");
+        assert!(!analysis.actor_snapshots.is_empty());
+        assert!(analysis
+            .territory
+            .competitive_for_snake(&graph.node(graph.root()).state.our_snake_id)
+            .is_some());
     }
 
     #[test]
