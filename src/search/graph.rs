@@ -1,28 +1,18 @@
-#![allow(dead_code)]
-
 use std::collections::{HashMap, HashSet, VecDeque};
-use std::sync::{Arc, OnceLock};
+use std::sync::Arc;
 use std::time::Duration;
 
 use rayon::prelude::*;
 
-use crate::analysis::transition::analyze_transition_parts;
-use crate::analysis::{
-    BorderFobicAnalysis, EnclosureAnalysis, StateAnalysis, StrategicPosture, TacticalStateAnalysis,
-    TerritoryAnalysis,
-};
+use crate::analysis::{BorderFobicAnalysis, EnclosureAnalysis, TerritoryAnalysis};
 use crate::decision::joint_actions::JointActionGenerator;
 use crate::decision::state_key::StateKey;
 use crate::direction::MoveMask;
 use crate::enemy::profile::OpponentProfiles;
-use crate::enemy::tracing::{
-    trace_actor_relative_with_mobility, trace_with_mobility, EnemyTracingOutput,
-};
+use crate::enemy::tracing::{trace_actor_relative_with_mobility, EnemyTracingOutput};
 use crate::evaluation::{
     ActorSnapshot, ActorUtilityMetrics, ActorVec, StrategicWeights, TransitionScore,
 };
-use crate::modes::hunting::{self, HuntingModeOutput};
-use crate::modes::survival::{self, SurvivalModeOutput};
 use crate::simulation::joint_action::JointAction;
 use crate::simulation::mobility::MobilityAnalysis;
 use crate::simulation::resolver::{
@@ -39,12 +29,6 @@ pub(crate) type NodeId = usize;
 const MAX_PARALLEL_ACTION_BATCH: usize = 8;
 const INITIAL_BATCH_ESTIMATE: Duration = Duration::from_millis(2);
 const BATCH_DEADLINE_RESERVE: Duration = Duration::from_millis(1);
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum AnalysisProfile {
-    Full,
-    BeamLean,
-}
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub(crate) struct GraphPerfStats {
@@ -115,15 +99,6 @@ struct ResolvedCandidate {
 }
 
 #[derive(Debug, Clone)]
-pub(crate) struct LegacyNodeAnalysis {
-    state: Arc<StateAnalysis>,
-    tactical: Arc<TacticalStateAnalysis>,
-    posture: Arc<StrategicPosture>,
-    survival: Arc<SurvivalModeOutput>,
-    hunting: Arc<HuntingModeOutput>,
-}
-
-#[derive(Debug, Clone)]
 pub(crate) struct NodeAnalysis {
     pub(crate) mobility: Arc<MobilityAnalysis>,
     pub(crate) tracing: Arc<EnemyTracingOutput>,
@@ -131,51 +106,11 @@ pub(crate) struct NodeAnalysis {
     pub(crate) border: Arc<BorderFobicAnalysis>,
     pub(crate) enclosure: Arc<EnclosureAnalysis>,
     pub(crate) actor_snapshots: ActorVec<ActorSnapshot>,
-    legacy: Option<Arc<LegacyNodeAnalysis>>,
 }
 
 impl NodeAnalysis {
     pub(crate) fn actor_snapshot(&self, actor: ActorIndex) -> Option<&ActorSnapshot> {
         self.actor_snapshots.get(actor)
-    }
-
-    pub(crate) fn legacy(&self) -> Option<&LegacyNodeAnalysis> {
-        self.legacy.as_deref()
-    }
-
-    pub(crate) fn state_analysis(&self) -> &StateAnalysis {
-        &self
-            .legacy()
-            .expect("legacy state analysis requires full node profile")
-            .state
-    }
-
-    pub(crate) fn tactical(&self) -> &TacticalStateAnalysis {
-        &self
-            .legacy()
-            .expect("legacy tactical analysis requires full node profile")
-            .tactical
-    }
-
-    pub(crate) fn posture(&self) -> &StrategicPosture {
-        &self
-            .legacy()
-            .expect("legacy posture requires full node profile")
-            .posture
-    }
-
-    pub(crate) fn survival(&self) -> &SurvivalModeOutput {
-        &self
-            .legacy()
-            .expect("legacy survival analysis requires full node profile")
-            .survival
-    }
-
-    pub(crate) fn hunting(&self) -> &HuntingModeOutput {
-        &self
-            .legacy()
-            .expect("legacy hunting analysis requires full node profile")
-            .hunting
     }
 }
 
@@ -222,7 +157,6 @@ pub(crate) struct FutureGraph {
     transposition_hits: u32,
     edge_count: u32,
     opponent_profiles: OpponentProfiles,
-    analysis_profile: AnalysisProfile,
     action_batch_estimate: Duration,
     perf_stats: GraphPerfStats,
 }
@@ -236,26 +170,7 @@ impl FutureGraph {
         root_state: SimulatedGameState,
         opponent_profiles: OpponentProfiles,
     ) -> Self {
-        Self::new_with_profile(root_state, opponent_profiles, AnalysisProfile::Full)
-    }
-
-    pub(crate) fn new_beam(root_state: SimulatedGameState) -> Self {
-        Self::new_beam_with_opponent_profiles(root_state, OpponentProfiles::default())
-    }
-
-    pub(crate) fn new_beam_with_opponent_profiles(
-        root_state: SimulatedGameState,
-        opponent_profiles: OpponentProfiles,
-    ) -> Self {
-        Self::new_with_profile(root_state, opponent_profiles, AnalysisProfile::BeamLean)
-    }
-
-    fn new_with_profile(
-        root_state: SimulatedGameState,
-        opponent_profiles: OpponentProfiles,
-        analysis_profile: AnalysisProfile,
-    ) -> Self {
-        let root_node = build_node(root_state, analysis_profile);
+        let root_node = build_node(root_state);
         let root_key = root_node.key.clone();
 
         Self {
@@ -265,26 +180,31 @@ impl FutureGraph {
             transposition_hits: 0,
             edge_count: 0,
             opponent_profiles,
-            analysis_profile,
             action_batch_estimate: INITIAL_BATCH_ESTIMATE,
             perf_stats: GraphPerfStats::default(),
         }
     }
 
+    pub(crate) fn new_beam(root_state: SimulatedGameState) -> Self {
+        Self::new(root_state)
+    }
+
+    pub(crate) fn new_beam_with_opponent_profiles(
+        root_state: SimulatedGameState,
+        opponent_profiles: OpponentProfiles,
+    ) -> Self {
+        Self::new_with_opponent_profiles(root_state, opponent_profiles)
+    }
+
     pub(crate) fn independent_beam_graph(&self) -> Self {
-        Self::new_with_profile(
+        Self::new_with_opponent_profiles(
             self.nodes[self.root].state.clone(),
             self.opponent_profiles.clone(),
-            AnalysisProfile::BeamLean,
         )
     }
 
     pub(crate) fn set_opponent_profiles(&mut self, opponent_profiles: OpponentProfiles) {
         self.opponent_profiles = opponent_profiles;
-    }
-
-    pub(crate) fn use_beam_lean_analysis(&mut self) {
-        self.analysis_profile = AnalysisProfile::BeamLean;
     }
 
     pub(crate) fn reset_performance(&mut self) {
@@ -762,10 +682,6 @@ impl FutureGraph {
             return Ok(true);
         };
         let tracing = Arc::clone(&parent_analysis.tracing);
-        let before_tactical = parent_analysis
-            .legacy()
-            .map(|legacy| Arc::clone(&legacy.tactical));
-
         let deterministic_moves = parent_analysis
             .mobility
             .deterministic_moves_for(&state, &state.our_snake_id);
@@ -775,25 +691,16 @@ impl FutureGraph {
             deterministic_moves
         };
 
-        let analysis_profile = self.analysis_profile;
         let mut actions = self.nodes[node_id]
             .pending_actions
             .take()
-            .unwrap_or_else(|| match analysis_profile {
-                AnalysisProfile::Full => JointActionGenerator::new_with_profiles(
+            .unwrap_or_else(|| {
+                JointActionGenerator::new_actor_relative_with_profiles(
                     &state,
                     our_moves,
                     &tracing,
                     &self.opponent_profiles,
-                ),
-                AnalysisProfile::BeamLean => {
-                    JointActionGenerator::new_actor_relative_with_profiles(
-                        &state,
-                        our_moves,
-                        &tracing,
-                        &self.opponent_profiles,
-                    )
-                }
+                )
             });
 
         loop {
@@ -819,12 +726,11 @@ impl FutureGraph {
 
             let batch_started = std::time::Instant::now();
             let resolve_started = std::time::Instant::now();
-            let profile = self.analysis_profile;
             let resolved = batch_actions
                 .into_par_iter()
                 .map(|joint_action| {
                     resolve_turn(&state, &joint_action).map(|resolution| {
-                        let key = state_key_for_profile(&resolution.state, profile);
+                        let key = StateKey::from_beam_state(&resolution.state);
                         let TurnResolution {
                             state,
                             events,
@@ -860,7 +766,7 @@ impl FutureGraph {
             let built_nodes = unique_new
                 .into_par_iter()
                 .map(|(key, state)| {
-                    let node = build_node_with_key(state, key.clone(), profile);
+                    let node = build_node_with_key(state, key.clone());
                     (key, node)
                 })
                 .collect::<Vec<_>>();
@@ -899,28 +805,7 @@ impl FutureGraph {
                 .into_par_iter()
                 .zip(child_ids.into_par_iter())
                 .map(|(candidate, child)| {
-                    let mut events = if profile == AnalysisProfile::Full {
-                        if let (Some(before_tactical), Some(child_analysis)) =
-                            (before_tactical.as_ref(), nodes[child].analysis.as_ref())
-                        {
-                            analyze_transition_parts(
-                                before_tactical,
-                                &nodes[child].state,
-                                &candidate.resolution_events,
-                                child_analysis.tactical(),
-                            )
-                            .events
-                        } else {
-                            candidate.resolution_events.clone()
-                        }
-                    } else {
-                        candidate.resolution_events.clone()
-                    };
-
-                    if profile == AnalysisProfile::Full {
-                        append_border_exposure_event(&nodes[child], &mut events);
-                    }
-
+                    let events = candidate.resolution_events.clone();
                     let transition = TransitionScore::from_parts(parent, &events, &nodes[child]);
 
                     SearchEdge {
@@ -1002,60 +887,8 @@ impl FutureGraph {
     }
 }
 
-fn shared_empty_tactical() -> Arc<TacticalStateAnalysis> {
-    static EMPTY: OnceLock<Arc<TacticalStateAnalysis>> = OnceLock::new();
-    Arc::clone(EMPTY.get_or_init(|| Arc::new(TacticalStateAnalysis::empty())))
-}
-
-fn shared_empty_state_analysis() -> Arc<StateAnalysis> {
-    static EMPTY: OnceLock<Arc<StateAnalysis>> = OnceLock::new();
-    Arc::clone(EMPTY.get_or_init(|| Arc::new(StateAnalysis::default())))
-}
-
-fn shared_empty_posture() -> Arc<StrategicPosture> {
-    static EMPTY: OnceLock<Arc<StrategicPosture>> = OnceLock::new();
-    Arc::clone(EMPTY.get_or_init(|| Arc::new(StrategicPosture::default())))
-}
-
-fn shared_empty_survival() -> Arc<SurvivalModeOutput> {
-    static EMPTY: OnceLock<Arc<SurvivalModeOutput>> = OnceLock::new();
-    Arc::clone(EMPTY.get_or_init(|| Arc::new(SurvivalModeOutput::default())))
-}
-
-fn shared_empty_hunting() -> Arc<HuntingModeOutput> {
-    static EMPTY: OnceLock<Arc<HuntingModeOutput>> = OnceLock::new();
-    Arc::clone(EMPTY.get_or_init(|| Arc::new(HuntingModeOutput::default())))
-}
-
 fn duration_us(duration: Duration) -> u64 {
     duration.as_micros().try_into().unwrap_or(u64::MAX)
-}
-
-fn append_border_exposure_event(child: &SearchNode, events: &mut Vec<InstantEvent>) {
-    let Some(ours) = child
-        .state
-        .snake(&child.state.our_snake_id)
-        .filter(|snake| snake.alive)
-    else {
-        return;
-    };
-    let Some(head) = ours.head() else {
-        return;
-    };
-    let right = child.state.width as i32 - 1;
-    let top = child.state.height as i32 - 1;
-    let on_edge = head.x == 0 || head.y == 0 || head.x == right || head.y == top;
-    if !on_edge {
-        return;
-    }
-
-    let fear_milli = child
-        .active_analysis()
-        .and_then(|analysis| analysis.border.ours())
-        .map_or(0, |snapshot| snapshot.fear_milli);
-    let corner = (head.x == 0 || head.x == right) && (head.y == 0 || head.y == top);
-
-    events.push(InstantEvent::SelfBorderExposure { fear_milli, corner });
 }
 
 fn is_terminal_state(state: &SimulatedGameState) -> bool {
@@ -1070,80 +903,29 @@ fn is_terminal_state(state: &SimulatedGameState) -> bool {
     !ours_alive || !living_enemies
 }
 
-fn state_key_for_profile(state: &SimulatedGameState, profile: AnalysisProfile) -> StateKey {
-    match profile {
-        AnalysisProfile::Full => StateKey::from_state(state),
-        AnalysisProfile::BeamLean => StateKey::from_beam_state(state),
-    }
+fn build_node(state: SimulatedGameState) -> SearchNode {
+    let key = StateKey::from_beam_state(&state);
+    build_node_with_key(state, key)
 }
 
-fn build_node(state: SimulatedGameState, profile: AnalysisProfile) -> SearchNode {
-    let key = state_key_for_profile(&state, profile);
-    build_node_with_key(state, key, profile)
-}
-
-fn build_node_with_key(
-    state: SimulatedGameState,
-    key: StateKey,
-    profile: AnalysisProfile,
-) -> SearchNode {
+fn build_node_with_key(state: SimulatedGameState, key: StateKey) -> SearchNode {
     let analysis = if is_terminal_state(&state) {
         None
     } else {
         let spatial = Arc::new(SpatialOccupancy::from_state(&state));
         let mobility = Arc::new(MobilityAnalysis::from_spatial(Arc::clone(&spatial)));
-
-        let (tracing, territory, border, enclosure, legacy) = match profile {
-            AnalysisProfile::Full => {
-                let (state_analysis, territory) = rayon::join(
-                    || StateAnalysis::from_simulated(&state),
-                    || TerritoryAnalysis::from_spatial(&state, &spatial),
-                );
-                let state_analysis = Arc::new(state_analysis);
-                let territory = Arc::new(territory);
-                let tracing = Arc::new(trace_with_mobility(&state, &state_analysis, &mobility));
-                let tactical = Arc::new(TacticalStateAnalysis::from_parts(
-                    &state, &tracing, &mobility,
-                ));
-                let border = Arc::new(BorderFobicAnalysis::from_parts_with_territory(
-                    &state, &tactical, &territory,
-                ));
-                let posture = Arc::new(StrategicPosture::from_state(&state));
-                let enclosure =
-                    Arc::new(EnclosureAnalysis::from_parts(&state, &territory, &tactical));
-                let (survival, hunting) = rayon::join(
-                    || survival::analyze_with_border(&state, &tactical, &border),
-                    || {
-                        hunting::analyze(
-                            &state, &tactical, &tracing, &territory, &enclosure, &posture,
-                        )
-                    },
-                );
-                let legacy = Arc::new(LegacyNodeAnalysis {
-                    state: state_analysis,
-                    tactical,
-                    posture,
-                    survival: Arc::new(survival),
-                    hunting: Arc::new(hunting),
-                });
-                (tracing, territory, border, enclosure, Some(legacy))
-            }
-            AnalysisProfile::BeamLean => {
-                let territory = Arc::new(TerritoryAnalysis::from_spatial_actor_relative(
-                    &state, &spatial,
-                ));
-                let tracing = Arc::new(trace_actor_relative_with_mobility(&state, &mobility));
-                let border = Arc::new(
-                    BorderFobicAnalysis::from_parts_with_territory_actor_relative(
-                        &state, &mobility, &territory,
-                    ),
-                );
-                let enclosure = Arc::new(EnclosureAnalysis::from_parts_actor_relative(
-                    &state, &territory, &mobility,
-                ));
-                (tracing, territory, border, enclosure, None)
-            }
-        };
+        let territory = Arc::new(TerritoryAnalysis::from_spatial_actor_relative(
+            &state, &spatial,
+        ));
+        let tracing = Arc::new(trace_actor_relative_with_mobility(&state, &mobility));
+        let border = Arc::new(
+            BorderFobicAnalysis::from_parts_with_territory_actor_relative(
+                &state, &mobility, &territory,
+            ),
+        );
+        let enclosure = Arc::new(EnclosureAnalysis::from_parts_actor_relative(
+            &state, &territory, &mobility,
+        ));
 
         let actor_snapshots = state
             .snakes
@@ -1162,6 +944,7 @@ fn build_node_with_key(
             .collect::<Vec<_>>()
             .into_iter()
             .collect::<ActorVec<_>>();
+
         Some(Arc::new(NodeAnalysis {
             mobility,
             tracing,
@@ -1169,7 +952,6 @@ fn build_node_with_key(
             border,
             enclosure,
             actor_snapshots,
-            legacy,
         }))
     };
 
