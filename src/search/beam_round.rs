@@ -3,7 +3,7 @@
 use std::time::{Duration, Instant};
 
 use super::beam::{
-    select_seed_beam, BeamCheckpoint, BeamLine, BeamPath, LineId, LineTerminal, ROUND_DEPTH,
+    select_seed_beam, BeamCheckpoint, BeamLine, LineId, LineTerminal, ROUND_DEPTH,
 };
 use super::bounds::ValueBound;
 use super::budget::SearchBudget;
@@ -351,7 +351,7 @@ fn sort_lines(lines: &mut [BeamLine]) {
 mod tests {
     use std::time::Duration;
 
-    use crate::search::beam::{select_seed_beam, BEAM_WIDTH, SEED_DEPTH};
+    use crate::search::beam::{select_seed_beam, BeamPath, BEAM_WIDTH, SEED_DEPTH};
     use crate::search::maximin::evaluate_seed_lines;
     use crate::simulation::state::{
         AggressionState, RulesContext, SimulatedGameState, SimulatedSnake,
