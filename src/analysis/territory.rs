@@ -41,7 +41,6 @@ impl SnakeTerritorySnapshot {
             .saturating_mul(1000)
             .saturating_div(length.try_into().unwrap_or(u32::MAX).max(1))
     }
-
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
