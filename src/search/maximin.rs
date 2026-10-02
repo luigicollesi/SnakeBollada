@@ -261,7 +261,7 @@ impl MaximinEvaluator<'_> {
 
             if variants.is_empty() {
                 self.stats.bounded_nodes = self.stats.bounded_nodes.saturating_add(1);
-                vec![frontier_line(false)]
+                vec![frontier_line(false, certainty)]
             } else {
                 variants
             }
@@ -751,6 +751,7 @@ mod tests {
                 (ActorIndex::new(1).unwrap(), opponents),
             ]),
             terminal: LineTerminal::Running,
+            certainty: ForecastCertainty::Deterministic,
             bound: ValueBound::Exact(value),
             path: BeamPath::single(BeamStep {
                 node: 0,
