@@ -285,13 +285,7 @@ pub(crate) fn choose_move_baseline(state: &GameState) -> Decision {
                 .min()
                 .unwrap_or(u32::MAX);
 
-            (
-                direction,
-                reachable,
-                hazard,
-                cramped,
-                food_distance,
-            )
+            (direction, reachable, hazard, cramped, food_distance)
         })
         .min_by_key(|(direction, reachable, hazard, cramped, food_distance)| {
             (
