@@ -423,7 +423,6 @@ impl TerritoryAnalysis {
                     },
                 );
             }
-
         }
 
         Self {
@@ -487,14 +486,12 @@ impl TerritoryAnalysis {
 
     pub(crate) fn competitive_owner_at(&self, coord: Coord) -> Option<&str> {
         let owner = self.competitive_owner_actor_at(coord)?;
-        self.snakes.get(owner).map(|snapshot| snapshot.snake_id.as_str())
+        self.snakes
+            .get(owner)
+            .map(|snapshot| snapshot.snake_id.as_str())
     }
 
-    pub(crate) fn competitive_contested_by_actor(
-        &self,
-        coord: Coord,
-        actor: ActorIndex,
-    ) -> bool {
+    pub(crate) fn competitive_contested_by_actor(&self, coord: Coord, actor: ActorIndex) -> bool {
         let Some(index) = index_of(self.width, self.height, coord) else {
             return false;
         };
@@ -590,7 +587,10 @@ fn competitive_snapshots(
     open: &[bool],
     living: &[(&crate::simulation::state::SimulatedSnake, Coord)],
     distances: &HashMap<String, Vec<u16>>,
-) -> (ActorVec<CompetitiveTerritorySnapshot>, Vec<CompetitiveClaim>) {
+) -> (
+    ActorVec<CompetitiveTerritorySnapshot>,
+    Vec<CompetitiveClaim>,
+) {
     let cells = open.len();
     let mut claims = vec![CompetitiveClaim::Unclaimed; cells];
     let mut dominance_owner = vec![None; cells];
@@ -739,14 +739,18 @@ fn competitive_snapshots(
         }
 
         if winning {
-            builders[owner.as_usize()].winning_frontier = builders[owner.as_usize()].winning_frontier.saturating_add(1);
+            builders[owner.as_usize()].winning_frontier = builders[owner.as_usize()]
+                .winning_frontier
+                .saturating_add(1);
         }
         if losing {
-            builders[owner.as_usize()].losing_frontier = builders[owner.as_usize()].losing_frontier.saturating_add(1);
+            builders[owner.as_usize()].losing_frontier =
+                builders[owner.as_usize()].losing_frontier.saturating_add(1);
         }
         if dominance_frontier {
-            builders[owner.as_usize()].dominance_frontier_cells =
-                builders[owner.as_usize()].dominance_frontier_cells.saturating_add(1);
+            builders[owner.as_usize()].dominance_frontier_cells = builders[owner.as_usize()]
+                .dominance_frontier_cells
+                .saturating_add(1);
         }
     }
 
