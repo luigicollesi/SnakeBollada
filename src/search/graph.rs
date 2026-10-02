@@ -79,7 +79,7 @@ pub(crate) struct SearchEdge {
 struct ResolvedCandidate {
     joint_action: JointAction,
     state: Option<SimulatedGameState>,
-    key: StateKey,
+    key: Arc<StateKey>,
     resolution_events: Vec<InstantEvent>,
 }
 
@@ -100,7 +100,7 @@ impl NodeAnalysis {
 #[derive(Debug, Clone)]
 pub(crate) struct SearchNode {
     pub(crate) state: SimulatedGameState,
-    pub(crate) key: StateKey,
+    pub(crate) key: Arc<StateKey>,
     pub(crate) analysis: Option<Arc<NodeAnalysis>>,
     pub(crate) children: Vec<SearchEdge>,
     expansion_complete: bool,
@@ -136,7 +136,7 @@ impl From<ResolveError> for SearchError {
 pub(crate) struct FutureGraph {
     root: NodeId,
     nodes: Vec<SearchNode>,
-    transpositions: HashMap<StateKey, NodeId>,
+    transpositions: HashMap<Arc<StateKey>, NodeId>,
     transposition_hits: u32,
     edge_count: u32,
     opponent_profiles: OpponentProfiles,
@@ -671,7 +671,7 @@ impl FutureGraph {
                 .into_par_iter()
                 .map(|joint_action| {
                     resolve_turn(&state, &joint_action).map(|resolution| {
-                        let key = StateKey::from_beam_state(&resolution.state);
+                        let key = Arc::new(StateKey::from_beam_state(&resolution.state));
                         let TurnResolution { state, events } = resolution;
                         ResolvedCandidate {
                             joint_action,
@@ -691,7 +691,7 @@ impl FutureGraph {
             for (index, candidate) in resolved.iter().enumerate() {
                 if self.transpositions.contains_key(&candidate.key) {
                     batch_transposition_hits = batch_transposition_hits.saturating_add(1);
-                } else if seen_new.insert(&candidate.key) {
+                } else if seen_new.insert(candidate.key.as_ref()) {
                     unique_indices.push(index);
                 } else {
                     batch_transposition_hits = batch_transposition_hits.saturating_add(1);
@@ -708,7 +708,7 @@ impl FutureGraph {
                         .state
                         .take()
                         .expect("new resolved state must still be owned by candidate");
-                    (candidate.key.clone(), state)
+                    (Arc::clone(&candidate.key), state)
                 })
                 .collect::<Vec<_>>();
 
@@ -719,22 +719,19 @@ impl FutureGraph {
             let node_build_started = std::time::Instant::now();
             let built_nodes = unique_new
                 .into_par_iter()
-                .map(|(key, state)| {
-                    let node = build_node_with_key(state, key.clone());
-                    (key, node)
-                })
+                .map(|(key, state)| build_node_with_key(state, key))
                 .collect::<Vec<_>>();
             let node_build_elapsed = node_build_started.elapsed();
             let built_node_count = built_nodes.len().try_into().unwrap_or(u32::MAX);
 
             let merge_started = std::time::Instant::now();
-            for (key, node) in built_nodes {
-                if self.transpositions.contains_key(&key) {
+            for node in built_nodes {
+                if self.transpositions.contains_key(node.key.as_ref()) {
                     batch_transposition_hits = batch_transposition_hits.saturating_add(1);
                     continue;
                 }
                 let child = self.nodes.len();
-                self.transpositions.insert(key, child);
+                self.transpositions.insert(Arc::clone(&node.key), child);
                 self.nodes.push(node);
             }
             self.transposition_hits = self
@@ -859,11 +856,11 @@ fn is_terminal_state(state: &SimulatedGameState) -> bool {
 }
 
 fn build_node(state: SimulatedGameState) -> SearchNode {
-    let key = StateKey::from_beam_state(&state);
+    let key = Arc::new(StateKey::from_beam_state(&state));
     build_node_with_key(state, key)
 }
 
-fn build_node_with_key(state: SimulatedGameState, key: StateKey) -> SearchNode {
+fn build_node_with_key(state: SimulatedGameState, key: Arc<StateKey>) -> SearchNode {
     let analysis = if is_terminal_state(&state) {
         None
     } else {
@@ -1364,9 +1361,9 @@ mod tests {
     #[test]
     fn build_node_reuses_precomputed_state_key() {
         let initial = state();
-        let key = StateKey::from_beam_state(&initial);
+        let key = Arc::new(StateKey::from_beam_state(&initial));
 
-        let node = build_node_with_key(initial, key.clone());
+        let node = build_node_with_key(initial, Arc::clone(&key));
 
         assert_eq!(node.key, key);
     }
