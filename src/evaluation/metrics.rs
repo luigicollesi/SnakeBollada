@@ -163,9 +163,7 @@ fn food_survival_pressure_milli(
         Some(eta) => i32::try_from(health)
             .unwrap_or(i32::MAX)
             .saturating_sub(i32::from(eta)),
-        None => i32::try_from(health)
-            .unwrap_or(i32::MAX)
-            .saturating_sub(20),
+        None => i32::try_from(health).unwrap_or(i32::MAX).saturating_sub(20),
     };
 
     runway_pressure_milli(buffer)

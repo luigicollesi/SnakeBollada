@@ -301,8 +301,7 @@ fn score_actor_transition(
         i64::from(facts.border_pin_risk_milli).saturating_mul(BORDER_PIN_RISK_STEP),
     );
     survival_harm = survival_harm.saturating_add(
-        i64::from(facts.food_survival_pressure_milli)
-            .saturating_mul(FOOD_SURVIVAL_PRESSURE_STEP),
+        i64::from(facts.food_survival_pressure_milli).saturating_mul(FOOD_SURVIVAL_PRESSURE_STEP),
     );
     survival_harm = survival_harm.saturating_add(
         i64::from(facts.health_pressure_milli).saturating_mul(HEALTH_PRESSURE_STEP),
