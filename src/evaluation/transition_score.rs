@@ -158,17 +158,14 @@ impl TransitionFacts {
             let child_actor = child.state.snake(&actor.id);
             let alive_after = child_actor.is_some_and(|snake| snake.alive);
             let ate_food_now = ate_food.get(&actor.id).copied().unwrap_or(false);
-            let health_pressure_milli = child_actor
-                .filter(|snake| snake.alive)
-                .map_or(0, |snake| {
+            let health_pressure_milli =
+                child_actor.filter(|snake| snake.alive).map_or(0, |snake| {
                     health_pressure_milli(snake.health, child.state.rules.max_health)
                 });
             let hazard_damage = if ate_food_now || !alive_after {
                 0
             } else {
-                child_actor.map_or(0, |snake| {
-                    extra_hazard_damage(actor.health, snake.health)
-                })
+                child_actor.map_or(0, |snake| extra_hazard_damage(actor.health, snake.health))
             };
 
             let facts = ActorTransitionFacts {
@@ -257,9 +254,8 @@ fn score_actor_transition(
     survival_harm = survival_harm.saturating_add(
         i64::from(facts.health_pressure_milli).saturating_mul(HEALTH_PRESSURE_STEP),
     );
-    survival_harm = survival_harm.saturating_add(
-        i64::from(facts.hazard_damage).saturating_mul(HAZARD_DAMAGE_STEP),
-    );
+    survival_harm = survival_harm
+        .saturating_add(i64::from(facts.hazard_damage).saturating_mul(HAZARD_DAMAGE_STEP));
     add_signed_delta(
         i64::from(facts.enclosure_improvement).saturating_mul(ENCLOSURE_STEP),
         &mut survival_benefit,
@@ -723,10 +719,7 @@ mod tests {
 
         let score = score_actor_transition(facts, weights);
 
-        assert_eq!(
-            score.survival_harm,
-            700 + 15 * HAZARD_DAMAGE_STEP
-        );
+        assert_eq!(score.survival_harm, 700 + 15 * HAZARD_DAMAGE_STEP);
         assert_eq!(score.net, -score.survival_harm);
     }
 
