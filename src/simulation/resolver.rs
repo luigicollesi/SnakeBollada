@@ -465,7 +465,6 @@ mod tests {
         state.actor_index(actor_id).expect("actor must exist")
     }
 
-
     #[test]
     fn movement_prepends_head_and_vacates_tail() {
         let initial = state(vec![snake("ours", 100, &[(2, 2), (2, 1), (2, 0)])]);
