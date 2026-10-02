@@ -81,7 +81,7 @@ impl JointActionGenerator {
 
         for (actor, enemy) in enemies {
             let moves = tracing
-                .for_enemy(&enemy.id)
+                .for_actor(actor)
                 .map(|set| {
                     if all_legal_enemy_moves {
                         set.ordered_legal_moves_with_profile(profiles.get(&enemy.id))
@@ -161,11 +161,10 @@ fn normalized_moves(moves: MoveMask) -> MoveMask {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashMap;
-
     use super::*;
     use crate::analysis::StateAnalysis;
     use crate::enemy::tracing::{trace, EnemyMoveSet};
+    use crate::evaluation::ActorVec;
     use crate::simulation::mobility::MobilityAnalysis;
     use crate::simulation::resolver::resolve_turn;
     use crate::simulation::state::{AggressionState, RulesContext, SimulatedSnake};
@@ -211,15 +210,29 @@ mod tests {
         }
     }
 
+    fn tracing(
+        state: &SimulatedGameState,
+        entries: Vec<(&str, EnemyMoveSet)>,
+    ) -> EnemyTracingOutput {
+        EnemyTracingOutput {
+            enemies: entries
+                .into_iter()
+                .map(|(actor_id, move_set)| (actor(state, actor_id), move_set))
+                .collect::<ActorVec<_>>(),
+        }
+    }
+
+
     #[test]
     fn produces_cartesian_product_for_one_enemy() {
         let state = state(vec![snake("ours", &[(1, 1)]), snake("enemy", &[(5, 5)])]);
-        let tracing = EnemyTracingOutput {
-            enemies: HashMap::from([(
-                "enemy".to_string(),
+        let tracing = tracing(
+            &state,
+            vec![(
+                "enemy",
                 set(MoveMask::from_iter([Direction::Left, Direction::Down])),
-            )]),
-        };
+            )],
+        );
 
         let generator = JointActionGenerator::new(
             &state,
@@ -238,22 +251,23 @@ mod tests {
             snake("enemy-b", &[(5, 5)]),
             snake("enemy-a", &[(5, 1)]),
         ]);
-        let tracing = EnemyTracingOutput {
-            enemies: HashMap::from([
+        let tracing = tracing(
+            &state,
+            vec![
                 (
-                    "enemy-a".to_string(),
+                    "enemy-a",
                     set(MoveMask::from_iter([Direction::Left, Direction::Down])),
                 ),
                 (
-                    "enemy-b".to_string(),
+                    "enemy-b",
                     set(MoveMask::from_iter([
                         Direction::Up,
                         Direction::Right,
                         Direction::Down,
                     ])),
                 ),
-            ]),
-        };
+            ],
+        );
 
         let generator = JointActionGenerator::new(
             &state,
@@ -272,18 +286,13 @@ mod tests {
             snake("enemy-a", &[(5, 1)]),
             snake("enemy-b", &[(5, 5)]),
         ]);
-        let tracing = EnemyTracingOutput {
-            enemies: HashMap::from([
-                (
-                    "enemy-a".to_string(),
-                    set(MoveMask::single(Direction::Left)),
-                ),
-                (
-                    "enemy-b".to_string(),
-                    set(MoveMask::single(Direction::Down)),
-                ),
-            ]),
-        };
+        let tracing = tracing(
+            &state,
+            vec![
+                ("enemy-a", set(MoveMask::single(Direction::Left))),
+                ("enemy-b", set(MoveMask::single(Direction::Down))),
+            ],
+        );
 
         for action in JointActionGenerator::new(&state, MoveMask::single(Direction::Up), &tracing) {
             assert_eq!(action.len(), 3);
@@ -296,9 +305,10 @@ mod tests {
     #[test]
     fn actor_relative_generator_keeps_legal_moves_filtered_by_legacy_plausibility() {
         let state = state(vec![snake("ours", &[(1, 1)]), snake("enemy", &[(5, 5)])]);
-        let tracing = EnemyTracingOutput {
-            enemies: HashMap::from([(
-                "enemy".to_string(),
+        let tracing = tracing(
+            &state,
+            vec![(
+                "enemy",
                 EnemyMoveSet {
                     legal_moves: MoveMask::from_iter([
                         Direction::Left,
@@ -309,8 +319,8 @@ mod tests {
                     hypotheses: vec![],
                     eliminations: vec![],
                 },
-            )]),
-        };
+            )],
+        );
 
         let legacy = JointActionGenerator::new(&state, MoveMask::single(Direction::Up), &tracing);
         let actor_relative = JointActionGenerator::new_actor_relative_with_profiles(
@@ -327,17 +337,18 @@ mod tests {
     #[test]
     fn empty_enemy_move_set_falls_back_to_all_directions() {
         let state = state(vec![snake("ours", &[(1, 1)]), snake("enemy", &[(5, 5)])]);
-        let tracing = EnemyTracingOutput {
-            enemies: HashMap::from([(
-                "enemy".to_string(),
+        let tracing = tracing(
+            &state,
+            vec![(
+                "enemy",
                 EnemyMoveSet {
                     legal_moves: MoveMask::empty(),
                     plausible_moves: MoveMask::empty(),
                     hypotheses: vec![],
                     eliminations: vec![],
                 },
-            )]),
-        };
+            )],
+        );
 
         let generator =
             JointActionGenerator::new(&state, MoveMask::single(Direction::Up), &tracing);
@@ -401,9 +412,7 @@ mod tests {
         for _ in 0..4 {
             profile.observe(&move_set, Direction::Down);
         }
-        let tracing = EnemyTracingOutput {
-            enemies: HashMap::from([("enemy".to_string(), move_set)]),
-        };
+        let tracing = tracing(&state, vec![("enemy", move_set)]);
         let profiles = OpponentProfiles::from([("enemy".to_string(), profile)]);
 
         let first = JointActionGenerator::new_with_profiles(
@@ -426,9 +435,10 @@ mod tests {
         use crate::enemy::tracing::{OpponentMoveHypothesis, OpponentPolicySupport, ThreatClass};
 
         let state = state(vec![snake("ours", &[(1, 1)]), snake("enemy", &[(5, 5)])]);
-        let tracing = EnemyTracingOutput {
-            enemies: HashMap::from([(
-                "enemy".to_string(),
+        let tracing = tracing(
+            &state,
+            vec![(
+                "enemy",
                 EnemyMoveSet {
                     legal_moves: MoveMask::from_iter([Direction::Left, Direction::Down]),
                     plausible_moves: MoveMask::from_iter([Direction::Left, Direction::Down]),
@@ -455,8 +465,8 @@ mod tests {
                     ],
                     eliminations: vec![],
                 },
-            )]),
-        };
+            )],
+        );
 
         let first = JointActionGenerator::new(&state, MoveMask::single(Direction::Up), &tracing)
             .next()
@@ -475,18 +485,19 @@ mod tests {
             snake("enemy-b", &[(5, 5)]),
             snake("enemy-a", &[(5, 1)]),
         ]);
-        let tracing = EnemyTracingOutput {
-            enemies: HashMap::from([
+        let tracing = tracing(
+            &state,
+            vec![
                 (
-                    "enemy-b".to_string(),
+                    "enemy-b",
                     set(MoveMask::from_iter([Direction::Right, Direction::Down])),
                 ),
                 (
-                    "enemy-a".to_string(),
+                    "enemy-a",
                     set(MoveMask::from_iter([Direction::Up, Direction::Left])),
                 ),
-            ]),
-        };
+            ],
+        );
 
         let actions = JointActionGenerator::new(
             &state,
