@@ -538,14 +538,9 @@ fn run_beam_shadow(
                 .our_snake_id
                 .as_str();
             for step in &best.steps {
-                let Some(edge) = shadow_graph
-                    .node(step.node)
-                    .children
-                    .iter()
-                    .find(|edge| {
-                        edge.child == step.child && edge.joint_action == step.joint_action
-                    })
-                else {
+                let Some(edge) = shadow_graph.node(step.node).children.iter().find(|edge| {
+                    edge.child == step.child && edge.joint_action == step.joint_action
+                }) else {
                     continue;
                 };
                 for (actor_id, score) in edge.transition.actors.iter() {
