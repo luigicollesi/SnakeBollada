@@ -73,6 +73,14 @@ pub(crate) fn choose_move(state: &GameState) -> Decision {
     crate::decision::DecisionEngine::stateless().decide(state)
 }
 
+pub(crate) fn direction_stays_in_bounds(state: &GameState, direction: Direction) -> bool {
+    let target = direction.apply(state.you.head);
+    target.x >= 0
+        && target.y >= 0
+        && target.x < state.board.width as i32
+        && target.y < state.board.height as i32
+}
+
 pub(crate) fn choose_move_baseline(state: &GameState) -> Decision {
     let map = NavigationMap::from_state(state);
     let legal_moves = Direction::ALL
@@ -81,8 +89,24 @@ pub(crate) fn choose_move_baseline(state: &GameState) -> Decision {
         .collect::<Vec<_>>();
 
     if legal_moves.is_empty() {
+        let direction = Direction::ALL
+            .into_iter()
+            .filter(|direction| direction_stays_in_bounds(state, *direction))
+            .min_by_key(|direction| {
+                let destination = direction.apply(state.you.head);
+                let food_distance = state
+                    .board
+                    .food
+                    .iter()
+                    .map(|food| destination.x.abs_diff(food.x) + destination.y.abs_diff(food.y))
+                    .min()
+                    .unwrap_or(u32::MAX);
+                (food_distance, direction.rank())
+            })
+            .unwrap_or(Direction::Up);
+
         return Decision {
-            direction: Direction::Up,
+            direction,
             reason: DecisionReason::NoSafeMove,
             reachable_cells: 0,
             search: SearchMetadata::default(),
@@ -262,6 +286,27 @@ mod tests {
 
         assert_eq!(decision.reason, DecisionReason::BaselineFallback);
         assert!(decision.reachable_cells > 0);
+    }
+
+    #[test]
+    fn no_safe_move_fallback_stays_inside_board() {
+        let ours = snake(
+            "ours",
+            vec![
+                Coord { x: 0, y: 6 },
+                Coord { x: 0, y: 5 },
+                Coord { x: 1, y: 5 },
+                Coord { x: 1, y: 6 },
+                Coord { x: 2, y: 6 },
+            ],
+        );
+        let state = state(ours, vec![], vec![Coord { x: 0, y: 4 }]);
+
+        let decision = choose_move_baseline(&state);
+
+        assert_eq!(decision.reason, DecisionReason::NoSafeMove);
+        assert!(direction_stays_in_bounds(&state, decision.direction));
+        assert!(matches!(decision.direction, Direction::Right | Direction::Down));
     }
 
     #[test]
