@@ -150,7 +150,10 @@ impl DecisionState {
             let Some(direction) = direction_between(previous_head, enemy.head) else {
                 continue;
             };
-            let Some(move_set) = analysis.tracing.for_enemy(&enemy.id) else {
+            let Some(actor) = previous.state.actor_index(&enemy.id) else {
+                continue;
+            };
+            let Some(move_set) = analysis.tracing.for_actor(actor) else {
                 continue;
             };
 
