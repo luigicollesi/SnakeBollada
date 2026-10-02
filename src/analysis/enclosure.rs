@@ -4,7 +4,7 @@ use std::collections::HashMap;
 
 use rayon::prelude::*;
 
-use crate::analysis::{TacticalStateAnalysis, TerritoryAnalysis};
+use crate::analysis::TerritoryAnalysis;
 use crate::simulation::mobility::MobilityAnalysis;
 use crate::simulation::state::SimulatedGameState;
 
@@ -44,28 +44,10 @@ pub(crate) struct EnclosureAnalysis {
 }
 
 impl EnclosureAnalysis {
-    pub(crate) fn from_parts(
-        state: &SimulatedGameState,
-        territory: &TerritoryAnalysis,
-        tactical: &TacticalStateAnalysis,
-    ) -> Self {
-        Self::from_parts_with_scope(state, territory, Some(tactical), None, false)
-    }
-
     pub(crate) fn from_parts_actor_relative(
         state: &SimulatedGameState,
         territory: &TerritoryAnalysis,
         mobility: &MobilityAnalysis,
-    ) -> Self {
-        Self::from_parts_with_scope(state, territory, None, Some(mobility), true)
-    }
-
-    fn from_parts_with_scope(
-        state: &SimulatedGameState,
-        territory: &TerritoryAnalysis,
-        tactical: Option<&TacticalStateAnalysis>,
-        mobility: Option<&MobilityAnalysis>,
-        all_legal_enemy_moves: bool,
     ) -> Self {
         let snakes = state
             .snakes
@@ -74,27 +56,7 @@ impl EnclosureAnalysis {
             .filter_map(|snake| {
                 let territory_snapshot = territory.for_snake(&snake.id)?;
 
-                let moves = if let Some(mobility) = mobility {
-                    mobility.deterministic_moves_for(state, &snake.id).len()
-                } else if let Some(tactical) = tactical {
-                    if snake.id == state.our_snake_id {
-                        tactical.ours.safe_moves.len()
-                    } else {
-                        tactical
-                            .enemies
-                            .get(&snake.id)
-                            .map(|enemy| {
-                                if all_legal_enemy_moves || enemy.plausible_moves.is_empty() {
-                                    enemy.legal_moves.len()
-                                } else {
-                                    enemy.plausible_moves.len()
-                                }
-                            })
-                            .unwrap_or(0)
-                    }
-                } else {
-                    0
-                };
+                let moves = mobility.deterministic_moves_for(state, &snake.id).len();
 
                 let ratio = territory_snapshot.space_to_length_milli(snake.length());
                 let useful_chokes = territory_snapshot
@@ -174,8 +136,6 @@ fn classify_risk(
 
 #[cfg(test)]
 mod tests {
-    use crate::analysis::{StateAnalysis, TacticalStateAnalysis};
-    use crate::enemy::tracing::trace;
     use crate::simulation::state::{AggressionState, RulesContext, SimulatedSnake};
     use crate::Coord;
 
@@ -209,11 +169,9 @@ mod tests {
     }
 
     fn analyze(state: &SimulatedGameState) -> EnclosureAnalysis {
-        let state_analysis = StateAnalysis::from_simulated(state);
-        let tracing = trace(state, &state_analysis);
-        let tactical = TacticalStateAnalysis::from_state(state, &tracing);
+        let mobility = MobilityAnalysis::from_state(state);
         let territory = TerritoryAnalysis::from_state(state);
-        EnclosureAnalysis::from_parts(state, &territory, &tactical)
+        EnclosureAnalysis::from_parts_actor_relative(state, &territory, &mobility)
     }
 
     #[test]
