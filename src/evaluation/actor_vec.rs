@@ -7,7 +7,9 @@ pub(crate) struct ActorVec<T> {
 
 impl<T> ActorVec<T> {
     pub(crate) fn new() -> Self {
-        Self { entries: Vec::new() }
+        Self {
+            entries: Vec::new(),
+        }
     }
 
     pub(crate) fn with_capacity(actor_count: usize) -> Self {
@@ -29,9 +31,10 @@ impl<T> ActorVec<T> {
     }
 
     pub(crate) fn iter(&self) -> impl Iterator<Item = (ActorIndex, &T)> {
-        self.entries.iter().enumerate().filter_map(|(index, value)| {
-            Some((ActorIndex::new(index)?, value.as_ref()?))
-        })
+        self.entries
+            .iter()
+            .enumerate()
+            .filter_map(|(index, value)| Some((ActorIndex::new(index)?, value.as_ref()?)))
     }
 
     pub(crate) fn len(&self) -> usize {
