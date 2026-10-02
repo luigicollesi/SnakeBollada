@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{HashSet, VecDeque};
 
 use rayon::prelude::*;
 
@@ -91,8 +91,8 @@ struct TerritoryCore {
     width: u16,
     height: u16,
     open: Vec<bool>,
-    distances: HashMap<String, Vec<u16>>,
-    snakes: HashMap<String, CoreSnakeTerritorySnapshot>,
+    distances: ActorVec<Vec<u16>>,
+    snakes: ActorVec<CoreSnakeTerritorySnapshot>,
     competitive: ActorVec<CompetitiveTerritorySnapshot>,
     competitive_claims: Vec<CompetitiveClaim>,
 }
@@ -116,23 +116,28 @@ impl TerritoryCore {
         let living = state
             .snakes
             .iter()
-            .filter(|snake| snake.alive)
-            .filter_map(|snake| snake.head().map(|head| (snake, head)))
+            .enumerate()
+            .filter(|(_, snake)| snake.alive)
+            .filter_map(|(index, snake)| {
+                Some((ActorIndex::new(index)?, snake, snake.head()?))
+            })
             .collect::<Vec<_>>();
 
         let distances = living
             .par_iter()
-            .map(|(snake, head)| {
+            .map(|(actor, _, head)| {
                 (
-                    snake.id.clone(),
+                    *actor,
                     bfs_distances(width, height, &open, *head, None),
                 )
             })
-            .collect::<HashMap<_, _>>();
+            .collect::<Vec<_>>()
+            .into_iter()
+            .collect::<ActorVec<_>>();
 
-        let mut ownership = HashMap::<String, (u32, u32, u32)>::new();
-        for (snake, _) in &living {
-            ownership.insert(snake.id.clone(), (0, 0, 0));
+        let mut ownership = ActorVec::with_capacity(state.snakes.len());
+        for (actor, _, _) in &living {
+            ownership.insert(*actor, (0_u32, 0_u32, 0_u32));
         }
 
         for (index, is_open) in open.iter().copied().enumerate().take(cells) {
@@ -142,9 +147,9 @@ impl TerritoryCore {
 
             let mut best = u16::MAX;
             let mut winners = Vec::new();
-            for (snake, _) in &living {
+            for (actor, _, _) in &living {
                 let distance = distances
-                    .get(&snake.id)
+                    .get(*actor)
                     .and_then(|field| field.get(index))
                     .copied()
                     .unwrap_or(u16::MAX);
@@ -154,20 +159,20 @@ impl TerritoryCore {
                 if distance < best {
                     best = distance;
                     winners.clear();
-                    winners.push(snake.id.as_str());
+                    winners.push(*actor);
                 } else if distance == best {
-                    winners.push(snake.id.as_str());
+                    winners.push(*actor);
                 }
             }
 
-            for (snake, _) in &living {
+            for (actor, _, _) in &living {
                 let distance = distances
-                    .get(&snake.id)
+                    .get(*actor)
                     .and_then(|field| field.get(index))
                     .copied()
                     .unwrap_or(u16::MAX);
                 if distance != u16::MAX {
-                    if let Some(entry) = ownership.get_mut(&snake.id) {
+                    if let Some(entry) = ownership.get_mut(*actor) {
                         entry.0 = entry.0.saturating_add(1);
                     }
                 }
@@ -189,13 +194,13 @@ impl TerritoryCore {
         let (competitive, competitive_claims) =
             competitive_snapshots(state, width, height, &open, &living, &distances);
 
-        let mut snakes = HashMap::new();
-        for (snake, head) in living {
+        let mut snakes = ActorVec::with_capacity(state.snakes.len());
+        for (actor, snake, head) in living {
             let (reachable_space, exclusive_space, contested_space) =
-                ownership.get(&snake.id).copied().unwrap_or_default();
+                ownership.get(actor).copied().unwrap_or_default();
 
             snakes.insert(
-                snake.id.clone(),
+                actor,
                 CoreSnakeTerritorySnapshot {
                     snake_id: snake.id.clone(),
                     reachable_space,
@@ -221,7 +226,7 @@ impl TerritoryCore {
 
 #[derive(Debug, Clone, Default)]
 struct TerritoryStructural {
-    useful_chokes: HashMap<String, Vec<ChokePoint>>,
+    useful_chokes: ActorVec<Vec<ChokePoint>>,
 }
 
 impl TerritoryStructural {
@@ -230,23 +235,25 @@ impl TerritoryStructural {
             return Self::default();
         }
 
-        let relevant_ids = state
+        let relevant = state
             .snakes
             .iter()
-            .filter(|snake| snake.alive)
-            .filter_map(|snake| {
-                let snapshot = core.snakes.get(&snake.id)?;
+            .enumerate()
+            .filter(|(_, snake)| snake.alive)
+            .filter_map(|(index, _)| {
+                let actor = ActorIndex::new(index)?;
+                let snapshot = core.snakes.get(actor)?;
                 structural_relevant(
                     state,
                     snapshot.exclusive_space,
                     snapshot.contested_space,
                     snapshot.escape_frontier,
                 )
-                .then_some(snake.id.as_str())
+                .then_some(actor)
             })
             .collect::<Vec<_>>();
 
-        if relevant_ids.is_empty() {
+        if relevant.is_empty() {
             return Self::default();
         }
 
@@ -254,12 +261,18 @@ impl TerritoryStructural {
         let useful_chokes = state
             .snakes
             .par_iter()
-            .filter(|snake| snake.alive && relevant_ids.contains(&snake.id.as_str()))
-            .filter_map(|snake| {
-                useful_chokes_for_snake(snake, core, &articulation)
-                    .map(|chokes| (snake.id.clone(), chokes))
+            .enumerate()
+            .filter_map(|(index, snake)| {
+                let actor = ActorIndex::new(index)?;
+                if !snake.alive || !relevant.contains(&actor) {
+                    return None;
+                }
+                useful_chokes_for_actor(actor, snake, core, &articulation)
+                    .map(|chokes| (actor, chokes))
             })
-            .collect::<HashMap<_, _>>();
+            .collect::<Vec<_>>()
+            .into_iter()
+            .collect::<ActorVec<_>>();
 
         Self { useful_chokes }
     }
@@ -270,29 +283,35 @@ impl TerritoryStructural {
         }
 
         let articulation = articulation_points(core.width, core.height, &core.open);
-
         let useful_chokes = state
             .snakes
             .par_iter()
-            .filter(|snake| snake.alive)
-            .filter_map(|snake| {
-                useful_chokes_for_snake(snake, core, &articulation)
-                    .map(|chokes| (snake.id.clone(), chokes))
+            .enumerate()
+            .filter_map(|(index, snake)| {
+                let actor = ActorIndex::new(index)?;
+                if !snake.alive {
+                    return None;
+                }
+                useful_chokes_for_actor(actor, snake, core, &articulation)
+                    .map(|chokes| (actor, chokes))
             })
-            .collect::<HashMap<_, _>>();
+            .collect::<Vec<_>>()
+            .into_iter()
+            .collect::<ActorVec<_>>();
 
         Self { useful_chokes }
     }
 }
 
-fn useful_chokes_for_snake(
+fn useful_chokes_for_actor(
+    actor: ActorIndex,
     snake: &crate::simulation::state::SimulatedSnake,
     core: &TerritoryCore,
     articulation: &HashSet<Coord>,
 ) -> Option<Vec<ChokePoint>> {
     let head = snake.head()?;
-    let field = core.distances.get(&snake.id)?;
-    let snapshot = core.snakes.get(&snake.id)?;
+    let field = core.distances.get(actor)?;
+    let snapshot = core.snakes.get(actor)?;
 
     let mut useful_chokes = articulation
         .iter()
@@ -391,45 +410,28 @@ impl TerritoryAnalysis {
             ..
         } = core;
 
-        let mut distances_by_id = distances;
-        let mut snakes_by_id = core_snakes;
-        let mut indexed_distances = ActorVec::with_capacity(state.snakes.len());
-        let mut indexed_snakes = ActorVec::with_capacity(state.snakes.len());
-
-        for (index, snake) in state.snakes.iter().enumerate() {
-            let Some(actor) = ActorIndex::new(index) else {
-                continue;
-            };
-
-            if let Some(field) = distances_by_id.remove(&snake.id) {
-                indexed_distances.insert(actor, field);
-            }
-
-            if let Some(snapshot) = snakes_by_id.remove(&snake.id) {
-                let useful_chokes = structural
-                    .useful_chokes
-                    .remove(&snake.id)
-                    .unwrap_or_default();
-                indexed_snakes.insert(
-                    actor,
-                    SnakeTerritorySnapshot {
-                        snake_id: snapshot.snake_id,
-                        reachable_space: snapshot.reachable_space,
-                        exclusive_space: snapshot.exclusive_space,
-                        contested_space: snapshot.contested_space,
-                        escape_frontier: snapshot.escape_frontier,
-                        edge_distance: snapshot.edge_distance,
-                        useful_chokes,
-                    },
-                );
-            }
+        let mut snakes = ActorVec::with_capacity(state.snakes.len());
+        for (actor, snapshot) in core_snakes.iter() {
+            let useful_chokes = structural.useful_chokes.take(actor).unwrap_or_default();
+            snakes.insert(
+                actor,
+                SnakeTerritorySnapshot {
+                    snake_id: snapshot.snake_id.clone(),
+                    reachable_space: snapshot.reachable_space,
+                    exclusive_space: snapshot.exclusive_space,
+                    contested_space: snapshot.contested_space,
+                    escape_frontier: snapshot.escape_frontier,
+                    edge_distance: snapshot.edge_distance,
+                    useful_chokes,
+                },
+            );
         }
 
         Self {
             width,
             height,
-            distances: indexed_distances,
-            snakes: indexed_snakes,
+            distances,
+            snakes,
             competitive,
             competitive_claims,
         }
@@ -585,8 +587,8 @@ fn competitive_snapshots(
     width: u16,
     height: u16,
     open: &[bool],
-    living: &[(&crate::simulation::state::SimulatedSnake, Coord)],
-    distances: &HashMap<String, Vec<u16>>,
+    living: &[(ActorIndex, &crate::simulation::state::SimulatedSnake, Coord)],
+    distances: &ActorVec<Vec<u16>>,
 ) -> (
     ActorVec<CompetitiveTerritorySnapshot>,
     Vec<CompetitiveClaim>,
@@ -596,13 +598,10 @@ fn competitive_snapshots(
     let mut dominance_owner = vec![None; cells];
     let mut favorable_head_owner = vec![None; cells];
 
-    for (snake, _) in living {
-        let Some(actor) = state.actor_index(&snake.id) else {
-            continue;
-        };
+    for (actor, snake, _) in living {
         for segment in snake.body.iter().take(snake.body.len().saturating_sub(1)) {
             if let Some(index) = index_of(width, height, *segment) {
-                claims[index] = CompetitiveClaim::Owned(actor);
+                claims[index] = CompetitiveClaim::Owned(*actor);
             }
         }
     }
@@ -614,9 +613,9 @@ fn competitive_snapshots(
 
         let mut best_distance = u16::MAX;
         let mut arrivals = Vec::new();
-        for (snake_index, (snake, _)) in living.iter().enumerate() {
+        for (actor, _, _) in living {
             let distance = distances
-                .get(&snake.id)
+                .get(*actor)
                 .and_then(|field| field.get(index))
                 .copied()
                 .unwrap_or(u16::MAX);
@@ -626,9 +625,9 @@ fn competitive_snapshots(
             if distance < best_distance {
                 best_distance = distance;
                 arrivals.clear();
-                arrivals.push(snake_index);
+                arrivals.push(*actor);
             } else if distance == best_distance {
-                arrivals.push(snake_index);
+                arrivals.push(*actor);
             }
         }
 
@@ -639,17 +638,13 @@ fn competitive_snapshots(
         let arrival_count = arrivals.len();
         let best_length = arrivals
             .iter()
-            .map(|snake_index| living[*snake_index].0.length())
+            .filter_map(|actor| state.snake_at(*actor))
+            .map(|snake| snake.length())
             .max()
             .unwrap_or(0);
-        let winners = arrivals
+        let winner_actors = arrivals
             .into_iter()
-            .filter(|snake_index| living[*snake_index].0.length() == best_length)
-            .collect::<Vec<_>>();
-
-        let winner_actors = winners
-            .iter()
-            .filter_map(|winner| state.actor_index(&living[*winner].0.id))
+            .filter(|actor| state.snake_at(*actor).is_some_and(|snake| snake.length() == best_length))
             .collect::<Vec<_>>();
 
         if winner_actors.len() == 1 && arrival_count > 1 {
@@ -756,8 +751,7 @@ fn competitive_snapshots(
 
     let snapshots = living
         .iter()
-        .filter_map(|(snake, _)| {
-            let actor = state.actor_index(&snake.id)?;
+        .filter_map(|(actor, snake, _)| {
             let builder = &builders[actor.as_usize()];
             let control_ratio_milli = if total_weight == 0 {
                 0
@@ -772,7 +766,7 @@ fn competitive_snapshots(
             };
 
             Some((
-                actor,
+                *actor,
                 CompetitiveTerritorySnapshot {
                     snake_id: snake.id.clone(),
                     controlled_cells: builder.controlled_cells,
