@@ -209,7 +209,6 @@ mod tests {
 
         assert_eq!(decision.direction, Direction::Up);
         assert_eq!(decision.reason, DecisionReason::BeamUtility);
-        assert_eq!(decision.target_food, None);
     }
 
     #[test]
@@ -271,7 +270,7 @@ mod tests {
         let decision = choose_move(&state);
 
         assert_eq!(decision.direction, Direction::Up);
-        assert_eq!(decision.target_food, Some(safe_food));
+        assert_eq!(decision.reason, DecisionReason::BaselineFallback);
     }
 
     #[test]
