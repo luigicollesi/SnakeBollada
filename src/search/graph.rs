@@ -1365,11 +1365,18 @@ mod tests {
         let mut graph = FutureGraph::new(initial);
         graph.expand_to_depth(1).unwrap();
 
-        assert!(graph.node(graph.root()).children.iter().any(|edge| {
+        let root = graph.root();
+        let our_actor = graph
+            .node(root)
+            .state
+            .actor_index(&graph.node(root).state.our_snake_id)
+            .unwrap();
+
+        assert!(graph.node(root).children.iter().any(|edge| {
             edge.events.iter().any(|event| {
                 matches!(
                     event,
-                    InstantEvent::AteFood { snake, .. } if snake == "ours"
+                    InstantEvent::AteFood { actor, .. } if *actor == our_actor
                 )
             })
         }));
