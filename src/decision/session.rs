@@ -434,12 +434,16 @@ mod tests {
             you: ours.clone(),
         };
         let graph = FutureGraph::new(SimulatedGameState::from(&previous));
-        let attack = graph
-            .node(graph.root())
+        let root = graph.node(graph.root());
+        let enemy_actor = root
+            .state
+            .actor_index("enemy")
+            .expect("enemy actor must exist");
+        let attack = root
             .active_analysis()
             .unwrap()
             .tracing
-            .for_enemy("enemy")
+            .for_actor(enemy_actor)
             .unwrap()
             .hypothesis(Direction::Down)
             .expect("head-pressure move must be predicted");
