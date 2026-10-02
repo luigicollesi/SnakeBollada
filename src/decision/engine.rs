@@ -575,9 +575,12 @@ fn beam_metadata(
     let root_state = &graph.node(graph.root()).state;
     let our_index = root_state.actor_index(&root_state.our_snake_id);
     for step in best.path.steps() {
-        let Some(edge) = graph.node(step.node).children.iter().find(|edge| {
-            edge.child == step.child && edge.joint_action == step.joint_action
-        }) else {
+        let Some(edge) = graph
+            .node(step.node)
+            .children
+            .iter()
+            .find(|edge| edge.child == step.child && edge.joint_action == step.joint_action)
+        else {
             continue;
         };
 
@@ -589,8 +592,7 @@ fn beam_metadata(
 
             if Some(actor) == our_index {
                 metadata.our_food_utility = metadata.our_food_utility.saturating_add(food);
-                metadata.our_hunting_utility =
-                    metadata.our_hunting_utility.saturating_add(hunting);
+                metadata.our_hunting_utility = metadata.our_hunting_utility.saturating_add(hunting);
                 metadata.our_survival_utility =
                     metadata.our_survival_utility.saturating_add(survival);
                 metadata.our_terminal_utility =
@@ -1250,8 +1252,7 @@ mod tests {
 
     fn legacy_decide(state: &GameState) -> Decision {
         let normalized = SimulatedGameState::from(state);
-        let prioritize_food =
-            normalized.aggression.fruits_eaten < OPENING_FOOD_TARGET_FRUITS;
+        let prioritize_food = normalized.aggression.fruits_eaten < OPENING_FOOD_TARGET_FRUITS;
         let mut graph = FutureGraph::new(normalized);
         DecisionEngine::stateless().decide_with_graph_with_reserve_and_intent(
             state,
