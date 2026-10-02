@@ -528,13 +528,14 @@ fn apply_edge(
 ) -> EdgeOutcome {
     let child_node = graph.node(edge.child);
     let route_count = child.survival.total_routes.max(1);
+    let our_actor = parent.state.actor_index(&parent.state.our_snake_id);
     let realized_food = edge
         .events
         .iter()
         .filter(|event| {
             matches!(
                 event,
-                InstantEvent::AteFood { snake, .. } if snake == &parent.state.our_snake_id
+                InstantEvent::AteFood { actor, .. } if Some(*actor) == our_actor
             )
         })
         .count() as f32;
