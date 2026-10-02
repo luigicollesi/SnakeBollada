@@ -268,7 +268,8 @@ impl TransitionFacts {
                     .map(|snapshot| snapshot.metrics.food_potential_milli)
                     .unwrap_or(0),
                 claimable_food_eta_before: before.metrics.claimable_food_eta,
-                claimable_food_eta_after: after.and_then(|snapshot| snapshot.metrics.claimable_food_eta),
+                claimable_food_eta_after: after
+                    .and_then(|snapshot| snapshot.metrics.claimable_food_eta),
                 size_security_before: before.metrics.size_security_milli,
                 size_security_after: after
                     .map(|snapshot| snapshot.metrics.size_security_milli)
@@ -371,8 +372,7 @@ fn score_actor_transition(
     );
     if !facts.died {
         food_harm = food_harm.saturating_add(
-            i64::from(facts.growth_pressure_after)
-                .saturating_div(GROWTH_DEBT_DIVISOR),
+            i64::from(facts.growth_pressure_after).saturating_div(GROWTH_DEBT_DIVISOR),
         );
     }
 
@@ -527,11 +527,7 @@ fn food_potential_delta(before: u16, after: u16) -> (i64, i64) {
     }
 }
 
-fn food_eta_delta(
-    before: Option<u16>,
-    after: Option<u16>,
-    ate_food: bool,
-) -> (i64, i64) {
+fn food_eta_delta(before: Option<u16>, after: Option<u16>, ate_food: bool) -> (i64, i64) {
     if ate_food {
         return (0, 0);
     }
