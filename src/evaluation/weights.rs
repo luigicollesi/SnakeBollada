@@ -237,4 +237,28 @@ mod tests {
         assert!(one_large.food > even.food);
         assert!(one_large.hunting < even.hunting);
     }
+
+    #[test]
+    fn constrained_territory_keeps_survival_dominant_even_for_largest_snake() {
+        let state = state(&[("ours", 16), ("enemy-a", 7), ("enemy-b", 6)]);
+        let weights = StrategicWeights::for_actor(&state, "ours", 120).unwrap();
+
+        assert!(weights.survival > weights.food);
+        assert!(weights.survival > weights.hunting);
+        assert!(weights.survival > weights.food.saturating_add(weights.hunting));
+    }
+
+    #[test]
+    fn comfortable_territory_lets_relative_size_choose_growth_or_hunting() {
+        let smaller_state = state(&[("ours", 5), ("enemy-a", 10), ("enemy-b", 9)]);
+        let larger_state = state(&[("ours", 15), ("enemy-a", 7), ("enemy-b", 6)]);
+
+        let smaller = StrategicWeights::for_actor(&smaller_state, "ours", 650).unwrap();
+        let larger = StrategicWeights::for_actor(&larger_state, "ours", 650).unwrap();
+
+        assert!(smaller.food > smaller.hunting);
+        assert!(smaller.food > smaller.survival);
+        assert!(larger.hunting > larger.food);
+        assert!(larger.hunting > larger.survival);
+    }
 }
