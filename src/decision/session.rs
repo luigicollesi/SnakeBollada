@@ -539,10 +539,7 @@ mod tests {
                 body: (0..7).map(|y| Coord { x: 1, y }).collect(),
                 alive: true,
             });
-        let graph = FutureGraph::new_beam_with_opponent_profiles(
-                        normalized,
-                        self.opponent_profiles.clone(),
-                    );
+        let graph = FutureGraph::new(normalized);
 
         let mut decision = DecisionState {
             intent: Some(DecisionIntent::Food(FoodIntent::new(target, 1))),
