@@ -1,7 +1,7 @@
 #![allow(dead_code)]
 
 use crate::direction::Direction;
-use crate::evaluation::{ActorTable, TransitionScore};
+use crate::evaluation::ActorTable;
 use crate::simulation::joint_action::JointAction;
 
 use super::bounds::ValueBound;
@@ -26,7 +26,6 @@ pub(crate) struct BeamStep {
     pub(crate) node: NodeId,
     pub(crate) joint_action: JointAction,
     pub(crate) child: NodeId,
-    pub(crate) transition: TransitionScore,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
