@@ -341,11 +341,7 @@ mod tests {
     fn analyze(state: &SimulatedGameState) -> BorderFobicAnalysis {
         let mobility = MobilityAnalysis::from_state(state);
         let territory = TerritoryAnalysis::from_state(state);
-        BorderFobicAnalysis::from_parts_with_territory_actor_relative(
-            state,
-            &mobility,
-            &territory,
-        )
+        BorderFobicAnalysis::from_parts_with_territory_actor_relative(state, &mobility, &territory)
     }
 
     #[test]
