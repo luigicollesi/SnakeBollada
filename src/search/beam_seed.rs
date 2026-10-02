@@ -206,9 +206,7 @@ fn seed_result(
 mod tests {
     use std::time::Duration;
 
-    use crate::simulation::state::{
-        RulesContext, SimulatedGameState, SimulatedSnake,
-    };
+    use crate::simulation::state::{RulesContext, SimulatedGameState, SimulatedSnake};
     use crate::Coord;
 
     use super::*;
