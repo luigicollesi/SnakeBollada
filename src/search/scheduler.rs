@@ -255,7 +255,7 @@ fn priority_signals(
         .unwrap_or_default();
 
     let ours = analysis.enclosure.ours(&node.state);
-    let safe_moves = analysis.tactical.ours.safe_moves.len();
+    let safe_moves = analysis.tactical().ours.safe_moves.len();
     let state_danger = ours.map_or(0, |snapshot| {
         let risk = u16::from(snapshot.risk.rank()).saturating_mul(300);
         let mobility = match safe_moves {
@@ -282,11 +282,11 @@ fn priority_signals(
 
     let intent_focus = intent_focus(node, intent);
     let trend_tactical = trend.tactical_priority_milli();
-    let raw_hunting_tactical = (analysis.hunting.best_plan_score() * 1000.0)
+    let raw_hunting_tactical = (analysis.hunting().best_plan_score() * 1000.0)
         .round()
         .clamp(0.0, 1000.0) as u16;
     let posture_hunting_tactical = u32::from(raw_hunting_tactical)
-        .saturating_mul(u32::from(analysis.posture.hunt_drive_milli))
+        .saturating_mul(u32::from(analysis.posture().hunt_drive_milli))
         .saturating_div(1000)
         .try_into()
         .unwrap_or(u16::MAX);
@@ -382,7 +382,7 @@ fn intent_focus(node: &crate::search::graph::SearchNode, intent: Option<&Decisio
             let enclosure = current.map_or(0, |snapshot| {
                 u16::from(snapshot.risk.rank()).saturating_mul(250)
             });
-            let mobility = match analysis.tactical.ours.safe_moves.len() {
+            let mobility = match analysis.tactical().ours.safe_moves.len() {
                 0 => 1000,
                 1 => 850,
                 2 => 450,
@@ -406,7 +406,7 @@ fn forcing_score(node: &crate::search::graph::SearchNode) -> u16 {
         return 0;
     };
 
-    let our_moves = u32::from(analysis.tactical.ours.safe_moves.len().max(1));
+    let our_moves = u32::from(analysis.tactical().ours.safe_moves.len().max(1));
     let enemy_branching = analysis
         .tactical
         .enemies
