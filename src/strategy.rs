@@ -16,6 +16,7 @@ pub(crate) enum DecisionReason {
     FutureMobility,
     FoodStrategic,
     HuntingTactical,
+    BeamUtility,
     ReservedEscape,
     DeterministicTieBreak,
     BaselineFallback,
