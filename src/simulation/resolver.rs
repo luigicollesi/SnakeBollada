@@ -1,5 +1,3 @@
-use std::collections::HashMap;
-
 use crate::Coord;
 
 use super::state::{ActorIndex, SimulatedGameState, SimulatedSnake};
@@ -16,11 +14,10 @@ pub(crate) enum EliminationCause {
     HeadToHead,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum EliminationAttribution {
     SelfInflicted,
-    OurSnake,
-    OtherSnake(String),
+    Actor(ActorIndex),
     Environment,
 }
 
@@ -31,16 +28,16 @@ pub(crate) enum InstantEvent {
         food: Coord,
     },
     EnemyForced {
-        enemy: String,
+        enemy: ActorIndex,
         remaining_moves: u8,
         caused_by_ours: bool,
     },
     EnemyTrapped {
-        enemy: String,
+        enemy: ActorIndex,
         caused_by_ours: bool,
     },
     EnemyKilled {
-        enemy: String,
+        enemy: ActorIndex,
         cause: EliminationCause,
         attribution: EliminationAttribution,
     },
@@ -53,10 +50,10 @@ pub(crate) enum InstantEvent {
         corner: bool,
     },
     HeadToHeadWon {
-        enemy: String,
+        enemy: ActorIndex,
     },
     HeadToHeadLost {
-        enemy: String,
+        enemy: ActorIndex,
     },
     Died {
         cause: EliminationCause,
@@ -85,7 +82,7 @@ pub(crate) struct TurnResolution {
 #[derive(Debug, Clone)]
 struct PendingElimination {
     cause: EliminationCause,
-    by: Option<String>,
+    by: Option<ActorIndex>,
 }
 
 pub(crate) fn resolve_turn(
@@ -165,13 +162,21 @@ fn damage_hazards(state: &mut SimulatedGameState, events: &mut Vec<InstantEvent>
     let food = &state.food;
     let hazards = &state.hazards;
     let hazard_damage = state.rules.hazard_damage_per_turn;
-    let our_id = state.our_snake_id.clone();
+    let our_actor = state.actor_index(&state.our_snake_id);
 
     if hazard_damage <= 0 {
         return;
     }
 
-    for snake in state.snakes.iter_mut().filter(|snake| snake.alive) {
+    for (index, snake) in state
+        .snakes
+        .iter_mut()
+        .enumerate()
+        .filter(|(_, snake)| snake.alive)
+    {
+        let Some(actor) = ActorIndex::new(index) else {
+            continue;
+        };
         let Some(head) = snake.head() else {
             continue;
         };
@@ -190,13 +195,13 @@ fn damage_hazards(state: &mut SimulatedGameState, events: &mut Vec<InstantEvent>
 
         if snake.health <= 0 {
             snake.alive = false;
-            if snake.id == our_id {
+            if Some(actor) == our_actor {
                 events.push(InstantEvent::Died {
                     cause: EliminationCause::Hazard,
                 });
             } else {
                 events.push(InstantEvent::EnemyKilled {
-                    enemy: snake.id.clone(),
+                    enemy: actor,
                     cause: EliminationCause::Hazard,
                     attribution: EliminationAttribution::Environment,
                 });
@@ -256,110 +261,107 @@ fn eliminate_snakes(
     state: &mut SimulatedGameState,
     events: &mut Vec<InstantEvent>,
 ) -> Result<(), ResolveError> {
-    let mut pending: HashMap<String, PendingElimination> = HashMap::new();
+    let mut pending = vec![None; state.snakes.len()];
 
-    for snake in state.snakes.iter().filter(|snake| snake.alive) {
+    for (index, snake) in state
+        .snakes
+        .iter()
+        .enumerate()
+        .filter(|(_, snake)| snake.alive)
+    {
+        let actor =
+            ActorIndex::new(index).ok_or_else(|| ResolveError::EmptyBody(snake.id.clone()))?;
         if snake.body.is_empty() {
             return Err(ResolveError::EmptyBody(snake.id.clone()));
         }
 
         if snake.health <= 0 {
-            pending.insert(
-                snake.id.clone(),
-                PendingElimination {
-                    cause: EliminationCause::OutOfHealth,
-                    by: None,
-                },
-            );
+            pending[actor.as_usize()] = Some(PendingElimination {
+                cause: EliminationCause::OutOfHealth,
+                by: None,
+            });
             continue;
         }
 
         if is_out_of_bounds(snake, state.width, state.height) {
-            pending.insert(
-                snake.id.clone(),
-                PendingElimination {
-                    cause: EliminationCause::OutOfBounds,
-                    by: None,
-                },
-            );
+            pending[actor.as_usize()] = Some(PendingElimination {
+                cause: EliminationCause::OutOfBounds,
+                by: None,
+            });
         }
     }
 
     let collision_candidates = state
         .snakes
         .iter()
-        .filter(|snake| snake.alive && !pending.contains_key(&snake.id))
+        .enumerate()
+        .filter_map(|(index, snake)| {
+            let actor = ActorIndex::new(index)?;
+            (snake.alive && pending[actor.as_usize()].is_none()).then_some((actor, snake))
+        })
         .collect::<Vec<_>>();
 
     let mut opponents_by_length = collision_candidates.clone();
-    opponents_by_length.sort_by(|left, right| {
+    opponents_by_length.sort_by(|(_, left), (_, right)| {
         right
             .length()
             .cmp(&left.length())
             .then_with(|| left.id.cmp(&right.id))
     });
 
-    for snake in &collision_candidates {
-        if pending.contains_key(&snake.id) {
+    for (actor, snake) in &collision_candidates {
+        if pending[actor.as_usize()].is_some() {
             continue;
         }
 
         if body_collision(snake, snake) {
-            pending.insert(
-                snake.id.clone(),
-                PendingElimination {
-                    cause: EliminationCause::SelfCollision,
-                    by: Some(snake.id.clone()),
-                },
-            );
+            pending[actor.as_usize()] = Some(PendingElimination {
+                cause: EliminationCause::SelfCollision,
+                by: Some(*actor),
+            });
             continue;
         }
 
-        if let Some(other) = opponents_by_length
+        if let Some((other_actor, _)) = opponents_by_length
             .iter()
             .copied()
-            .find(|other| other.id != snake.id && body_collision(snake, other))
+            .find(|(_, other)| other.id != snake.id && body_collision(snake, other))
         {
-            pending.insert(
-                snake.id.clone(),
-                PendingElimination {
-                    cause: EliminationCause::BodyCollision,
-                    by: Some(other.id.clone()),
-                },
-            );
+            pending[actor.as_usize()] = Some(PendingElimination {
+                cause: EliminationCause::BodyCollision,
+                by: Some(other_actor),
+            });
             continue;
         }
 
-        if let Some(other) = opponents_by_length
+        if let Some((other_actor, _)) = opponents_by_length
             .iter()
             .copied()
-            .find(|other| other.id != snake.id && lost_head_to_head(snake, other))
+            .find(|(_, other)| other.id != snake.id && lost_head_to_head(snake, other))
         {
-            pending.insert(
-                snake.id.clone(),
-                PendingElimination {
-                    cause: EliminationCause::HeadToHead,
-                    by: Some(other.id.clone()),
-                },
-            );
+            pending[actor.as_usize()] = Some(PendingElimination {
+                cause: EliminationCause::HeadToHead,
+                by: Some(other_actor),
+            });
         }
     }
 
-    let our_id = state.our_snake_id.clone();
+    let our_actor = state.actor_index(&state.our_snake_id);
 
-    for snake in &mut state.snakes {
-        let Some(elimination) = pending.get(&snake.id) else {
+    for (index, snake) in state.snakes.iter_mut().enumerate() {
+        let Some(actor) = ActorIndex::new(index) else {
+            continue;
+        };
+        let Some(elimination) = pending[actor.as_usize()].as_ref() else {
             continue;
         };
 
         snake.alive = false;
 
-        if snake.id == our_id {
+        if Some(actor) == our_actor {
             if elimination.cause == EliminationCause::HeadToHead {
-                if let Some(enemy) = &elimination.by {
-                    events.push(InstantEvent::HeadToHeadLost {
-                        enemy: enemy.clone(),
-                    });
+                if let Some(enemy) = elimination.by {
+                    events.push(InstantEvent::HeadToHeadLost { enemy });
                 }
             }
             events.push(InstantEvent::Died {
@@ -367,11 +369,9 @@ fn eliminate_snakes(
             });
         } else {
             if elimination.cause == EliminationCause::HeadToHead
-                && elimination.by.as_deref() == Some(our_id.as_str())
+                && elimination.by == our_actor
             {
-                events.push(InstantEvent::HeadToHeadWon {
-                    enemy: snake.id.clone(),
-                });
+                events.push(InstantEvent::HeadToHeadWon { enemy: actor });
             }
 
             let attribution = match elimination.cause {
@@ -382,17 +382,16 @@ fn eliminate_snakes(
                     EliminationAttribution::Environment
                 }
                 EliminationCause::BodyCollision | EliminationCause::HeadToHead => {
-                    match elimination.by.as_deref() {
-                        Some(by) if by == our_id => EliminationAttribution::OurSnake,
-                        Some(by) if by == snake.id => EliminationAttribution::SelfInflicted,
-                        Some(by) => EliminationAttribution::OtherSnake(by.to_string()),
+                    match elimination.by {
+                        Some(by) if by == actor => EliminationAttribution::SelfInflicted,
+                        Some(by) => EliminationAttribution::Actor(by),
                         None => EliminationAttribution::Environment,
                     }
                 }
             };
 
             events.push(InstantEvent::EnemyKilled {
-                enemy: snake.id.clone(),
+                enemy: actor,
                 cause: elimination.cause,
                 attribution,
             });
