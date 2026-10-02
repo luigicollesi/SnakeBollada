@@ -183,6 +183,16 @@ mod tests {
     }
 
     fn state(ours: Battlesnake, enemies: Vec<Battlesnake>, food: Vec<Coord>) -> GameState {
+        state_on_board(7, 7, ours, enemies, food)
+    }
+
+    fn state_on_board(
+        width: u32,
+        height: u32,
+        ours: Battlesnake,
+        enemies: Vec<Battlesnake>,
+        food: Vec<Coord>,
+    ) -> GameState {
         let mut snakes = vec![ours.clone()];
         snakes.extend(enemies);
 
@@ -194,8 +204,8 @@ mod tests {
             },
             turn: 1,
             board: Board {
-                height: 7,
-                width: 7,
+                height,
+                width,
                 food,
                 snakes,
                 hazards: vec![],
@@ -234,6 +244,117 @@ mod tests {
         assert_eq!(decision.reason, DecisionReason::BeamUtility);
         assert!(Direction::ALL.contains(&decision.direction));
         assert!(decision.search.completed_depth >= 1);
+    }
+
+    #[test]
+    fn hobbs_regression_undersized_snake_takes_adjacent_claimable_food() {
+        let ours = snake(
+            "ours",
+            vec![
+                Coord { x: 1, y: 2 },
+                Coord { x: 2, y: 2 },
+                Coord { x: 2, y: 3 },
+            ],
+        );
+        let enemy = snake(
+            "enemy",
+            vec![
+                Coord { x: 8, y: 7 },
+                Coord { x: 8, y: 8 },
+                Coord { x: 8, y: 9 },
+                Coord { x: 8, y: 10 },
+            ],
+        );
+        let state = state_on_board(
+            11,
+            11,
+            ours,
+            vec![enemy],
+            vec![Coord { x: 0, y: 2 }, Coord { x: 5, y: 5 }],
+        );
+
+        let decision = choose_move(&state);
+
+        assert_eq!(decision.reason, DecisionReason::BeamUtility);
+        assert_eq!(decision.direction, Direction::Left);
+    }
+
+    #[test]
+    fn hobbs_regression_food_remains_priority_when_enemy_is_one_longer() {
+        let ours = snake(
+            "ours",
+            vec![
+                Coord { x: 2, y: 9 },
+                Coord { x: 2, y: 8 },
+                Coord { x: 2, y: 7 },
+            ],
+        );
+        let enemy = snake(
+            "enemy",
+            vec![
+                Coord { x: 3, y: 6 },
+                Coord { x: 4, y: 6 },
+                Coord { x: 5, y: 6 },
+                Coord { x: 6, y: 6 },
+            ],
+        );
+        let state = state_on_board(
+            11,
+            11,
+            ours,
+            vec![enemy],
+            vec![
+                Coord { x: 0, y: 2 },
+                Coord { x: 5, y: 5 },
+                Coord { x: 1, y: 9 },
+                Coord { x: 9, y: 4 },
+            ],
+        );
+
+        let decision = choose_move(&state);
+
+        assert_eq!(decision.reason, DecisionReason::BeamUtility);
+        assert_eq!(decision.direction, Direction::Left);
+    }
+
+    #[test]
+    fn hobbs_regression_does_not_voluntarily_enter_corner_pin() {
+        let ours = snake(
+            "ours",
+            vec![
+                Coord { x: 9, y: 10 },
+                Coord { x: 9, y: 9 },
+                Coord { x: 9, y: 8 },
+            ],
+        );
+        let enemy = snake(
+            "enemy",
+            vec![
+                Coord { x: 7, y: 8 },
+                Coord { x: 7, y: 7 },
+                Coord { x: 8, y: 7 },
+                Coord { x: 8, y: 6 },
+                Coord { x: 7, y: 6 },
+            ],
+        );
+        let state = state_on_board(
+            11,
+            11,
+            ours,
+            vec![enemy],
+            vec![
+                Coord { x: 0, y: 2 },
+                Coord { x: 5, y: 5 },
+                Coord { x: 1, y: 9 },
+                Coord { x: 9, y: 4 },
+                Coord { x: 0, y: 8 },
+            ],
+        );
+
+        let decision = choose_move(&state);
+
+        assert_eq!(decision.reason, DecisionReason::BeamUtility);
+        assert_eq!(decision.direction, Direction::Left);
     }
 
     #[test]
