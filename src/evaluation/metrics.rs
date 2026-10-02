@@ -1,6 +1,6 @@
 use crate::analysis::{BorderFobicAnalysis, EnclosureAnalysis, TerritoryAnalysis};
 use crate::simulation::mobility::MobilityAnalysis;
-use crate::simulation::state::SimulatedGameState;
+use crate::simulation::state::{ActorIndex, SimulatedGameState};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct ActorUtilityMetrics {
@@ -15,15 +15,16 @@ pub(crate) struct ActorUtilityMetrics {
 impl ActorUtilityMetrics {
     pub(crate) fn from_parts(
         state: &SimulatedGameState,
-        actor_id: &str,
+        actor: ActorIndex,
         mobility: &MobilityAnalysis,
         territory: &TerritoryAnalysis,
         enclosure: &EnclosureAnalysis,
         border: &BorderFobicAnalysis,
     ) -> Option<Self> {
-        state.snake(actor_id).filter(|snake| snake.alive)?;
+        let actor_snake = state.snake_at(actor).filter(|snake| snake.alive)?;
+        let actor_id = actor_snake.id.as_str();
         let safe_moves = mobility.deterministic_moves_for(state, actor_id).len();
-        let territory_snapshot = territory.for_snake(actor_id)?;
+        let territory_snapshot = territory.for_actor(actor)?;
         let enclosure_snapshot = enclosure.for_snake(actor_id)?;
         let border_snapshot = border.for_snake(actor_id);
 
@@ -44,7 +45,7 @@ impl ActorUtilityMetrics {
                 territory_snapshot.exclusive_space,
                 territory_snapshot.contested_space,
             ),
-            food_potential_milli: food_potential_milli(state, territory, actor_id),
+            food_potential_milli: food_potential_milli(state, territory, actor),
         })
     }
 }
@@ -52,18 +53,23 @@ impl ActorUtilityMetrics {
 fn food_potential_milli(
     state: &SimulatedGameState,
     territory: &TerritoryAnalysis,
-    actor_id: &str,
+    actor: ActorIndex,
 ) -> u16 {
     let mut candidates = state
         .food
         .iter()
         .filter_map(|food| {
-            let own_distance = territory.distance_for(actor_id, *food)?;
+            let own_distance = territory.distance_for_actor(actor, *food)?;
             let nearest_enemy = state
                 .snakes
                 .iter()
-                .filter(|snake| snake.alive && snake.id != actor_id)
-                .filter_map(|snake| territory.distance_for(&snake.id, *food))
+                .enumerate()
+                .filter(|(index, snake)| {
+                    snake.alive && ActorIndex::new(*index) != Some(actor)
+                })
+                .filter_map(|(index, _)| {
+                    territory.distance_for_actor(ActorIndex::new(index)?, *food)
+                })
                 .min();
 
             let proximity = 1000_u32.saturating_div(u32::from(own_distance).saturating_add(1));
