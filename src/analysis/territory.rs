@@ -448,6 +448,33 @@ impl TerritoryAnalysis {
         }
     }
 
+    pub(crate) fn competitive_contested_by(&self, coord: Coord, actor_id: &str) -> bool {
+        let Some(index) = index_of(self.width, self.height, coord) else {
+            return false;
+        };
+        let Some(CompetitiveClaim::Contested(contenders)) =
+            self.competitive_claims.get(index)
+        else {
+            return false;
+        };
+
+        contenders.iter().any(|actor_index| {
+            self.competitive_ids
+                .get(*actor_index)
+                .is_some_and(|candidate| candidate == actor_id)
+        })
+    }
+
+    pub(crate) fn competitive_contender_count_at(&self, coord: Coord) -> usize {
+        let Some(index) = index_of(self.width, self.height, coord) else {
+            return 0;
+        };
+        match self.competitive_claims.get(index) {
+            Some(CompetitiveClaim::Contested(contenders)) => contenders.len(),
+            _ => 0,
+        }
+    }
+
     pub(crate) fn competitive_is_contested_at(&self, coord: Coord) -> bool {
         let Some(index) = index_of(self.width, self.height, coord) else {
             return false;
