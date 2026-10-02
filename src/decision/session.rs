@@ -58,8 +58,6 @@ impl DecisionState {
         self.observe_aggression(state);
         self.observe_opponents(state);
 
-        self.reconcile_intent_with_observation(state);
-
         let prioritize_food = self.aggression.fruits_eaten < OPENING_FOOD_TARGET_FRUITS;
 
         let mut normalized = SimulatedGameState::from(state);
@@ -72,7 +70,7 @@ impl DecisionState {
             return choose_move_baseline(state);
         }
 
-        let actual_key = StateKey::from_state(&normalized);
+        let actual_key = StateKey::from_beam_state(&normalized);
         let observed_food = normalized_food(&normalized.food);
         let food_spawned = self
             .previous_observed_food
@@ -85,30 +83,45 @@ impl DecisionState {
                     || food_spawned
                     || !graph.root_children_match_food(&actual_key)
                 {
-                    FutureGraph::new(normalized)
+                    FutureGraph::new_beam_with_opponent_profiles(
+                        normalized.clone(),
+                        self.opponent_profiles.clone(),
+                    )
                 } else if let Some(node_id) = graph.find_node_by_key(&actual_key) {
                     graph.reroot(node_id);
                     graph
                 } else {
-                    FutureGraph::new(normalized)
+                    FutureGraph::new_beam_with_opponent_profiles(
+                        normalized.clone(),
+                        self.opponent_profiles.clone(),
+                    )
                 }
             }
-            None => FutureGraph::new(normalized),
+            None => FutureGraph::new_beam_with_opponent_profiles(
+                normalized.clone(),
+                self.opponent_profiles.clone(),
+            ),
         };
         graph.set_opponent_profiles(self.opponent_profiles.clone());
 
-        self.refresh_food_intent(&graph);
-        self.refresh_hunt_intent(&graph);
-
-        let decision = DecisionEngine::stateless().decide_with_graph_with_reserve_and_intent(
-            state,
-            &mut graph,
-            runtime_jitter_reserve_ms,
-            self.intent.as_ref(),
-            prioritize_food,
-        );
-
-        self.update_intent_after_decision(state, &graph, &decision);
+        self.intent = None;
+        let decision = if let Some(decision) = DecisionEngine::stateless()
+            .try_decide_beam_with_graph(state, &mut graph, runtime_jitter_reserve_ms)
+        {
+            decision
+        } else {
+            let mut legacy_graph = FutureGraph::new_with_opponent_profiles(
+                normalized,
+                self.opponent_profiles.clone(),
+            );
+            DecisionEngine::stateless().decide_with_graph_with_reserve_and_intent(
+                state,
+                &mut legacy_graph,
+                runtime_jitter_reserve_ms,
+                None,
+                prioritize_food,
+            )
+        };
 
         graph.retain_chosen_direction(decision.direction);
 
@@ -526,7 +539,10 @@ mod tests {
                 body: (0..7).map(|y| Coord { x: 1, y }).collect(),
                 alive: true,
             });
-        let graph = FutureGraph::new(normalized);
+        let graph = FutureGraph::new_beam_with_opponent_profiles(
+                        normalized,
+                        self.opponent_profiles.clone(),
+                    );
 
         let mut decision = DecisionState {
             intent: Some(DecisionIntent::Food(FoodIntent::new(target, 1))),
