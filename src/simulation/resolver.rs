@@ -27,33 +27,10 @@ pub(crate) enum InstantEvent {
         actor: ActorIndex,
         food: Coord,
     },
-    EnemyForced {
-        enemy: ActorIndex,
-        remaining_moves: u8,
-        caused_by_ours: bool,
-    },
-    EnemyTrapped {
-        enemy: ActorIndex,
-        caused_by_ours: bool,
-    },
     EnemyKilled {
         enemy: ActorIndex,
         cause: EliminationCause,
         attribution: EliminationAttribution,
-    },
-    SelfConstrained {
-        remaining_moves: u8,
-    },
-    SelfDeadEnd,
-    SelfBorderExposure {
-        fear_milli: u16,
-        corner: bool,
-    },
-    HeadToHeadWon {
-        enemy: ActorIndex,
-    },
-    HeadToHeadLost {
-        enemy: ActorIndex,
     },
     Died {
         cause: EliminationCause,
@@ -345,19 +322,10 @@ fn eliminate_snakes(
         snake.alive = false;
 
         if Some(actor) == our_actor {
-            if elimination.cause == EliminationCause::HeadToHead {
-                if let Some(enemy) = elimination.by {
-                    events.push(InstantEvent::HeadToHeadLost { enemy });
-                }
-            }
             events.push(InstantEvent::Died {
                 cause: elimination.cause,
             });
         } else {
-            if elimination.cause == EliminationCause::HeadToHead && elimination.by == our_actor {
-                events.push(InstantEvent::HeadToHeadWon { enemy: actor });
-            }
-
             let attribution = match elimination.cause {
                 EliminationCause::SelfCollision | EliminationCause::OutOfBounds => {
                     EliminationAttribution::SelfInflicted
@@ -671,9 +639,6 @@ mod tests {
 
         assert!(resolved.state.snake("ours").unwrap().alive);
         assert!(!resolved.state.snake("enemy").unwrap().alive);
-        assert!(resolved.events.contains(&InstantEvent::HeadToHeadWon {
-            enemy: actor(&initial, "enemy"),
-        }));
     }
 
     #[test]
