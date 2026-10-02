@@ -1091,13 +1091,13 @@ fn food_leaf_potential(node: &SearchNode) -> f32 {
             let route = node
                 .active_analysis()
                 .expect("running leaf must have analysis")
-                .state
+                .state_analysis()
                 .route_for(&node.state.our_snake_id, *food)?;
             let distance = route.distance?;
             let claim_factor = node
                 .active_analysis()
                 .expect("running leaf must have analysis")
-                .state
+                .state_analysis()
                 .nearest_competitor_for(&node.state.our_snake_id, *food)
                 .map(|competitor| {
                     if distance < competitor.eta {
