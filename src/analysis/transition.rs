@@ -3,6 +3,7 @@
 use crate::analysis::{EnemyTacticalSnapshot, TacticalStateAnalysis};
 use crate::direction::Direction;
 use crate::simulation::resolver::{InstantEvent, TurnResolution};
+use crate::simulation::state::ActorIndex;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct TransitionAnalysis {
@@ -63,7 +64,10 @@ fn derive_hunting_events(
     after: &TacticalStateAnalysis,
 ) {
     for (enemy_id, before_enemy) in &before.enemies {
-        if enemy_killed(events, enemy_id) {
+        let Some(enemy_actor) = state.actor_index(enemy_id) else {
+            continue;
+        };
+        if enemy_killed(events, enemy_actor) {
             continue;
         }
 
@@ -75,7 +79,7 @@ fn derive_hunting_events(
 
         if after_enemy.legal_moves.is_empty() {
             events.push(InstantEvent::EnemyTrapped {
-                enemy: enemy_id.clone(),
+                enemy: enemy_actor,
                 caused_by_ours,
             });
             continue;
@@ -83,7 +87,7 @@ fn derive_hunting_events(
 
         if before_enemy.plausible_moves.len() > 1 && after_enemy.plausible_moves.len() == 1 {
             events.push(InstantEvent::EnemyForced {
-                enemy: enemy_id.clone(),
+                enemy: enemy_actor,
                 remaining_moves: 1,
                 caused_by_ours,
             });
@@ -114,11 +118,11 @@ fn our_body_contributes(
     })
 }
 
-fn enemy_killed(events: &[InstantEvent], enemy_id: &str) -> bool {
+fn enemy_killed(events: &[InstantEvent], enemy: ActorIndex) -> bool {
     events.iter().any(|event| {
         matches!(
             event,
-            InstantEvent::EnemyKilled { enemy, .. } if enemy == enemy_id
+            InstantEvent::EnemyKilled { enemy: killed, .. } if *killed == enemy
         )
     })
 }
