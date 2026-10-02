@@ -251,12 +251,13 @@ impl MaximinEvaluator<'_> {
         remaining_depth: u8,
     ) -> Vec<EvaluatedLine> {
         let node = self.graph.node(node_id);
+        let Some(our_actor) = node.state.actor_index(&node.state.our_snake_id) else {
+            return Vec::new();
+        };
         let edges = node
             .children
             .iter()
-            .filter(|edge| {
-                edge.joint_action.direction_for(&node.state.our_snake_id) == Some(direction)
-            })
+            .filter(|edge| edge.joint_action.direction_for(our_actor) == Some(direction))
             .collect::<Vec<_>>();
 
         if edges.is_empty() {
