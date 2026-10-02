@@ -589,10 +589,7 @@ fn head_threat_moves(
     }))
 }
 
-fn structural_trace(
-    state: &SimulatedGameState,
-    mobility: &MobilityAnalysis,
-) -> EnemyTracingOutput {
+fn structural_trace(state: &SimulatedGameState, mobility: &MobilityAnalysis) -> EnemyTracingOutput {
     let enemies = state
         .snakes
         .iter()
