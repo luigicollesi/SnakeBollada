@@ -78,7 +78,7 @@ pub(crate) struct SearchEdge {
 
 struct ResolvedCandidate {
     joint_action: JointAction,
-    state: SimulatedGameState,
+    state: Option<SimulatedGameState>,
     key: StateKey,
     resolution_events: Vec<InstantEvent>,
 }
@@ -675,7 +675,7 @@ impl FutureGraph {
                         let TurnResolution { state, events } = resolution;
                         ResolvedCandidate {
                             joint_action,
-                            state,
+                            state: Some(state),
                             key,
                             resolution_events: events,
                         }
@@ -684,18 +684,36 @@ impl FutureGraph {
                 .collect::<Result<Vec<_>, ResolveError>>()?;
             let resolve_elapsed = resolve_started.elapsed();
 
-            let mut unique_new = Vec::new();
-            let mut seen_new = HashSet::new();
+            let mut unique_indices = Vec::new();
+            let mut seen_new = HashSet::<&StateKey>::new();
             let mut batch_transposition_hits = 0_u32;
 
-            for candidate in &resolved {
+            for (index, candidate) in resolved.iter().enumerate() {
                 if self.transpositions.contains_key(&candidate.key) {
                     batch_transposition_hits = batch_transposition_hits.saturating_add(1);
-                } else if seen_new.insert(candidate.key.clone()) {
-                    unique_new.push((candidate.key.clone(), candidate.state.clone()));
+                } else if seen_new.insert(&candidate.key) {
+                    unique_indices.push(index);
                 } else {
                     batch_transposition_hits = batch_transposition_hits.saturating_add(1);
                 }
+            }
+            drop(seen_new);
+
+            let mut resolved = resolved;
+            let unique_new = unique_indices
+                .into_iter()
+                .map(|index| {
+                    let candidate = &mut resolved[index];
+                    let state = candidate
+                        .state
+                        .take()
+                        .expect("new resolved state must still be owned by candidate");
+                    (candidate.key.clone(), state)
+                })
+                .collect::<Vec<_>>();
+
+            for candidate in &mut resolved {
+                candidate.state = None;
             }
 
             let node_build_started = std::time::Instant::now();
