@@ -4,7 +4,7 @@ use std::collections::HashMap;
 
 use rayon::prelude::*;
 
-use crate::analysis::{TacticalStateAnalysis, TerritoryAnalysis};
+use crate::analysis::TerritoryAnalysis;
 use crate::direction::{Direction, MoveMask};
 use crate::simulation::mobility::MobilityAnalysis;
 use crate::simulation::state::SimulatedGameState;
@@ -32,33 +32,10 @@ pub(crate) struct BorderFobicAnalysis {
 }
 
 impl BorderFobicAnalysis {
-    pub(crate) fn from_parts(state: &SimulatedGameState, tactical: &TacticalStateAnalysis) -> Self {
-        let territory = TerritoryAnalysis::from_state(state);
-        Self::from_parts_with_territory(state, tactical, &territory)
-    }
-
-    pub(crate) fn from_parts_with_territory(
-        state: &SimulatedGameState,
-        tactical: &TacticalStateAnalysis,
-        territory: &TerritoryAnalysis,
-    ) -> Self {
-        Self::from_parts_with_territory_scope(state, Some(tactical), None, territory, false)
-    }
-
     pub(crate) fn from_parts_with_territory_actor_relative(
         state: &SimulatedGameState,
         mobility: &MobilityAnalysis,
         territory: &TerritoryAnalysis,
-    ) -> Self {
-        Self::from_parts_with_territory_scope(state, None, Some(mobility), territory, true)
-    }
-
-    fn from_parts_with_territory_scope(
-        state: &SimulatedGameState,
-        tactical: Option<&TacticalStateAnalysis>,
-        mobility: Option<&MobilityAnalysis>,
-        territory: &TerritoryAnalysis,
-        all_legal_enemy_moves: bool,
     ) -> Self {
         let snakes = state
             .snakes
@@ -66,8 +43,7 @@ impl BorderFobicAnalysis {
             .filter(|snake| snake.alive)
             .filter_map(|snake| {
                 let head = snake.head()?;
-                let safe_moves =
-                    actor_safe_moves(state, tactical, mobility, &snake.id, all_legal_enemy_moves);
+                let safe_moves = mobility.deterministic_moves_for(state, &snake.id);
                 let fear_milli = length_fear_milli(state, snake.length());
                 let head_edge_distance = edge_distance(state, head);
                 let body_on_edge = snake
@@ -231,38 +207,6 @@ impl BorderFobicAnalysis {
     }
 }
 
-fn actor_safe_moves(
-    state: &SimulatedGameState,
-    tactical: Option<&TacticalStateAnalysis>,
-    mobility: Option<&MobilityAnalysis>,
-    actor_id: &str,
-    all_legal_enemy_moves: bool,
-) -> MoveMask {
-    if let Some(mobility) = mobility {
-        return mobility.deterministic_moves_for(state, actor_id);
-    }
-
-    let Some(tactical) = tactical else {
-        return MoveMask::empty();
-    };
-
-    if actor_id == state.our_snake_id {
-        return tactical.ours.safe_moves;
-    }
-
-    tactical
-        .enemies
-        .get(actor_id)
-        .map(|enemy| {
-            if all_legal_enemy_moves || enemy.plausible_moves.is_empty() {
-                enemy.legal_moves
-            } else {
-                enemy.plausible_moves
-            }
-        })
-        .unwrap_or_else(MoveMask::empty)
-}
-
 fn inward_control_milli(
     state: &SimulatedGameState,
     territory: &TerritoryAnalysis,
@@ -363,8 +307,6 @@ fn is_corner(state: &SimulatedGameState, coord: Coord) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use crate::analysis::StateAnalysis;
-    use crate::enemy::tracing::trace;
     use crate::simulation::state::{AggressionState, RulesContext, SimulatedSnake};
 
     use super::*;
@@ -397,10 +339,13 @@ mod tests {
     }
 
     fn analyze(state: &SimulatedGameState) -> BorderFobicAnalysis {
-        let state_analysis = StateAnalysis::from_simulated(state);
-        let tracing = trace(state, &state_analysis);
-        let tactical = TacticalStateAnalysis::from_state(state, &tracing);
-        BorderFobicAnalysis::from_parts(state, &tactical)
+        let mobility = MobilityAnalysis::from_state(state);
+        let territory = TerritoryAnalysis::from_state(state);
+        BorderFobicAnalysis::from_parts_with_territory_actor_relative(
+            state,
+            &mobility,
+            &territory,
+        )
     }
 
     #[test]
