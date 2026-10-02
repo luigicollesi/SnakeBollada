@@ -27,7 +27,7 @@ pub(crate) enum EliminationAttribution {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum InstantEvent {
     AteFood {
-        snake: String,
+        actor: ActorIndex,
         food: Coord,
     },
     EnemyForced {
@@ -100,10 +100,11 @@ pub(crate) fn resolve_turn(
     damage_hazards(&mut next, &mut events);
 
     let ate_food = feed_snakes(&mut next, &mut events)?;
+    let our_actor = next.actor_index(&next.our_snake_id);
     if events.iter().any(|event| {
         matches!(
             event,
-            InstantEvent::AteFood { snake, .. } if snake == &next.our_snake_id
+            InstantEvent::AteFood { actor, .. } if Some(*actor) == our_actor
         )
     }) {
         next.aggression.record_food();
@@ -214,7 +215,14 @@ fn feed_snakes(
     for food in state.food.iter().copied() {
         let mut eaten = false;
 
-        for snake in state.snakes.iter_mut().filter(|snake| snake.alive) {
+        for (index, snake) in state
+            .snakes
+            .iter_mut()
+            .enumerate()
+            .filter(|(_, snake)| snake.alive)
+        {
+            let actor =
+                ActorIndex::new(index).ok_or_else(|| ResolveError::MissingMove(snake.id.clone()))?;
             let head = snake
                 .head()
                 .ok_or_else(|| ResolveError::EmptyBody(snake.id.clone()))?;
@@ -230,10 +238,7 @@ fn feed_snakes(
                 .ok_or_else(|| ResolveError::EmptyBody(snake.id.clone()))?;
             snake.body.push(tail);
             snake.health = state.rules.max_health;
-            events.push(InstantEvent::AteFood {
-                snake: snake.id.clone(),
-                food,
-            });
+            events.push(InstantEvent::AteFood { actor, food });
             eaten = true;
             any_eaten = true;
         }
@@ -493,7 +498,7 @@ mod tests {
         assert_eq!(resolved.state.food, Vec::<Coord>::new());
         assert_eq!(resolved.forecast_delta, ForecastDelta::FoodUncertainty);
         assert!(resolved.events.contains(&InstantEvent::AteFood {
-            snake: "ours".to_string(),
+            actor: initial.actor_index("ours").unwrap(),
             food: Coord { x: 3, y: 2 },
         }));
     }
