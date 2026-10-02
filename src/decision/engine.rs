@@ -4,9 +4,7 @@ use crate::direction::Direction;
 use crate::search::beam::{BeamLine, LineTerminal};
 use crate::search::beam_search::{search_beam, BeamSearchResult};
 use crate::search::budget::SearchBudget;
-use crate::search::forecast::{
-    FoodForecastPolicy, ForecastCertainty, PROVISIONAL_TERMINAL_VALUE,
-};
+use crate::search::forecast::{FoodForecastPolicy, ForecastCertainty, PROVISIONAL_TERMINAL_VALUE};
 use crate::search::graph::FutureGraph;
 use crate::simulation::state::{SimulatedGameState, SimulationSupport};
 use crate::strategy::{
