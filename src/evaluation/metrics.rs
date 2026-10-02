@@ -19,6 +19,9 @@ pub(crate) struct ActorUtilityMetrics {
     pub(crate) space_capacity_milli: u16,
     pub(crate) territory_control_milli: u16,
     pub(crate) food_potential_milli: u16,
+    pub(crate) growth_pressure_milli: u16,
+    pub(crate) size_security_milli: u16,
+    pub(crate) claimable_food_eta: Option<u16>,
     pub(crate) food_survival_pressure_milli: u16,
     pub(crate) health_pressure_milli: u16,
 }
@@ -61,6 +64,9 @@ impl ActorUtilityMetrics {
             ),
             territory_control_milli: territory.competitive_control_milli(actor),
             food_potential_milli: food_potential_milli(state, territory, actor),
+            growth_pressure_milli: growth_pressure_milli(state, actor),
+            size_security_milli: size_security_milli(state, actor),
+            claimable_food_eta: claimable_food_eta(state, territory, actor),
             food_survival_pressure_milli: food_survival_pressure_milli(state, territory, actor),
             health_pressure_milli: health_pressure_milli(
                 actor_snake.health,
@@ -76,6 +82,143 @@ fn food_potential_milli(
     actor: ActorIndex,
 ) -> u16 {
     food_potential_milli_excluding(state, territory, actor, None)
+}
+
+pub(super) fn largest_enemy_length(state: &SimulatedGameState, actor: ActorIndex) -> usize {
+    state
+        .snakes
+        .iter()
+        .enumerate()
+        .filter(|(index, snake)| snake.alive && ActorIndex::new(*index) != Some(actor))
+        .map(|(_, snake)| snake.length())
+        .max()
+        .unwrap_or(0)
+}
+
+pub(super) fn growth_pressure_milli(state: &SimulatedGameState, actor: ActorIndex) -> u16 {
+    let Some(snake) = state.snake_at(actor).filter(|snake| snake.alive) else {
+        return 0;
+    };
+    let largest_enemy = largest_enemy_length(state, actor);
+    if largest_enemy == 0 {
+        return 0;
+    }
+
+    let ours = snake.length();
+    if ours.saturating_add(2) <= largest_enemy {
+        return 1000;
+    }
+    if ours.saturating_add(1) == largest_enemy {
+        return 850;
+    }
+    if ours == largest_enemy {
+        return 650;
+    }
+    if ours == largest_enemy.saturating_add(1) {
+        return 300;
+    }
+
+    let ratio_milli = u32::try_from(ours)
+        .unwrap_or(u32::MAX)
+        .saturating_mul(1000)
+        .saturating_div(u32::try_from(largest_enemy).unwrap_or(u32::MAX).max(1));
+
+    if ratio_milli >= 1400 {
+        return 0;
+    }
+
+    let start_ratio = u32::try_from(largest_enemy.saturating_add(1))
+        .unwrap_or(u32::MAX)
+        .saturating_mul(1000)
+        .saturating_div(u32::try_from(largest_enemy).unwrap_or(u32::MAX).max(1))
+        .min(1399);
+    let span = 1400_u32.saturating_sub(start_ratio).max(1);
+    let progress = ratio_milli.saturating_sub(start_ratio).min(span);
+
+    300_u32
+        .saturating_sub(300_u32.saturating_mul(progress).saturating_div(span))
+        .try_into()
+        .unwrap_or(0)
+}
+
+pub(super) fn size_security_milli(state: &SimulatedGameState, actor: ActorIndex) -> u16 {
+    let Some(snake) = state.snake_at(actor).filter(|snake| snake.alive) else {
+        return 0;
+    };
+    let largest_enemy = largest_enemy_length(state, actor);
+    if largest_enemy == 0 {
+        return 1000;
+    }
+
+    let ours = snake.length();
+    if ours.saturating_add(2) <= largest_enemy {
+        return 0;
+    }
+    if ours.saturating_add(1) == largest_enemy {
+        return 300;
+    }
+    if ours == largest_enemy {
+        return 600;
+    }
+    if ours == largest_enemy.saturating_add(1) {
+        return 850;
+    }
+
+    let ratio_milli = u32::try_from(ours)
+        .unwrap_or(u32::MAX)
+        .saturating_mul(1000)
+        .saturating_div(u32::try_from(largest_enemy).unwrap_or(u32::MAX).max(1));
+
+    if ratio_milli >= 1400 {
+        return 1000;
+    }
+
+    let start_ratio = u32::try_from(largest_enemy.saturating_add(1))
+        .unwrap_or(u32::MAX)
+        .saturating_mul(1000)
+        .saturating_div(u32::try_from(largest_enemy).unwrap_or(u32::MAX).max(1))
+        .min(1399);
+    let span = 1400_u32.saturating_sub(start_ratio).max(1);
+    let progress = ratio_milli.saturating_sub(start_ratio).min(span);
+
+    850_u32
+        .saturating_add(150_u32.saturating_mul(progress).saturating_div(span))
+        .min(1000)
+        .try_into()
+        .unwrap_or(1000)
+}
+
+pub(super) fn claimable_food_eta(
+    state: &SimulatedGameState,
+    territory: &TerritoryAnalysis,
+    actor: ActorIndex,
+) -> Option<u16> {
+    let actor_snake = state.snake_at(actor).filter(|snake| snake.alive)?;
+
+    state
+        .food
+        .iter()
+        .filter_map(|food| {
+            let own_distance = territory.distance_for_actor(actor, *food)?;
+            let contested_earlier_or_equal = state
+                .snakes
+                .iter()
+                .enumerate()
+                .filter(|(index, snake)| snake.alive && ActorIndex::new(*index) != Some(actor))
+                .filter_map(|(index, enemy)| {
+                    let enemy_actor = ActorIndex::new(index)?;
+                    let enemy_distance = territory.distance_for_actor(enemy_actor, *food)?;
+                    Some((enemy, enemy_distance))
+                })
+                .any(|(enemy, enemy_distance)| {
+                    enemy_distance < own_distance
+                        || (enemy_distance == own_distance
+                            && enemy.length() >= actor_snake.length())
+                });
+
+            (!contested_earlier_or_equal).then_some(own_distance)
+        })
+        .min()
 }
 
 pub(super) fn food_potential_milli_excluding(
@@ -183,8 +326,13 @@ pub(super) fn food_border_attraction_milli(
         .saturating_mul(u32::try_from(progress_numerator).unwrap_or(u32::MAX))
         .saturating_div(u32::try_from(progress_denominator).unwrap_or(1));
 
-    1000_u32
-        .saturating_sub(reduction)
+    let base_factor = 1000_u32.saturating_sub(reduction).min(1000);
+    let growth_floor = u32::from(growth_pressure_milli(state, actor))
+        .saturating_mul(500)
+        .saturating_div(1000);
+
+    base_factor
+        .max(growth_floor)
         .try_into()
         .unwrap_or(full_factor)
 }
@@ -251,30 +399,7 @@ fn food_survival_pressure_milli(
         return 1000;
     }
 
-    let claimable_eta = state
-        .food
-        .iter()
-        .filter_map(|food| {
-            let own_distance = territory.distance_for_actor(actor, *food)?;
-            let contested_earlier_or_equal = state
-                .snakes
-                .iter()
-                .enumerate()
-                .filter(|(index, snake)| snake.alive && ActorIndex::new(*index) != Some(actor))
-                .filter_map(|(index, enemy)| {
-                    let enemy_actor = ActorIndex::new(index)?;
-                    let enemy_distance = territory.distance_for_actor(enemy_actor, *food)?;
-                    Some((enemy, enemy_distance))
-                })
-                .any(|(enemy, enemy_distance)| {
-                    enemy_distance < own_distance
-                        || (enemy_distance == own_distance
-                            && enemy.length() >= actor_snake.length())
-                });
-
-            (!contested_earlier_or_equal).then_some(own_distance)
-        })
-        .min();
+    let claimable_eta = claimable_food_eta(state, territory, actor);
 
     let buffer = match claimable_eta {
         Some(eta) => i32::try_from(health)
@@ -437,6 +562,60 @@ mod tests {
         assert!(medium_factor < short_factor);
         assert!(long_factor < medium_factor);
         assert_eq!(long_factor, 0);
+    }
+
+    #[test]
+    fn growth_pressure_tracks_largest_enemy_and_pushes_for_advantage() {
+        let mut current = state(Coord { x: 3, y: 3 });
+        current.snakes[0] = snake_with_length("ours", Coord { x: 2, y: 5 }, 3);
+        current.snakes[1] = snake_with_length("enemy", Coord { x: 5, y: 5 }, 5);
+        let actor = current.actor_index("ours").unwrap();
+        assert_eq!(growth_pressure_milli(&current, actor), 1000);
+        assert_eq!(size_security_milli(&current, actor), 0);
+
+        current.snakes[0] = snake_with_length("ours", Coord { x: 2, y: 5 }, 4);
+        assert_eq!(growth_pressure_milli(&current, actor), 850);
+        assert_eq!(size_security_milli(&current, actor), 300);
+
+        current.snakes[0] = snake_with_length("ours", Coord { x: 2, y: 5 }, 5);
+        assert_eq!(growth_pressure_milli(&current, actor), 650);
+        assert_eq!(size_security_milli(&current, actor), 600);
+
+        current.snakes[0] = snake_with_length("ours", Coord { x: 2, y: 5 }, 6);
+        assert_eq!(growth_pressure_milli(&current, actor), 300);
+        assert_eq!(size_security_milli(&current, actor), 850);
+
+        current.snakes[0] = snake_with_length("ours", Coord { x: 2, y: 5 }, 7);
+        assert_eq!(growth_pressure_milli(&current, actor), 0);
+        assert_eq!(size_security_milli(&current, actor), 1000);
+    }
+
+    #[test]
+    fn growth_pressure_softens_border_food_aversion_when_we_are_smaller() {
+        let mut current = state(Coord { x: 0, y: 3 });
+        current.snakes[0] = snake_with_length(
+            "ours",
+            Coord { x: 3, y: 5 },
+            BORDER_FOOD_AVERSION_FULL_LENGTH,
+        );
+        current.snakes[1] = snake_with_length("enemy", Coord { x: 5, y: 5 }, 22);
+        let actor = current.actor_index("ours").unwrap();
+
+        assert!(
+            food_border_attraction_milli(&current, actor, Coord { x: 0, y: 3 })
+                >= 400
+        );
+    }
+
+    #[test]
+    fn claimable_food_eta_rejects_equal_arrival_against_equal_or_larger_enemy() {
+        let mut current = state(Coord { x: 3, y: 2 });
+        current.snakes[0] = snake_with_length("ours", Coord { x: 2, y: 2 }, 3);
+        current.snakes[1] = snake_with_length("enemy", Coord { x: 4, y: 2 }, 4);
+        let territory = TerritoryAnalysis::from_state(&current);
+        let actor = current.actor_index("ours").unwrap();
+
+        assert_eq!(claimable_food_eta(&current, &territory, actor), None);
     }
 
     #[test]
