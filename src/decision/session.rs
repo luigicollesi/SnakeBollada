@@ -162,6 +162,25 @@ impl DecisionState {
             let profile = self.opponent_profiles.entry(enemy.id.clone()).or_default();
             profile.record_intent_inference(direction, inference);
             profile.observe_with_intent(move_set, direction, inference.contrast());
+            log::debug!(
+                target: "opponent_intent",
+                "enemy={} observed={:?} food_bias={} hunting_bias={} trapping_bias={} head_threat_bias={} learned={} forced={} low_contrast={} incomplete_root={} survival_downweighted={} last_food={} last_hunting={} last_trapping={} information={}",
+                enemy.id,
+                direction,
+                profile.food_bias_milli,
+                profile.hunting_bias_milli,
+                profile.trapping_bias_milli,
+                profile.head_threat_bias_milli,
+                profile.intent_stats.learned_observations,
+                profile.intent_stats.skipped_forced,
+                profile.intent_stats.skipped_low_contrast,
+                profile.intent_stats.skipped_incomplete_root,
+                profile.intent_stats.downweighted_survival_emergency,
+                profile.intent_stats.last_food_contrast,
+                profile.intent_stats.last_hunting_contrast,
+                profile.intent_stats.last_trapping_contrast,
+                profile.intent_stats.last_information_milli,
+            );
         }
     }
 }
