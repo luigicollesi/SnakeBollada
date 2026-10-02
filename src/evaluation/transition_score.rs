@@ -90,7 +90,7 @@ impl TransitionScore {
                 continue;
             };
             let (Some(parent_eval), Some(actor_facts)) = (
-                actor_evaluation(parent, &actor.id),
+                actor_evaluation(parent, actor_index),
                 facts.actors.get(actor_index),
             ) else {
                 continue;
@@ -177,10 +177,10 @@ impl TransitionFacts {
             let Some(actor_index) = ActorIndex::new(index) else {
                 continue;
             };
-            let Some(before) = actor_evaluation(parent, &actor.id) else {
+            let Some(before) = actor_evaluation(parent, actor_index) else {
                 continue;
             };
-            let after = actor_evaluation(child, &actor.id);
+            let after = actor_evaluation(child, actor_index);
             let child_actor = child.state.snake_at(actor_index);
             let alive_after = child_actor.is_some_and(|snake| snake.alive);
             let ate_food_now = ate_food.get(actor_index).copied().unwrap_or(false);
@@ -326,11 +326,11 @@ fn score_actor_transition(
     }
 }
 
-fn actor_evaluation<'a>(
-    node: &'a SearchNode,
-    actor_id: &str,
-) -> Option<&'a crate::evaluation::ActorSnapshot> {
-    node.active_analysis()?.actor_snapshot(actor_id)
+fn actor_evaluation(
+    node: &SearchNode,
+    actor: ActorIndex,
+) -> Option<&crate::evaluation::ActorSnapshot> {
+    node.active_analysis()?.actor_snapshot(actor)
 }
 
 fn health_pressure_milli(health: i32, max_health: i32) -> u16 {
