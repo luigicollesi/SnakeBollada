@@ -239,6 +239,17 @@ impl FutureGraph {
         Self::new_with_profile(root_state, opponent_profiles, AnalysisProfile::Full)
     }
 
+    pub(crate) fn new_beam(root_state: SimulatedGameState) -> Self {
+        Self::new_beam_with_opponent_profiles(root_state, OpponentProfiles::default())
+    }
+
+    pub(crate) fn new_beam_with_opponent_profiles(
+        root_state: SimulatedGameState,
+        opponent_profiles: OpponentProfiles,
+    ) -> Self {
+        Self::new_with_profile(root_state, opponent_profiles, AnalysisProfile::BeamLean)
+    }
+
     fn new_with_profile(
         root_state: SimulatedGameState,
         opponent_profiles: OpponentProfiles,
@@ -1098,9 +1109,8 @@ fn build_node_with_key(
                     &state, &tactical, &territory,
                 ));
                 let posture = Arc::new(StrategicPosture::from_state(&state));
-                let enclosure = Arc::new(EnclosureAnalysis::from_parts(
-                    &state, &territory, &tactical,
-                ));
+                let enclosure =
+                    Arc::new(EnclosureAnalysis::from_parts(&state, &territory, &tactical));
                 let (survival, hunting) = rayon::join(
                     || survival::analyze_with_border(&state, &tactical, &border),
                     || {
