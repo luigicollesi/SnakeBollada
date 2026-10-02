@@ -289,7 +289,7 @@ fn border_escape_pressure_milli(
 
     let mobility_pressure = match (head_edge_distance, safe_move_count) {
         (0, 0..=1) => 1000_u32,
-        (0, 2) => 750,
+        (0, 2) => 600,
         (0, _) => 400,
         (1, 0..=1) => 850,
         (1, 2) => 500,
