@@ -56,7 +56,7 @@ pub(crate) fn edge_priority(
     let mut strongest_enemy_opportunity = 0_i64;
     let mut strongest_enemy_harm = 0_i64;
 
-    for (index, enemy) in parent
+    for (index, _) in parent
         .state
         .snakes
         .iter()
