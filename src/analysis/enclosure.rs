@@ -90,7 +90,7 @@ impl EnclosureAnalysis {
                                 enemy.plausible_moves.len()
                             }
                         })
-                            .unwrap_or(0)
+                        .unwrap_or(0)
                     }
                 } else {
                     0
