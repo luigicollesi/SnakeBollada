@@ -9,7 +9,7 @@ pub(crate) struct ActorUtilityMetrics {
     pub(crate) border_structural_risk_milli: u16,
     pub(crate) border_exposure_milli: u16,
     pub(crate) territory_share_milli: u16,
-    pub(crate) best_food_distance: Option<u16>,
+    pub(crate) food_potential_milli: u16,
 }
 
 impl ActorUtilityMetrics {
@@ -44,21 +44,76 @@ impl ActorUtilityMetrics {
                 territory_snapshot.exclusive_space,
                 territory_snapshot.contested_space,
             ),
-            best_food_distance: nearest_food_distance(state, territory, actor_id),
+            food_potential_milli: food_potential_milli(state, territory, actor_id),
         })
     }
 }
 
-fn nearest_food_distance(
+fn food_potential_milli(
     state: &SimulatedGameState,
     territory: &TerritoryAnalysis,
     actor_id: &str,
-) -> Option<u16> {
-    state
+) -> u16 {
+    let mut candidates = state
         .food
         .iter()
-        .filter_map(|food| territory.distance_for(actor_id, *food))
-        .min()
+        .filter_map(|food| {
+            let own_distance = territory.distance_for(actor_id, *food)?;
+            let nearest_enemy = state
+                .snakes
+                .iter()
+                .filter(|snake| snake.alive && snake.id != actor_id)
+                .filter_map(|snake| territory.distance_for(&snake.id, *food))
+                .min();
+
+            let proximity = 1000_u32.saturating_div(u32::from(own_distance).saturating_add(1));
+            let claim_factor = match nearest_enemy {
+                None => 1300_u32,
+                Some(enemy_distance) if own_distance < enemy_distance => {
+                    1000_u32.saturating_add(
+                        u32::from(enemy_distance.saturating_sub(own_distance))
+                            .saturating_mul(100)
+                            .min(400),
+                    )
+                }
+                Some(enemy_distance) if own_distance == enemy_distance => 650,
+                Some(enemy_distance) => 400_u32.saturating_sub(
+                    u32::from(own_distance.saturating_sub(enemy_distance))
+                        .saturating_mul(80)
+                        .min(300),
+                ),
+            };
+
+            Some(
+                proximity
+                    .saturating_mul(claim_factor)
+                    .saturating_div(1000),
+            )
+        })
+        .collect::<Vec<_>>();
+
+    candidates.sort_unstable_by(|left, right| right.cmp(left));
+
+    let primary = candidates.first().copied().unwrap_or(0);
+    let secondary = candidates
+        .get(1)
+        .copied()
+        .unwrap_or(0)
+        .saturating_mul(350)
+        .saturating_div(1000);
+    let tertiary = candidates
+        .get(2)
+        .copied()
+        .unwrap_or(0)
+        .saturating_mul(150)
+        .saturating_div(1000);
+
+    primary
+        .saturating_add(secondary)
+        .saturating_add(tertiary)
+        .min(u32::from(u16::MAX))
+        .try_into()
+        .unwrap_or(u16::MAX)
 }
 
 fn territory_share_milli(
