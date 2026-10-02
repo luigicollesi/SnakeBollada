@@ -334,7 +334,11 @@ fn score_actor_transition(
 
     let raw_hunting_milli = facts
         .hunting_territory_benefit
-        .saturating_add(if facts.attributed_kill { KILL_BENEFIT } else { 0 })
+        .saturating_add(if facts.attributed_kill {
+            KILL_BENEFIT
+        } else {
+            0
+        })
         .clamp(0, 1000)
         .try_into()
         .unwrap_or(1000);
