@@ -2,7 +2,9 @@
 
 use std::time::{Duration, Instant};
 
-use super::beam::{select_seed_beam, BeamCheckpoint, BeamLine, LineId, LineTerminal, ROUND_DEPTH};
+use super::beam::{
+    select_seed_beam, BeamCheckpoint, BeamLine, BeamPath, LineId, LineTerminal, ROUND_DEPTH,
+};
 use super::bounds::ValueBound;
 use super::budget::SearchBudget;
 use super::graph::{FutureGraph, NodeId, SearchError};
@@ -233,8 +235,7 @@ pub(crate) fn append_continuation(
         .our_utility_total
         .saturating_sub(line.opponent_utility_total);
 
-    let mut steps = line.steps.clone();
-    steps.extend(continuation.steps.clone());
+    let path = line.path.concat(&continuation.path);
 
     let mut actor_utility_totals = line.actor_utility_totals.clone();
     for (actor_id, utility) in continuation.actor_utility_totals.iter() {
@@ -267,7 +268,7 @@ pub(crate) fn append_continuation(
     BeamLine {
         id: line.id,
         root_direction: line.root_direction,
-        depth: steps.len().try_into().unwrap_or(u8::MAX),
+        depth: path.len().try_into().unwrap_or(u8::MAX),
         benefit_total: line
             .benefit_total
             .saturating_add(continuation.benefit_total),
@@ -278,12 +279,12 @@ pub(crate) fn append_continuation(
         value,
         terminal: continuation.terminal,
         bound,
-        steps,
+        path,
     }
 }
 
 fn line_tip(line: &BeamLine) -> Option<NodeId> {
-    line.steps.last().map(|step| step.child)
+    line.path.last().map(|step| step.child)
 }
 
 fn incomplete_outcome(
@@ -464,7 +465,7 @@ mod tests {
             value: 600,
             terminal: LineTerminal::Running,
             bound: ValueBound::Exact(600),
-            steps: vec![],
+            path: BeamPath::empty(),
         };
 
         let deepened = append_continuation(&line, continuation);
