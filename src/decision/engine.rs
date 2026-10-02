@@ -1,9 +1,10 @@
 use std::time::Duration;
 
 use crate::direction::Direction;
-use crate::search::beam::{BeamLine, LineTerminal};
+use crate::search::beam::BeamLine;
 use crate::search::beam_search::{search_beam, BeamSearchResult};
 use crate::search::budget::SearchBudget;
+use crate::search::forecast::{FoodForecastPolicy, ForecastCertainty, PROVISIONAL_TERMINAL_VALUE};
 use crate::search::graph::FutureGraph;
 use crate::simulation::state::{SimulatedGameState, SimulationSupport};
 use crate::strategy::{
@@ -44,7 +45,8 @@ impl DecisionEngine {
             return choose_move_baseline(state);
         }
 
-        let mut beam_graph = FutureGraph::new_beam(normalized);
+        let forecast_policy = FoodForecastPolicy::from_game_state(state);
+        let mut beam_graph = FutureGraph::new_beam_with_forecast(normalized, forecast_policy);
         if let Some(decision) = self.try_decide_beam_with_graph(state, &mut beam_graph, 0) {
             return decision;
         }
@@ -89,7 +91,7 @@ impl DecisionEngine {
 
         let search = SearchMetadata {
             completed_depth: result.completed_depth(),
-            analyzed_depth: result.completed_depth(),
+            analyzed_depth: selected.depth,
             nodes: graph.node_count().try_into().unwrap_or(u32::MAX),
             edges: graph.edge_count(),
             transposition_hits: graph.transposition_hits(),
@@ -120,7 +122,7 @@ fn select_line_with_continuity<'a>(
     result: &'a BeamSearchResult,
     incumbent_direction: Option<Direction>,
 ) -> Option<&'a BeamLine> {
-    let best = result.best_line()?;
+    let best = best_line_respecting_root_step_safety(graph, result)?;
     let Some(direction) = incumbent_direction else {
         return Some(best);
     };
@@ -137,11 +139,69 @@ fn select_line_with_continuity<'a>(
         return Some(best);
     }
 
+    let incumbent_emergency = line_enters_immediate_survival_emergency(graph, incumbent);
+    let challenger_emergency = line_enters_immediate_survival_emergency(graph, best);
+    if incumbent_emergency != challenger_emergency {
+        return Some(if incumbent_emergency { best } else { incumbent });
+    }
+
     Some(select_incumbent_or_challenger(
         best,
         incumbent,
         root_has_survival_emergency(graph),
     ))
+}
+
+fn best_line_respecting_root_step_safety<'a>(
+    graph: &FutureGraph,
+    result: &'a BeamSearchResult,
+) -> Option<&'a BeamLine> {
+    let viable = result
+        .checkpoint
+        .lines
+        .iter()
+        .filter(|line| line.is_viable())
+        .collect::<Vec<_>>();
+    let candidates = if viable.is_empty() {
+        result.checkpoint.lines.iter().collect::<Vec<_>>()
+    } else {
+        viable
+    };
+    let has_non_emergency = candidates
+        .iter()
+        .any(|line| !line_enters_immediate_survival_emergency(graph, line));
+
+    candidates
+        .into_iter()
+        .filter(|line| !has_non_emergency || !line_enters_immediate_survival_emergency(graph, line))
+        .max_by(|left, right| {
+            left.value
+                .cmp(&right.value)
+                .then_with(|| right.root_direction.rank().cmp(&left.root_direction.rank()))
+                .then_with(|| right.id.cmp(&left.id))
+        })
+}
+
+fn line_enters_immediate_survival_emergency(graph: &FutureGraph, line: &BeamLine) -> bool {
+    let Some(first_step) = line.path.first() else {
+        return false;
+    };
+    let child = graph.node(first_step.child);
+    let Some(analysis) = child.active_analysis() else {
+        return false;
+    };
+    let Some(actor) = child.state.actor_index(&child.state.our_snake_id) else {
+        return true;
+    };
+    let Some(snapshot) = analysis.actor_snapshot(actor) else {
+        return true;
+    };
+    let metrics = &snapshot.metrics;
+
+    metrics.safe_non_reverse_moves <= 1
+        || metrics.space_capacity_milli <= 100
+        || metrics.enclosure_risk >= 3
+        || (metrics.border_pin_risk_milli >= 900 && metrics.border_escape_pressure_milli >= 900)
 }
 
 fn select_incumbent_or_challenger<'a>(
@@ -150,8 +210,8 @@ fn select_incumbent_or_challenger<'a>(
     emergency: bool,
 ) -> &'a BeamLine {
     if emergency
-        || incumbent.terminal == LineTerminal::Lost
-        || (challenger.terminal == LineTerminal::Won && incumbent.terminal != LineTerminal::Won)
+        || incumbent.is_confirmed_loss()
+        || (challenger.is_confirmed_win() && !incumbent.is_confirmed_win())
     {
         return challenger;
     }
@@ -200,6 +260,7 @@ fn beam_metadata_for_line(
         enabled: true,
         completed: true,
         completed_depth: result.completed_depth(),
+        selected_depth: selected.depth,
         attempted_depth: result.deepening.attempted_depth,
         line_count: result.checkpoint.lines.len().try_into().unwrap_or(u8::MAX),
         elapsed_us: elapsed.as_micros().try_into().unwrap_or(u64::MAX),
@@ -216,9 +277,12 @@ fn beam_metadata_for_line(
 
     metadata.direction = Some(selected.root_direction);
     metadata.best_value = selected.value;
+    metadata.forecast_provisional = selected.certainty.is_provisional();
+    metadata.terminal_confirmed = selected.is_confirmed_win() || selected.is_confirmed_loss();
 
     let root_state = &graph.node(graph.root()).state;
     let our_index = root_state.actor_index(&root_state.our_snake_id);
+    let mut certainty = ForecastCertainty::Deterministic;
     for step in selected.path.steps() {
         let Some(edge) = graph
             .node(step.node)
@@ -233,7 +297,14 @@ fn beam_metadata_for_line(
             let food = score.food_benefit.saturating_sub(score.food_harm);
             let hunting = score.hunting_benefit.saturating_sub(score.hunting_harm);
             let survival = score.survival_benefit.saturating_sub(score.survival_harm);
-            let terminal = score.terminal_benefit.saturating_sub(score.terminal_harm);
+            let raw_terminal = score.terminal_benefit.saturating_sub(score.terminal_harm);
+            let terminal = if raw_terminal != 0 && certainty.is_provisional() {
+                raw_terminal
+                    .signum()
+                    .saturating_mul(PROVISIONAL_TERMINAL_VALUE)
+            } else {
+                raw_terminal
+            };
 
             if Some(actor) == our_index {
                 metadata.our_food_utility = metadata.our_food_utility.saturating_add(food);
@@ -252,6 +323,10 @@ fn beam_metadata_for_line(
                 metadata.opponent_terminal_utility =
                     metadata.opponent_terminal_utility.saturating_add(terminal);
             }
+        }
+
+        if !graph.node(edge.child).is_terminal() {
+            certainty = certainty.after(edge.forecast_delta);
         }
     }
 
@@ -272,6 +347,8 @@ fn baseline_fallback(state: &GameState) -> Decision {
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
+
+    use crate::search::beam::LineTerminal;
 
     use serde_json::json;
 

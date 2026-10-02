@@ -2,7 +2,9 @@
 
 use std::time::{Duration, Instant};
 
-use super::beam::{select_seed_beam, BeamCheckpoint, BeamLine, LineId, LineTerminal, ROUND_DEPTH};
+use super::beam::{
+    select_seed_beam, BeamCheckpoint, BeamLine, LineId, LineTerminal, MAX_BEAM_DEPTH, ROUND_DEPTH,
+};
 use super::bounds::ValueBound;
 use super::budget::SearchBudget;
 use super::graph::{FutureGraph, NodeId, SearchError};
@@ -46,7 +48,10 @@ pub(crate) fn deepen_checkpoint_once(
     checkpoint: &BeamCheckpoint,
     budget: &SearchBudget,
 ) -> Result<BeamRoundOutcome, SearchError> {
-    let target_depth = checkpoint.completed_depth.saturating_add(ROUND_DEPTH);
+    let target_depth = checkpoint
+        .completed_depth
+        .saturating_add(ROUND_DEPTH)
+        .min(MAX_BEAM_DEPTH);
     let nodes_before = graph.node_count();
     let edges_before = graph.edge_count();
     let started = Instant::now();
@@ -70,6 +75,12 @@ pub(crate) fn deepen_checkpoint_once(
     // We prune after every layer so discarded futures never consume the next
     // layer's node-analysis budget.
     for _ in 0..ROUND_DEPTH {
+        if !working_lines
+            .iter()
+            .any(|line| line.terminal == LineTerminal::Running)
+        {
+            break;
+        }
         let Some(next_lines) =
             advance_lines_one_layer(graph, &working_lines, budget, &mut next_line_id)?
         else {
@@ -99,10 +110,8 @@ pub(crate) fn deepen_checkpoint_once(
     }
 
     sort_lines(&mut working_lines);
-    let committed = BeamCheckpoint {
-        completed_depth: target_depth,
-        lines: working_lines,
-    };
+    let committed = BeamCheckpoint::new(working_lines)
+        .expect("committed beam round must contain at least one line");
 
     Ok(BeamRoundOutcome {
         checkpoint: committed,
@@ -158,7 +167,7 @@ fn advance_lines_one_layer(
             return Ok(None);
         };
 
-        let continuations = evaluate_continuations(graph, tip, 1);
+        let continuations = evaluate_continuations(graph, tip, 1, line.certainty);
         for continuation in continuations
             .into_iter()
             .filter(|continuation| continuation.bound.is_exact())
@@ -195,12 +204,19 @@ pub(crate) fn deepen_while_affordable(
     let mut next_estimate = FIRST_ROUND_ESTIMATE;
 
     loop {
+        if !checkpoint.has_running_lines() || checkpoint.completed_depth >= MAX_BEAM_DEPTH {
+            break;
+        }
+
         let required = next_estimate.saturating_add(FINAL_SELECTION_RESERVE);
         if !soft_budget.can_afford_hard(required) {
             break;
         }
 
-        attempted_depth = checkpoint.completed_depth.saturating_add(ROUND_DEPTH);
+        attempted_depth = checkpoint
+            .completed_depth
+            .saturating_add(ROUND_DEPTH)
+            .min(MAX_BEAM_DEPTH);
         let round_started = Instant::now();
         let outcome = deepen_checkpoint_once(graph, &checkpoint, &soft_budget)?;
         let round_elapsed = round_started.elapsed();
@@ -240,28 +256,30 @@ pub(crate) fn append_continuation(
         actor_utility_totals.add(actor_id, *utility);
     }
 
-    let (our_utility_total, opponent_utility_total, value, bound) =
-        if continuation.terminal == LineTerminal::Running {
-            let ours = line
-                .our_utility_total
-                .saturating_add(continuation.our_utility_total);
-            let opponents = line
-                .opponent_utility_total
-                .saturating_add(continuation.opponent_utility_total);
-            (
-                ours,
-                opponents,
-                ours.saturating_sub(opponents),
-                shift_bound(continuation.bound, prefix_value),
-            )
-        } else {
-            (
-                continuation.our_utility_total,
-                continuation.opponent_utility_total,
-                continuation.value,
-                continuation.bound,
-            )
-        };
+    let (our_utility_total, opponent_utility_total, value, bound) = if continuation.terminal
+        == LineTerminal::Running
+        || continuation.certainty.is_provisional()
+    {
+        let ours = line
+            .our_utility_total
+            .saturating_add(continuation.our_utility_total);
+        let opponents = line
+            .opponent_utility_total
+            .saturating_add(continuation.opponent_utility_total);
+        (
+            ours,
+            opponents,
+            ours.saturating_sub(opponents),
+            shift_bound(continuation.bound, prefix_value),
+        )
+    } else {
+        (
+            continuation.our_utility_total,
+            continuation.opponent_utility_total,
+            continuation.value,
+            continuation.bound,
+        )
+    };
 
     BeamLine {
         id: line.id,
@@ -276,6 +294,7 @@ pub(crate) fn append_continuation(
         actor_utility_totals,
         value,
         terminal: continuation.terminal,
+        certainty: continuation.certainty,
         bound,
         path,
     }
@@ -444,6 +463,27 @@ mod tests {
     }
 
     #[test]
+    fn terminal_checkpoint_does_not_fake_additional_depth() {
+        let mut graph = FutureGraph::new(state());
+        let line = BeamLine::exact(
+            1,
+            crate::direction::Direction::Right,
+            7,
+            1_000_000_000,
+            0,
+            LineTerminal::Won,
+        );
+        let checkpoint = BeamCheckpoint::new(vec![line]).unwrap();
+        let budget = SearchBudget::for_duration(Duration::from_secs(10));
+
+        let result = deepen_while_affordable(&mut graph, checkpoint, &budget).unwrap();
+
+        assert_eq!(result.stats.rounds_completed, 0);
+        assert_eq!(result.stats.completed_depth, 7);
+        assert_eq!(result.stats.attempted_depth, 7);
+    }
+
+    #[test]
     fn append_replaces_old_leaf_value_instead_of_double_counting_it() {
         let (_, checkpoint) = seeded();
         let line = checkpoint.lines.first().unwrap().clone();
@@ -459,6 +499,7 @@ mod tests {
             ]),
             value: 600,
             terminal: LineTerminal::Running,
+            certainty: crate::search::forecast::ForecastCertainty::Deterministic,
             bound: ValueBound::Exact(600),
             path: BeamPath::empty(),
         };

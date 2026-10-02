@@ -5,5 +5,6 @@ pub(crate) mod beam_search;
 pub(crate) mod beam_seed;
 pub(crate) mod bounds;
 pub(crate) mod budget;
+pub(crate) mod forecast;
 pub(crate) mod graph;
 pub(crate) mod maximin;

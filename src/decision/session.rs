@@ -4,6 +4,7 @@ use crate::decision::state_key::StateKey;
 use crate::direction::Direction;
 use crate::enemy::intent::infer_observed_intent;
 use crate::enemy::profile::OpponentProfiles;
+use crate::search::forecast::FoodForecastPolicy;
 use crate::search::graph::FutureGraph;
 use crate::simulation::state::{SimulatedGameState, SimulationSupport};
 use crate::strategy::{choose_move_baseline, Decision, DecisionReason};
@@ -52,6 +53,7 @@ impl DecisionState {
         let runtime_jitter_reserve_ms = self.runtime_history.jitter_reserve_ms();
         self.observe_opponents(state);
 
+        let forecast_policy = FoodForecastPolicy::from_game_state(state);
         let normalized = SimulatedGameState::from(state);
         if normalized.rules.simulation_support() != SimulationSupport::StandardLike {
             self.graph = None;
@@ -73,23 +75,26 @@ impl DecisionState {
                     || food_spawned
                     || !graph.root_children_match_food(&actual_key)
                 {
-                    FutureGraph::new_beam_with_opponent_profiles(
+                    FutureGraph::new_beam_with_opponent_profiles_and_forecast(
                         normalized.clone(),
                         self.opponent_profiles.clone(),
+                        forecast_policy,
                     )
                 } else if let Some(node_id) = graph.find_node_by_key(&actual_key) {
                     graph.reroot(node_id);
                     graph
                 } else {
-                    FutureGraph::new_beam_with_opponent_profiles(
+                    FutureGraph::new_beam_with_opponent_profiles_and_forecast(
                         normalized.clone(),
                         self.opponent_profiles.clone(),
+                        forecast_policy,
                     )
                 }
             }
-            None => FutureGraph::new_beam_with_opponent_profiles(
+            None => FutureGraph::new_beam_with_opponent_profiles_and_forecast(
                 normalized,
                 self.opponent_profiles.clone(),
+                forecast_policy,
             ),
         };
         graph.set_opponent_profiles(self.opponent_profiles.clone());

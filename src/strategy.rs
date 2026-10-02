@@ -26,6 +26,7 @@ pub(crate) struct BeamShadowMetadata {
     pub(crate) direction: Option<Direction>,
     pub(crate) agreed_with_legacy: bool,
     pub(crate) completed_depth: u8,
+    pub(crate) selected_depth: u8,
     pub(crate) attempted_depth: u8,
     pub(crate) line_count: u8,
     pub(crate) best_value: i64,
@@ -46,6 +47,8 @@ pub(crate) struct BeamShadowMetadata {
     pub(crate) opponent_hunting_utility: i64,
     pub(crate) opponent_survival_utility: i64,
     pub(crate) opponent_terminal_utility: i64,
+    pub(crate) forecast_provisional: bool,
+    pub(crate) terminal_confirmed: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -355,6 +358,113 @@ mod tests {
 
         assert_eq!(decision.reason, DecisionReason::BeamUtility);
         assert_eq!(decision.direction, Direction::Left);
+    }
+
+    #[test]
+    fn hobbs_turn_31_real_state_returns_inward_instead_of_entering_corner() {
+        let mut ours = snake(
+            "ours",
+            vec![
+                Coord { x: 9, y: 10 },
+                Coord { x: 8, y: 10 },
+                Coord { x: 7, y: 10 },
+                Coord { x: 6, y: 10 },
+            ],
+        );
+        ours.health = 99;
+        let mut enemy = snake(
+            "enemy",
+            vec![
+                Coord { x: 7, y: 8 },
+                Coord { x: 6, y: 8 },
+                Coord { x: 5, y: 8 },
+                Coord { x: 5, y: 7 },
+            ],
+        );
+        enemy.health = 71;
+
+        let mut state = state_on_board(
+            11,
+            11,
+            ours,
+            vec![enemy],
+            vec![
+                Coord { x: 5, y: 5 },
+                Coord { x: 1, y: 8 },
+                Coord { x: 9, y: 4 },
+                Coord { x: 7, y: 5 },
+                Coord { x: 3, y: 3 },
+            ],
+        );
+        state.turn = 31;
+        state.game.ruleset.insert(
+            "settings".to_string(),
+            json!({
+                "foodSpawnChance": 15,
+                "minimumFood": 1,
+                "hazardDamagePerTurn": 14
+            }),
+        );
+
+        let normalized = crate::simulation::state::SimulatedGameState::from(&state);
+        let forecast_policy = crate::search::forecast::FoodForecastPolicy::from_game_state(&state);
+        let mut graph =
+            crate::search::graph::FutureGraph::new_beam_with_forecast(normalized, forecast_policy);
+        let budget = crate::search::budget::SearchBudget::from_state_with_extra_reserve(&state, 0);
+        let result = crate::search::beam_search::search_beam(&mut graph, &budget)
+            .unwrap()
+            .expect("turn 31 beam must produce candidates");
+        let candidates = result
+            .checkpoint
+            .lines
+            .iter()
+            .map(|line| {
+                (
+                    line.root_direction,
+                    line.value,
+                    line.depth,
+                    line.terminal,
+                    line.certainty,
+                    line.our_utility_total,
+                    line.opponent_utility_total,
+                )
+            })
+            .collect::<Vec<_>>();
+        let root = graph.root();
+        let our_actor = graph.node(root).state.actor_index("ours").unwrap();
+        let root_edges = graph
+            .node(root)
+            .children
+            .iter()
+            .filter_map(|edge| {
+                let direction = edge.joint_action.direction_for(our_actor)?;
+                let score = edge.transition.for_actor(our_actor)?;
+                let child = graph.node(edge.child);
+                let metrics = child.active_analysis()?.actor_snapshot(our_actor)?.metrics;
+                Some((
+                    direction,
+                    score.food_benefit.saturating_sub(score.food_harm),
+                    score.hunting_benefit.saturating_sub(score.hunting_harm),
+                    score.survival_benefit.saturating_sub(score.survival_harm),
+                    metrics.border_exposure_milli,
+                    metrics.border_pin_risk_milli,
+                    metrics.border_escape_pressure_milli,
+                    metrics.safe_non_reverse_moves,
+                    metrics.space_capacity_milli,
+                ))
+            })
+            .collect::<Vec<_>>();
+
+        let decision = choose_move(&state);
+
+        assert_eq!(decision.reason, DecisionReason::BeamUtility);
+        assert_eq!(
+            decision.direction,
+            Direction::Down,
+            "turn 31 decision metadata: {decision:?}; candidates={candidates:?}; root_edges={root_edges:?}"
+        );
+        assert_ne!(decision.direction, Direction::Right);
+        assert!(decision.search.analyzed_depth <= crate::search::beam::MAX_BEAM_DEPTH);
     }
 
     #[test]
