@@ -350,6 +350,14 @@ pub(crate) struct CompetitiveTransition {
     pub(crate) denials: ActorVec<u32>,
 }
 
+fn add_count(values: &mut ActorVec<u32>, actor: ActorIndex) {
+    if let Some(value) = values.get_mut(actor) {
+        *value = value.saturating_add(1);
+    } else {
+        values.insert(actor, 1);
+    }
+}
+
 impl TerritoryAnalysis {
     pub(crate) fn from_state(state: &SimulatedGameState) -> Self {
         let spatial = SpatialOccupancy::from_state(state);
@@ -467,12 +475,12 @@ impl TerritoryAnalysis {
 
             match child.competitive_claims[index] {
                 CompetitiveClaim::Owned(new_owner) if new_owner != previous_owner => {
-                    transition.captures.add(new_owner, 1);
+                    add_count(&mut transition.captures, new_owner);
                 }
                 CompetitiveClaim::Contested(contenders) => {
                     for contender in contenders.iter() {
                         if contender != previous_owner {
-                            transition.denials.add(contender, 1);
+                            add_count(&mut transition.denials, contender);
                         }
                     }
                 }
