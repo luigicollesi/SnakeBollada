@@ -1115,6 +1115,32 @@ mod tests {
     }
 
     #[test]
+    fn random_food_spawn_marks_nonterminal_children_provisional() {
+        let mut graph = FutureGraph::new_with_context(
+            state(),
+            OpponentProfiles::default(),
+            FoodForecastPolicy {
+                spawn_chance_percent: 15,
+                minimum_food: 1,
+            },
+        );
+        graph.expand_to_depth(1).unwrap();
+
+        let root = graph.root();
+        let uncertain = graph
+            .node(root)
+            .children
+            .iter()
+            .filter(|edge| !graph.node(edge.child).is_terminal())
+            .collect::<Vec<_>>();
+
+        assert!(!uncertain.is_empty());
+        assert!(uncertain.iter().all(|edge| {
+            edge.forecast_delta == crate::search::forecast::ForecastDelta::FoodUncertainty
+        }));
+    }
+
+    #[test]
     fn food_events_are_folded_into_cached_transition_scores() {
         let mut initial = state();
         initial.food = vec![Coord { x: 2, y: 1 }];
