@@ -133,9 +133,7 @@ fn ratio_milli(numerator: u32, denominator: u32) -> u16 {
 
 #[cfg(test)]
 mod tests {
-    use crate::simulation::state::{
-        RulesContext, SimulatedGameState, SimulatedSnake,
-    };
+    use crate::simulation::state::{RulesContext, SimulatedGameState, SimulatedSnake};
     use crate::Coord;
 
     use super::*;
