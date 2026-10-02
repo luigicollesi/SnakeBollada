@@ -125,10 +125,9 @@ fn enemy_killed(events: &[InstantEvent], enemy_id: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashMap;
-
     use crate::direction::{Direction, MoveMask};
     use crate::enemy::tracing::{EnemyMoveSet, EnemyTracingOutput};
+    use crate::evaluation::ActorVec;
     use crate::simulation::resolver::{EliminationAttribution, EliminationCause, ForecastDelta};
     use crate::simulation::state::{
         AggressionState, RulesContext, SimulatedGameState, SimulatedSnake,
@@ -164,10 +163,16 @@ mod tests {
         }
     }
 
-    fn tracing(enemy_id: &str, legal: MoveMask, plausible: MoveMask) -> EnemyTracingOutput {
+    fn tracing(
+        state: &SimulatedGameState,
+        enemy_id: &str,
+        legal: MoveMask,
+        plausible: MoveMask,
+    ) -> EnemyTracingOutput {
+        let actor = state.actor_index(enemy_id).expect("enemy actor must exist");
         EnemyTracingOutput {
-            enemies: HashMap::from([(
-                enemy_id.to_string(),
+            enemies: ActorVec::from_iter([(
+                actor,
                 EnemyMoveSet {
                     legal_moves: legal,
                     plausible_moves: plausible,
@@ -182,6 +187,7 @@ mod tests {
     fn transition_marks_self_forced_when_only_one_robust_move_remains() {
         let state = state(vec![snake("ours", &[(0, 0)]), snake("enemy", &[(2, 0)])]);
         let enemy_tracing = tracing(
+            &state,
             "enemy",
             MoveMask::single(Direction::Left),
             MoveMask::single(Direction::Left),
@@ -207,11 +213,13 @@ mod tests {
             snake("enemy", &[(5, 5), (5, 4)]),
         ]);
         let before_tracing = tracing(
+            &state,
             "enemy",
             MoveMask::from_iter([Direction::Up, Direction::Left]),
             MoveMask::from_iter([Direction::Up, Direction::Left]),
         );
         let after_tracing = tracing(
+            &state,
             "enemy",
             MoveMask::single(Direction::Left),
             MoveMask::single(Direction::Left),
@@ -240,11 +248,12 @@ mod tests {
             snake("enemy", &[(5, 5), (5, 4)]),
         ]);
         let before_tracing = tracing(
+            &state,
             "enemy",
             MoveMask::from_iter([Direction::Up, Direction::Left]),
             MoveMask::from_iter([Direction::Up, Direction::Left]),
         );
-        let after_tracing = tracing("enemy", MoveMask::empty(), MoveMask::empty());
+        let after_tracing = tracing(&state, "enemy", MoveMask::empty(), MoveMask::empty());
         let before = TacticalStateAnalysis::from_state(&state, &before_tracing);
         let after = TacticalStateAnalysis::from_state(&state, &after_tracing);
         let resolution = TurnResolution {
@@ -265,11 +274,13 @@ mod tests {
     fn same_edge_can_carry_survival_and_hunting_events() {
         let state = state(vec![snake("ours", &[(0, 0)]), snake("enemy", &[(2, 0)])]);
         let before_tracing = tracing(
+            &state,
             "enemy",
             MoveMask::from_iter([Direction::Up, Direction::Left]),
             MoveMask::from_iter([Direction::Up, Direction::Left]),
         );
         let after_tracing = tracing(
+            &state,
             "enemy",
             MoveMask::single(Direction::Left),
             MoveMask::single(Direction::Left),
@@ -318,11 +329,13 @@ mod tests {
             snake("enemy", &[(5, 5), (5, 4)]),
         ]);
         let before_tracing = tracing(
+            &state,
             "enemy",
             MoveMask::from_iter([Direction::Up, Direction::Left]),
             MoveMask::from_iter([Direction::Up, Direction::Left]),
         );
         let after_tracing = tracing(
+            &state,
             "enemy",
             MoveMask::single(Direction::Left),
             MoveMask::single(Direction::Left),
@@ -362,11 +375,13 @@ mod tests {
     fn transition_parts_match_turn_resolution_wrapper() {
         let state = state(vec![snake("ours", &[(0, 0)]), snake("enemy", &[(2, 0)])]);
         let before_tracing = tracing(
+            &state,
             "enemy",
             MoveMask::from_iter([Direction::Up, Direction::Left]),
             MoveMask::from_iter([Direction::Up, Direction::Left]),
         );
         let after_tracing = tracing(
+            &state,
             "enemy",
             MoveMask::single(Direction::Left),
             MoveMask::single(Direction::Left),
