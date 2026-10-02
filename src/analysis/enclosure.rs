@@ -35,7 +35,6 @@ pub(crate) struct EnclosureSnapshot {
     pub(crate) escape_frontier: u8,
     pub(crate) edge_distance: u16,
     pub(crate) useful_chokes: u8,
-    pub(crate) boundary_support: u8,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -84,7 +83,6 @@ impl EnclosureAnalysis {
                         escape_frontier: territory_snapshot.escape_frontier,
                         edge_distance: territory_snapshot.edge_distance,
                         useful_chokes,
-                        boundary_support: territory_snapshot.boundary_support(),
                     },
                 ))
             })

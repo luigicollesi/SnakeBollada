@@ -15,7 +15,6 @@ pub(crate) struct BorderFobicSnapshot {
     pub(crate) fear_milli: u16,
     pub(crate) head_edge_distance: u16,
     pub(crate) body_on_edge: u16,
-    pub(crate) body_near_edge: u16,
     pub(crate) leading_edge_chain: u16,
     pub(crate) inward_safe_moves: u8,
     pub(crate) corner_contact: bool,
@@ -50,13 +49,6 @@ impl BorderFobicAnalysis {
                     .body
                     .iter()
                     .filter(|segment| edge_distance(state, **segment) == 0)
-                    .count()
-                    .try_into()
-                    .unwrap_or(u16::MAX);
-                let body_near_edge = snake
-                    .body
-                    .iter()
-                    .filter(|segment| edge_distance(state, **segment) <= 1)
                     .count()
                     .try_into()
                     .unwrap_or(u16::MAX);
@@ -141,7 +133,6 @@ impl BorderFobicAnalysis {
                         fear_milli,
                         head_edge_distance,
                         body_on_edge,
-                        body_near_edge,
                         leading_edge_chain,
                         inward_safe_moves,
                         corner_contact,

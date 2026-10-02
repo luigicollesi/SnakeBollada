@@ -66,14 +66,6 @@ impl SnakeTerritorySnapshot {
         self.useful_chokes.first().copied()
     }
 
-    pub(crate) fn boundary_support(&self) -> u8 {
-        let edge = match self.edge_distance {
-            0 => 2,
-            1 => 1,
-            _ => 0,
-        };
-        edge + u8::from(!self.useful_chokes.is_empty())
-    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
