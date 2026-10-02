@@ -141,9 +141,7 @@ fn ratio_milli(numerator: u32, denominator: u32) -> u16 {
 mod tests {
     use super::*;
     use crate::analysis::TerritoryAnalysis;
-    use crate::simulation::state::{
-        RulesContext, SimulatedGameState, SimulatedSnake,
-    };
+    use crate::simulation::state::{RulesContext, SimulatedGameState, SimulatedSnake};
     use crate::Coord;
 
     fn snake(id: &str, head: Coord) -> SimulatedSnake {
