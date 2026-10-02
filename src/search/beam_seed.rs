@@ -314,13 +314,9 @@ mod tests {
             .saturating_add(1);
         let expired = SearchBudget::for_duration(Duration::ZERO);
 
-        let retained = deepen_seed_while_affordable(
-            &mut graph,
-            checkpoint,
-            &expired,
-            &mut next_line_id,
-        )
-        .unwrap();
+        let retained =
+            deepen_seed_while_affordable(&mut graph, checkpoint, &expired, &mut next_line_id)
+                .unwrap();
 
         assert_eq!(retained, original);
         assert_eq!(retained.completed_depth, 1);
