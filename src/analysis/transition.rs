@@ -167,6 +167,10 @@ mod tests {
         }
     }
 
+    fn actor(state: &SimulatedGameState, actor_id: &str) -> ActorIndex {
+        state.actor_index(actor_id).expect("actor must exist")
+    }
+
     fn tracing(
         state: &SimulatedGameState,
         enemy_id: &str,
@@ -239,7 +243,7 @@ mod tests {
         let analyzed = analyze_transition(&before, &resolution, &after);
 
         assert!(analyzed.events.contains(&InstantEvent::EnemyForced {
-            enemy: "enemy".to_string(),
+            enemy: actor(&state, "enemy"),
             remaining_moves: 1,
             caused_by_ours: false,
         }));
@@ -269,7 +273,7 @@ mod tests {
         let analyzed = analyze_transition(&before, &resolution, &after);
 
         assert!(analyzed.events.contains(&InstantEvent::EnemyTrapped {
-            enemy: "enemy".to_string(),
+            enemy: actor(&state, "enemy"),
             caused_by_ours: false,
         }));
     }
@@ -303,7 +307,7 @@ mod tests {
             .events
             .contains(&InstantEvent::SelfConstrained { remaining_moves: 1 }));
         assert!(analyzed.events.contains(&InstantEvent::EnemyForced {
-            enemy: "enemy".to_string(),
+            enemy: actor(&state, "enemy"),
             remaining_moves: 1,
             caused_by_ours: false,
         }));
@@ -349,9 +353,9 @@ mod tests {
         let resolution = TurnResolution {
             state: state.clone(),
             events: vec![InstantEvent::EnemyKilled {
-                enemy: "enemy".to_string(),
+                enemy: actor(&state, "enemy"),
                 cause: EliminationCause::HeadToHead,
-                attribution: EliminationAttribution::OurSnake,
+                attribution: EliminationAttribution::Actor(actor(&state, "ours")),
             }],
             forecast_delta: ForecastDelta::None,
         };
