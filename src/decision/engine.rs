@@ -173,9 +173,7 @@ fn best_line_respecting_root_step_safety<'a>(
 
     candidates
         .into_iter()
-        .filter(|line| {
-            !has_non_emergency || !line_enters_immediate_survival_emergency(graph, line)
-        })
+        .filter(|line| !has_non_emergency || !line_enters_immediate_survival_emergency(graph, line))
         .max_by(|left, right| {
             left.value
                 .cmp(&right.value)
@@ -203,8 +201,7 @@ fn line_enters_immediate_survival_emergency(graph: &FutureGraph, line: &BeamLine
     metrics.safe_non_reverse_moves <= 1
         || metrics.space_capacity_milli <= 100
         || metrics.enclosure_risk >= 3
-        || (metrics.border_pin_risk_milli >= 900
-            && metrics.border_escape_pressure_milli >= 900)
+        || (metrics.border_pin_risk_milli >= 900 && metrics.border_escape_pressure_milli >= 900)
 }
 
 fn select_incumbent_or_challenger<'a>(
