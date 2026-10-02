@@ -82,7 +82,7 @@ mod tests {
     use crate::search::beam::{BEAM_WIDTH, SEED_DEPTH};
     use crate::search::maximin::evaluate_seed_beam;
     use crate::simulation::state::{
-        AggressionState, RulesContext, SimulatedGameState, SimulatedSnake,
+        RulesContext, SimulatedGameState, SimulatedSnake,
     };
     use crate::Coord;
 
@@ -114,7 +114,6 @@ mod tests {
                 max_health: 100,
                 hazard_damage_per_turn: 0,
             },
-            aggression: AggressionState::default(),
         }
     }
 
