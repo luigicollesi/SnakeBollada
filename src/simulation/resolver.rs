@@ -67,14 +67,6 @@ pub(crate) fn resolve_turn(
     damage_hazards(&mut next, &mut events);
 
     feed_snakes(&mut next, &mut events)?;
-    let our_actor = next.actor_index(&next.our_snake_id);
-    if events.iter().any(|event| {
-        matches!(
-            event,
-            InstantEvent::AteFood { actor, .. } if Some(*actor) == our_actor
-        )
-    }) {
-    }
     eliminate_snakes(&mut next, &mut events)?;
 
     next.turn = next.turn.saturating_add(1);
@@ -374,9 +366,7 @@ fn lost_head_to_head(snake: &SimulatedSnake, other: &SimulatedSnake) -> bool {
 mod tests {
     use super::*;
     use crate::direction::Direction;
-    use crate::simulation::state::{
-        RulesContext, SimulatedGameState, SimulatedSnake,
-    };
+    use crate::simulation::state::{RulesContext, SimulatedGameState, SimulatedSnake};
 
     fn snake(id: &str, health: i32, body: &[(i32, i32)]) -> SimulatedSnake {
         SimulatedSnake {
@@ -462,7 +452,7 @@ mod tests {
         let action = action(&initial, &[("ours", Direction::Right)]);
 
         let resolved = resolve_turn(&initial, &action).unwrap();
-
+        assert!(resolved.state.snake("ours").unwrap().length() > initial.snake("ours").unwrap().length());
     }
 
     #[test]
@@ -477,8 +467,9 @@ mod tests {
             &[("ours", Direction::Up), ("enemy", Direction::Right)],
         );
 
+        let our_before = initial.snake("ours").unwrap().body.clone();
         let resolved = resolve_turn(&initial, &action).unwrap();
-
+        assert_eq!(resolved.state.snake("ours").unwrap().body.len(), our_before.len());
     }
 
     #[test]
