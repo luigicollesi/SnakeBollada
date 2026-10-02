@@ -191,7 +191,9 @@ mod tests {
         assert!(!beam.iter().any(|line| line.id == LineId(2)));
         assert!(!beam.iter().any(|line| line.id == LineId(3)));
         assert!(beam.iter().any(|line| line.root_direction == Direction::Up));
-        assert!(beam.iter().any(|line| line.root_direction == Direction::Left));
+        assert!(beam
+            .iter()
+            .any(|line| line.root_direction == Direction::Left));
     }
 
     #[test]
