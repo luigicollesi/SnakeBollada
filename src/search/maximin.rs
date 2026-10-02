@@ -783,8 +783,7 @@ mod tests {
 
         assert!(!losses.is_empty());
         assert!(losses.iter().all(|line| {
-            line.certainty == ForecastCertainty::Deterministic
-                && line.value <= -TERMINAL_VALUE
+            line.certainty == ForecastCertainty::Deterministic && line.value <= -TERMINAL_VALUE
         }));
     }
 
@@ -798,11 +797,8 @@ mod tests {
             .unwrap()
             .alive = false;
         let graph = FutureGraph::new(terminal);
-        let line = terminal_line(
-            graph.node(graph.root()),
-            ForecastCertainty::FoodProvisional,
-        )
-        .expect("terminal node must produce a line");
+        let line = terminal_line(graph.node(graph.root()), ForecastCertainty::FoodProvisional)
+            .expect("terminal node must produce a line");
 
         assert_eq!(line.terminal, LineTerminal::Lost);
         assert_eq!(line.certainty, ForecastCertainty::FoodProvisional);
