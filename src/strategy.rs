@@ -409,7 +409,11 @@ mod tests {
         let decision = choose_move(&state);
 
         assert_eq!(decision.reason, DecisionReason::BeamUtility);
-        assert_eq!(decision.direction, Direction::Down);
+        assert_eq!(
+            decision.direction,
+            Direction::Down,
+            "turn 31 decision metadata: {decision:?}"
+        );
         assert_ne!(decision.direction, Direction::Right);
         assert!(decision.search.analyzed_depth <= crate::search::beam::MAX_BEAM_DEPTH);
     }
