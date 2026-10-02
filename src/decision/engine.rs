@@ -1248,6 +1248,20 @@ mod tests {
         }
     }
 
+    fn legacy_decide(state: &GameState) -> Decision {
+        let normalized = SimulatedGameState::from(state);
+        let prioritize_food =
+            normalized.aggression.fruits_eaten < OPENING_FOOD_TARGET_FRUITS;
+        let mut graph = FutureGraph::new(normalized);
+        DecisionEngine::stateless().decide_with_graph_with_reserve_and_intent(
+            state,
+            &mut graph,
+            0,
+            None,
+            prioritize_food,
+        )
+    }
+
     fn dominant_contest_state(health: i32) -> GameState {
         let mut ours = snake(
             "ours",
@@ -1293,7 +1307,7 @@ mod tests {
     #[test]
     fn apex_healthy_snake_hunts_before_ordinary_food() {
         let state = dominant_contest_state(90);
-        let decision = DecisionEngine::stateless().decide(&state);
+        let decision = legacy_decide(&state);
 
         assert_eq!(decision.reason, DecisionReason::HuntingTactical);
         assert_eq!(decision.target_enemy.as_deref(), Some("enemy"));
@@ -1304,7 +1318,7 @@ mod tests {
     #[test]
     fn apex_low_health_snake_prioritizes_critical_food() {
         let state = dominant_contest_state(15);
-        let decision = DecisionEngine::stateless().decide(&state);
+        let decision = legacy_decide(&state);
 
         assert_eq!(decision.reason, DecisionReason::FoodStrategic);
         assert!(decision.target_food.is_some());
@@ -1318,7 +1332,31 @@ mod tests {
         let decision = DecisionEngine::stateless().decide(&state);
 
         assert!(crate::direction::Direction::ALL.contains(&decision.direction));
+        assert_eq!(decision.reason, DecisionReason::BeamUtility);
+        assert!(decision.search.beam_shadow.completed);
         assert!(decision.reachable_cells > 0);
+    }
+
+    #[test]
+    fn beam_graph_decides_without_running_legacy_path() {
+        let state = state("standard");
+        let normalized = SimulatedGameState::from(&state);
+        let mut graph = FutureGraph::new_beam(normalized);
+
+        let decision = DecisionEngine::stateless()
+            .try_decide_beam_with_graph(&state, &mut graph, 0)
+            .expect("standard search should produce a beam decision");
+
+        assert_eq!(decision.reason, DecisionReason::BeamUtility);
+        assert!(decision.search.beam_shadow.completed);
+        assert_eq!(
+            decision.search.beam_shadow.direction,
+            Some(decision.direction)
+        );
+        assert_eq!(
+            decision.search.completed_depth,
+            decision.search.beam_shadow.completed_depth
+        );
     }
 
     #[test]
