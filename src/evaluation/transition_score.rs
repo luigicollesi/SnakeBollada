@@ -549,11 +549,10 @@ mod tests {
         predicate: impl Fn(&SearchEdge) -> bool,
     ) -> &SearchEdge {
         let root = graph.node(graph.root());
+        let our_actor = root.state.actor_index("ours").expect("ours must exist");
         root.children
             .iter()
-            .find(|edge| {
-                edge.joint_action.direction_for("ours") == Some(direction) && predicate(edge)
-            })
+            .find(|edge| edge.joint_action.direction_for(our_actor) == Some(direction) && predicate(edge))
             .expect("expected matching edge")
     }
 
