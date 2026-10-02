@@ -30,6 +30,14 @@ impl<T> ActorVec<T> {
         self.entries.get(actor.as_usize())?.as_ref()
     }
 
+    pub(crate) fn get_mut(&mut self, actor: ActorIndex) -> Option<&mut T> {
+        self.entries.get_mut(actor.as_usize())?.as_mut()
+    }
+
+    pub(crate) fn take(&mut self, actor: ActorIndex) -> Option<T> {
+        self.entries.get_mut(actor.as_usize())?.take()
+    }
+
     pub(crate) fn iter(&self) -> impl Iterator<Item = (ActorIndex, &T)> {
         self.entries
             .iter()
@@ -92,6 +100,17 @@ mod tests {
         assert_eq!(values.get(ours), Some(&10));
         assert_eq!(values.get(enemy), Some(&30));
         assert_eq!(values.len(), 2);
+    }
+
+    #[test]
+    fn mutable_access_and_take_use_actor_slot() {
+        let actor = ActorIndex::new(1).unwrap();
+        let mut values = ActorVec::new();
+        values.insert(actor, 10);
+
+        *values.get_mut(actor).unwrap() = 25;
+        assert_eq!(values.take(actor), Some(25));
+        assert_eq!(values.get(actor), None);
     }
 
     #[test]
