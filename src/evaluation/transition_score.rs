@@ -4,7 +4,7 @@ use super::{ActorTable, StrategicWeights};
 use crate::search::graph::{SearchEdge, SearchNode};
 use crate::simulation::resolver::{EliminationAttribution, InstantEvent};
 
-const FOOD_DISTANCE_STEP: i64 = 180;
+const FOOD_POTENTIAL_DELTA_SCALE: i64 = 3;
 const FOOD_CONSUMED: i64 = 1000;
 const TERRITORY_DELTA_SCALE: i64 = 2;
 const HUNTING_TERRITORY_BUDGET: i64 = 2000;
@@ -17,8 +17,8 @@ const TERMINAL_UTILITY: i64 = 1_000_000_000;
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 struct ActorTransitionFacts {
     ate_food: bool,
-    food_distance_before: Option<u16>,
-    food_distance_after: Option<u16>,
+    food_potential_before: u16,
+    food_potential_after: u16,
     territory_share_delta_milli: i16,
     mobility_delta: i8,
     border_risk_improvement_milli: i16,
@@ -156,8 +156,10 @@ impl TransitionFacts {
 
             let facts = ActorTransitionFacts {
                 ate_food: ate_food.get(&actor.id).copied().unwrap_or(false),
-                food_distance_before: before.metrics.best_food_distance,
-                food_distance_after: after.and_then(|snapshot| snapshot.metrics.best_food_distance),
+                food_potential_before: before.metrics.food_potential_milli,
+                food_potential_after: after
+                    .map(|snapshot| snapshot.metrics.food_potential_milli)
+                    .unwrap_or(0),
                 territory_share_delta_milli: after.map_or(0, |snapshot| {
                     signed_i16(
                         i32::from(snapshot.metrics.territory_share_milli)
@@ -205,7 +207,7 @@ fn score_actor_transition(
     let (mut food_benefit, mut food_harm) = if facts.ate_food {
         (FOOD_CONSUMED, 0)
     } else {
-        food_distance_delta(facts.food_distance_before, facts.food_distance_after)
+        food_potential_delta(facts.food_potential_before, facts.food_potential_after)
     };
 
     let mut hunting_benefit = facts
@@ -284,19 +286,19 @@ fn actor_evaluation<'a>(
     node.active_analysis()?.actor_snapshot(actor_id)
 }
 
-fn food_distance_delta(before: Option<u16>, after: Option<u16>) -> (i64, i64) {
-    match (before, after) {
-        (Some(before), Some(after)) if after < before => (
-            i64::from(before.saturating_sub(after)).saturating_mul(FOOD_DISTANCE_STEP),
+fn food_potential_delta(before: u16, after: u16) -> (i64, i64) {
+    if after > before {
+        (
+            i64::from(after.saturating_sub(before)).saturating_mul(FOOD_POTENTIAL_DELTA_SCALE),
             0,
-        ),
-        (Some(before), Some(after)) if after > before => (
+        )
+    } else if before > after {
+        (
             0,
-            i64::from(after.saturating_sub(before)).saturating_mul(FOOD_DISTANCE_STEP),
-        ),
-        (None, Some(_)) => (FOOD_DISTANCE_STEP / 2, 0),
-        (Some(_), None) => (0, FOOD_DISTANCE_STEP / 2),
-        _ => (0, 0),
+            i64::from(before.saturating_sub(after)).saturating_mul(FOOD_POTENTIAL_DELTA_SCALE),
+        )
+    } else {
+        (0, 0)
     }
 }
 
