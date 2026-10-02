@@ -1,5 +1,7 @@
 #![allow(dead_code)]
 
+use std::sync::Arc;
+
 use crate::direction::Direction;
 use crate::evaluation::ActorVec;
 use crate::simulation::joint_action::JointAction;
@@ -29,6 +31,107 @@ pub(crate) struct BeamStep {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+enum BeamPathNode {
+    Step(BeamStep),
+    Concat {
+        left: BeamPath,
+        right: BeamPath,
+    },
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub(crate) struct BeamPath {
+    root: Option<Arc<BeamPathNode>>,
+    len: usize,
+}
+
+impl BeamPath {
+    pub(crate) fn empty() -> Self {
+        Self::default()
+    }
+
+    pub(crate) fn single(step: BeamStep) -> Self {
+        Self {
+            root: Some(Arc::new(BeamPathNode::Step(step))),
+            len: 1,
+        }
+    }
+
+    pub(crate) fn prepend(&self, step: BeamStep) -> Self {
+        Self::single(step).concat(self)
+    }
+
+    pub(crate) fn concat(&self, other: &Self) -> Self {
+        if self.is_empty() {
+            return other.clone();
+        }
+        if other.is_empty() {
+            return self.clone();
+        }
+
+        Self {
+            root: Some(Arc::new(BeamPathNode::Concat {
+                left: self.clone(),
+                right: other.clone(),
+            })),
+            len: self.len.saturating_add(other.len),
+        }
+    }
+
+    pub(crate) const fn len(&self) -> usize {
+        self.len
+    }
+
+    pub(crate) const fn is_empty(&self) -> bool {
+        self.len == 0
+    }
+
+    pub(crate) fn first(&self) -> Option<&BeamStep> {
+        first_step(self.root.as_deref()?)
+    }
+
+    pub(crate) fn last(&self) -> Option<&BeamStep> {
+        last_step(self.root.as_deref()?)
+    }
+
+    pub(crate) fn steps(&self) -> Vec<&BeamStep> {
+        let mut steps = Vec::with_capacity(self.len);
+        if let Some(root) = self.root.as_deref() {
+            collect_steps(root, &mut steps);
+        }
+        steps
+    }
+}
+
+fn first_step(node: &BeamPathNode) -> Option<&BeamStep> {
+    match node {
+        BeamPathNode::Step(step) => Some(step),
+        BeamPathNode::Concat { left, right } => left.first().or_else(|| right.first()),
+    }
+}
+
+fn last_step(node: &BeamPathNode) -> Option<&BeamStep> {
+    match node {
+        BeamPathNode::Step(step) => Some(step),
+        BeamPathNode::Concat { left, right } => right.last().or_else(|| left.last()),
+    }
+}
+
+fn collect_steps<'a>(node: &'a BeamPathNode, steps: &mut Vec<&'a BeamStep>) {
+    match node {
+        BeamPathNode::Step(step) => steps.push(step),
+        BeamPathNode::Concat { left, right } => {
+            if let Some(left_root) = left.root.as_deref() {
+                collect_steps(left_root, steps);
+            }
+            if let Some(right_root) = right.root.as_deref() {
+                collect_steps(right_root, steps);
+            }
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct BeamLine {
     pub(crate) id: LineId,
     pub(crate) root_direction: Direction,
@@ -41,7 +144,7 @@ pub(crate) struct BeamLine {
     pub(crate) value: i64,
     pub(crate) terminal: LineTerminal,
     pub(crate) bound: ValueBound,
-    pub(crate) steps: Vec<BeamStep>,
+    pub(crate) path: BeamPath,
 }
 
 impl BeamLine {
@@ -66,7 +169,7 @@ impl BeamLine {
             value,
             terminal,
             bound: ValueBound::exact(value),
-            steps: Vec::new(),
+            path: BeamPath::empty(),
         }
     }
 
@@ -171,6 +274,27 @@ mod tests {
             value.max(0).saturating_sub(value),
             LineTerminal::Running,
         )
+    }
+
+    #[test]
+    fn persistent_path_concatenates_without_copying_step_vectors() {
+        let first = BeamPath::single(BeamStep {
+            node: 1,
+            joint_action: JointAction::new(),
+            child: 2,
+        });
+        let second = BeamPath::single(BeamStep {
+            node: 2,
+            joint_action: JointAction::new(),
+            child: 3,
+        });
+
+        let combined = first.concat(&second);
+
+        assert_eq!(combined.len(), 2);
+        assert_eq!(combined.first().unwrap().node, 1);
+        assert_eq!(combined.last().unwrap().child, 3);
+        assert_eq!(combined.steps().len(), 2);
     }
 
     #[test]
