@@ -1,9 +1,9 @@
 #![allow(dead_code)]
 
 use super::{ActorVec, StrategicWeights};
-use crate::simulation::state::ActorIndex;
 use crate::search::graph::{SearchEdge, SearchNode};
 use crate::simulation::resolver::{EliminationAttribution, InstantEvent};
+use crate::simulation::state::ActorIndex;
 
 const FOOD_POTENTIAL_DELTA_SCALE: i64 = 3;
 const FOOD_CONSUMED: i64 = 1000;
@@ -657,7 +657,10 @@ mod tests {
         let enemy = actor_index(&root.state, "enemy");
         assert!(score.for_actor(ours).is_some());
         assert!(score.for_actor(enemy).is_some());
-        assert_eq!(score.opponent_net_total, score.for_actor(enemy).unwrap().net);
+        assert_eq!(
+            score.opponent_net_total,
+            score.for_actor(enemy).unwrap().net
+        );
     }
 
     #[test]
@@ -673,9 +676,7 @@ mod tests {
         });
         let child = graph.node(edge.child);
         let score = TransitionScore::from_edge(root, edge, child);
-        let ours = score
-            .for_actor(actor_index(&root.state, "ours"))
-            .unwrap();
+        let ours = score.for_actor(actor_index(&root.state, "ours")).unwrap();
 
         assert!(ours.food_benefit > 0);
         assert!(ours.net > -TERMINAL_UTILITY);
@@ -714,9 +715,7 @@ mod tests {
         );
 
         let parent = parent_graph.node(parent_graph.root());
-        let ours = score
-            .for_actor(actor_index(&parent.state, "ours"))
-            .unwrap();
+        let ours = score.for_actor(actor_index(&parent.state, "ours")).unwrap();
         let enemy = score
             .for_actor(actor_index(&parent.state, "enemy"))
             .unwrap();
