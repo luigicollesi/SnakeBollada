@@ -21,11 +21,7 @@ impl StrategicWeights {
         actor_id: &str,
         metrics: &ActorUtilityMetrics,
     ) -> Option<Self> {
-        strategic_weights(
-            state,
-            actor_id,
-            survival_weight_from_metrics(metrics),
-        )
+        strategic_weights(state, actor_id, survival_weight_from_metrics(metrics))
     }
 
     pub(crate) fn for_actor(
