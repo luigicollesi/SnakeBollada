@@ -69,13 +69,11 @@ fn food_potential_milli(
             let proximity = 1000_u32.saturating_div(u32::from(own_distance).saturating_add(1));
             let claim_factor = match nearest_enemy {
                 None => 1300_u32,
-                Some(enemy_distance) if own_distance < enemy_distance => {
-                    1000_u32.saturating_add(
-                        u32::from(enemy_distance.saturating_sub(own_distance))
-                            .saturating_mul(100)
-                            .min(400),
-                    )
-                }
+                Some(enemy_distance) if own_distance < enemy_distance => 1000_u32.saturating_add(
+                    u32::from(enemy_distance.saturating_sub(own_distance))
+                        .saturating_mul(100)
+                        .min(400),
+                ),
                 Some(enemy_distance) if own_distance == enemy_distance => 650,
                 Some(enemy_distance) => 400_u32.saturating_sub(
                     u32::from(own_distance.saturating_sub(enemy_distance))
@@ -84,11 +82,7 @@ fn food_potential_milli(
                 ),
             };
 
-            Some(
-                proximity
-                    .saturating_mul(claim_factor)
-                    .saturating_div(1000),
-            )
+            Some(proximity.saturating_mul(claim_factor).saturating_div(1000))
         })
         .collect::<Vec<_>>();
 
