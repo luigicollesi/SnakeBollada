@@ -90,54 +90,38 @@ async fn handle_start(start_req: Json<GameState>, runtime: &State<GameRuntime>) 
 async fn handle_move(move_req: Json<GameState>, runtime: &State<GameRuntime>) -> Json<Value> {
     let decision = runtime.decide(&move_req).await;
 
-    let chosen_outcome = decision.search.direction_outcomes[usize::from(decision.direction.rank())];
-    let beam_shadow = decision.search.beam_shadow;
-    let beam_direction = beam_shadow
-        .direction
-        .map_or("-", |direction| direction.as_str());
+    let beam = decision.search.beam_shadow;
+    let beam_direction = beam.direction.map_or("-", |direction| direction.as_str());
     info!(
-        "MOVE {}: {} ({:?}) completed_depth={} analyzed_depth={} nodes={} edges={} phase={:?} hunt={} food={} dom={} control={} border={} pin={} escape={} escape_selected={} edge_ticks={} edge_cost={} beam_shadow={} beam_move={} beam_depth={} beam_attempted={} beam_agree={} beam_value={} beam_us={} beam_batches={} beam_parallel_batches={} beam_actions={} beam_new_nodes={} beam_resolve_us={} beam_build_us={} beam_merge_us={} beam_score_us={} beam_ours_food={} beam_ours_hunt={} beam_ours_survival={} beam_ours_terminal={} beam_enemy_food={} beam_enemy_hunt={} beam_enemy_survival={} beam_enemy_terminal={}",
+        "MOVE {}: {} ({:?}) depth={} nodes={} edges={} transpositions={} elapsed_us={} reserve_us={} beam_move={} beam_attempted={} beam_value={} batches={} parallel_batches={} actions={} new_nodes={} resolve_us={} build_us={} merge_us={} score_us={} ours_food={} ours_hunt={} ours_survival={} ours_terminal={} enemy_food={} enemy_hunt={} enemy_survival={} enemy_terminal={}",
         move_req.turn,
         decision.direction.as_str(),
         decision.reason,
         decision.search.completed_depth,
-        decision.search.analyzed_depth,
         decision.search.nodes,
         decision.search.edges,
-        decision.search.strategic_phase,
-        decision.search.hunt_drive_milli,
-        decision.search.food_urgency_milli,
-        decision.search.size_dominance_milli,
-        decision.search.control_ratio_milli,
-        decision.search.border_risk_milli,
-        decision.search.enemy_pin_risk_milli,
-        decision.search.escape_pressure_milli,
-        decision.search.escape_selected,
-        chosen_outcome.average_border_ticks_milli,
-        chosen_outcome.average_border_cost_milli,
-        beam_shadow.enabled,
+        decision.search.transposition_hits,
+        decision.search.elapsed_us,
+        decision.search.safety_reserve_us,
         beam_direction,
-        beam_shadow.completed_depth,
-        beam_shadow.attempted_depth,
-        beam_shadow.agreed_with_legacy,
-        beam_shadow.best_value,
-        beam_shadow.elapsed_us,
-        beam_shadow.action_batches,
-        beam_shadow.parallel_action_batches,
-        beam_shadow.resolved_actions,
-        beam_shadow.new_nodes_built,
-        beam_shadow.resolve_us,
-        beam_shadow.node_build_us,
-        beam_shadow.merge_us,
-        beam_shadow.edge_score_us,
-        beam_shadow.our_food_utility,
-        beam_shadow.our_hunting_utility,
-        beam_shadow.our_survival_utility,
-        beam_shadow.our_terminal_utility,
-        beam_shadow.opponent_food_utility,
-        beam_shadow.opponent_hunting_utility,
-        beam_shadow.opponent_survival_utility,
-        beam_shadow.opponent_terminal_utility,
+        beam.attempted_depth,
+        beam.best_value,
+        beam.action_batches,
+        beam.parallel_action_batches,
+        beam.resolved_actions,
+        beam.new_nodes_built,
+        beam.resolve_us,
+        beam.node_build_us,
+        beam.merge_us,
+        beam.edge_score_us,
+        beam.our_food_utility,
+        beam.our_hunting_utility,
+        beam.our_survival_utility,
+        beam.our_terminal_utility,
+        beam.opponent_food_utility,
+        beam.opponent_hunting_utility,
+        beam.opponent_survival_utility,
+        beam.opponent_terminal_utility,
     );
 
     Json(json!({
