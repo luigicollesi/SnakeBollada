@@ -13,6 +13,8 @@ const HUNTING_DENIAL_DENOMINATOR: i64 = 2;
 const MOBILITY_STEP: i64 = 320;
 const ENCLOSURE_STEP: i64 = 220;
 const BORDER_EXPOSURE_STEP: i64 = 1;
+const HEALTH_PRESSURE_STEP: i64 = 1;
+const HAZARD_DAMAGE_STEP: i64 = 35;
 const KILL_BENEFIT: i64 = 1400;
 const TERMINAL_UTILITY: i64 = 1_000_000_000;
 
@@ -25,6 +27,8 @@ struct ActorTransitionFacts {
     mobility_delta: i8,
     border_risk_improvement_milli: i16,
     border_exposure_milli: u16,
+    health_pressure_milli: u16,
+    hazard_damage: u16,
     enclosure_improvement: i8,
     hunting_territory_benefit: i64,
     kill_benefit: i64,
@@ -151,13 +155,24 @@ impl TransitionFacts {
                 continue;
             };
             let after = actor_evaluation(child, &actor.id);
-            let alive_after = child
-                .state
-                .snake(&actor.id)
-                .is_some_and(|snake| snake.alive);
+            let child_actor = child.state.snake(&actor.id);
+            let alive_after = child_actor.is_some_and(|snake| snake.alive);
+            let ate_food_now = ate_food.get(&actor.id).copied().unwrap_or(false);
+            let health_pressure_milli = child_actor
+                .filter(|snake| snake.alive)
+                .map_or(0, |snake| {
+                    health_pressure_milli(snake.health, child.state.rules.max_health)
+                });
+            let hazard_damage = if ate_food_now || !alive_after {
+                0
+            } else {
+                child_actor.map_or(0, |snake| {
+                    extra_hazard_damage(actor.health, snake.health)
+                })
+            };
 
             let facts = ActorTransitionFacts {
-                ate_food: ate_food.get(&actor.id).copied().unwrap_or(false),
+                ate_food: ate_food_now,
                 food_potential_before: before.metrics.food_potential_milli,
                 food_potential_after: after
                     .map(|snapshot| snapshot.metrics.food_potential_milli)
@@ -184,6 +199,8 @@ impl TransitionFacts {
                 border_exposure_milli: after
                     .map(|snapshot| snapshot.metrics.border_exposure_milli)
                     .unwrap_or(0),
+                health_pressure_milli,
+                hazard_damage,
                 enclosure_improvement: after.map_or(0, |snapshot| {
                     signed_i8(
                         i16::from(before.metrics.enclosure_risk)
@@ -237,6 +254,12 @@ fn score_actor_transition(
     survival_harm = survival_harm.saturating_add(
         i64::from(facts.border_exposure_milli).saturating_mul(BORDER_EXPOSURE_STEP),
     );
+    survival_harm = survival_harm.saturating_add(
+        i64::from(facts.health_pressure_milli).saturating_mul(HEALTH_PRESSURE_STEP),
+    );
+    survival_harm = survival_harm.saturating_add(
+        i64::from(facts.hazard_damage).saturating_mul(HAZARD_DAMAGE_STEP),
+    );
     add_signed_delta(
         i64::from(facts.enclosure_improvement).saturating_mul(ENCLOSURE_STEP),
         &mut survival_benefit,
@@ -286,6 +309,45 @@ fn actor_evaluation<'a>(
     actor_id: &str,
 ) -> Option<&'a crate::evaluation::ActorSnapshot> {
     node.active_analysis()?.actor_snapshot(actor_id)
+}
+
+fn health_pressure_milli(health: i32, max_health: i32) -> u16 {
+    if max_health <= 0 {
+        return 1000;
+    }
+
+    let clamped = health.clamp(0, max_health);
+    let reserve_milli = i64::from(clamped)
+        .saturating_mul(1000)
+        .saturating_div(i64::from(max_health))
+        .clamp(0, 1000) as u16;
+
+    match reserve_milli {
+        0..=100 => 1000,
+        101..=200 => interpolate_pressure(reserve_milli, 100, 200, 1000, 700),
+        201..=350 => interpolate_pressure(reserve_milli, 200, 350, 700, 350),
+        351..=500 => interpolate_pressure(reserve_milli, 350, 500, 350, 120),
+        501..=700 => interpolate_pressure(reserve_milli, 500, 700, 120, 0),
+        _ => 0,
+    }
+}
+
+fn interpolate_pressure(value: u16, x0: u16, x1: u16, y0: u16, y1: u16) -> u16 {
+    let span = u32::from(x1.saturating_sub(x0)).max(1);
+    let offset = u32::from(value.saturating_sub(x0).min(x1.saturating_sub(x0)));
+    let drop = u32::from(y0.saturating_sub(y1))
+        .saturating_mul(offset)
+        .saturating_div(span);
+    u32::from(y0).saturating_sub(drop).try_into().unwrap_or(y1)
+}
+
+fn extra_hazard_damage(before_health: i32, after_health: i32) -> u16 {
+    let expected_after_decay = before_health.saturating_sub(1).max(0);
+    expected_after_decay
+        .saturating_sub(after_health.max(0))
+        .max(0)
+        .try_into()
+        .unwrap_or(u16::MAX)
 }
 
 fn food_potential_delta(before: u16, after: u16) -> (i64, i64) {
@@ -628,6 +690,44 @@ mod tests {
         assert_eq!(enemy.terminal_harm, TERMINAL_UTILITY);
         assert_eq!(enemy.terminal_benefit, 0);
         assert!(enemy.net <= -TERMINAL_UTILITY);
+    }
+
+    #[test]
+    fn low_health_creates_repeated_survival_pressure() {
+        assert_eq!(health_pressure_milli(100, 100), 0);
+        assert_eq!(health_pressure_milli(70, 100), 0);
+        assert!(health_pressure_milli(35, 100) >= 350);
+        assert!(health_pressure_milli(15, 100) >= 700);
+        assert_eq!(health_pressure_milli(5, 100), 1000);
+    }
+
+    #[test]
+    fn hazard_damage_is_only_damage_beyond_normal_turn_decay() {
+        assert_eq!(extra_hazard_damage(80, 79), 0);
+        assert_eq!(extra_hazard_damage(80, 64), 15);
+        assert_eq!(extra_hazard_damage(10, 0), 9);
+    }
+
+    #[test]
+    fn health_pressure_and_hazard_damage_feed_survival_harm() {
+        let weights = StrategicWeights {
+            food: 0,
+            hunting: 0,
+            survival: 1000,
+        };
+        let facts = ActorTransitionFacts {
+            health_pressure_milli: 700,
+            hazard_damage: 15,
+            ..ActorTransitionFacts::default()
+        };
+
+        let score = score_actor_transition(facts, weights);
+
+        assert_eq!(
+            score.survival_harm,
+            700 + 15 * HAZARD_DAMAGE_STEP
+        );
+        assert_eq!(score.net, -score.survival_harm);
     }
 
     #[test]
