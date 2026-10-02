@@ -3,34 +3,6 @@ use serde_json::Value;
 use crate::{Battlesnake, Coord, GameState};
 
 pub(crate) const DEFAULT_MAX_HEALTH: i32 = 100;
-pub(crate) const BASE_AGGRESSION: f32 = 0.0;
-pub(crate) const AGGRESSION_PER_FOOD: f32 = 0.05;
-pub(crate) const MAX_AGGRESSION: f32 = 0.80;
-pub(crate) const OPENING_FOOD_TARGET_FRUITS: u32 = 4;
-
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub(crate) struct AggressionState {
-    pub(crate) fruits_eaten: u32,
-    pub(crate) value: f32,
-}
-
-impl AggressionState {
-    pub(crate) fn record_food(&mut self) {
-        self.fruits_eaten = self.fruits_eaten.saturating_add(1);
-        self.value =
-            (BASE_AGGRESSION + self.fruits_eaten as f32 * AGGRESSION_PER_FOOD).min(MAX_AGGRESSION);
-    }
-}
-
-impl Default for AggressionState {
-    fn default() -> Self {
-        Self {
-            fruits_eaten: 0,
-            value: BASE_AGGRESSION,
-        }
-    }
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum SimulationSupport {
     StandardLike,
@@ -132,7 +104,6 @@ pub(crate) struct SimulatedGameState {
     pub(crate) snakes: Vec<SimulatedSnake>,
     pub(crate) our_snake_id: String,
     pub(crate) rules: RulesContext,
-    pub(crate) aggression: AggressionState,
 }
 
 impl SimulatedGameState {
@@ -178,7 +149,6 @@ impl From<&GameState> for SimulatedGameState {
                 .collect(),
             our_snake_id: state.you.id.clone(),
             rules: RulesContext::from_state(state),
-            aggression: AggressionState::default(),
         }
     }
 }
@@ -203,21 +173,6 @@ mod tests {
             latency: String::new(),
             shout: None,
         }
-    }
-
-    #[test]
-    fn aggression_increases_per_food_and_clamps() {
-        let mut aggression = AggressionState::default();
-        assert_eq!(aggression.value, BASE_AGGRESSION);
-
-        aggression.record_food();
-        assert_eq!(aggression.fruits_eaten, 1);
-        assert!((aggression.value - 0.05).abs() < f32::EPSILON);
-
-        for _ in 0..20 {
-            aggression.record_food();
-        }
-        assert_eq!(aggression.value, MAX_AGGRESSION);
     }
 
     #[test]
@@ -306,6 +261,5 @@ mod tests {
         assert_eq!(simulated.rules.name, "royale");
         assert_eq!(simulated.rules.hazard_damage_per_turn, 14);
         assert_eq!(simulated.snake("ours").unwrap().health, 87);
-        assert_eq!(simulated.aggression, AggressionState::default());
     }
 }
