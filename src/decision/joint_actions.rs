@@ -222,7 +222,6 @@ mod tests {
         }
     }
 
-
     #[test]
     fn produces_cartesian_product_for_one_enemy() {
         let state = state(vec![snake("ours", &[(1, 1)]), snake("enemy", &[(5, 5)])]);
