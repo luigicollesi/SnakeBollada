@@ -8,7 +8,6 @@ use crate::evaluation::ActorVec;
 use crate::simulation::mobility::{DeterministicMoveBlock, MobilityAnalysis};
 use crate::simulation::state::{ActorIndex, SimulatedGameState, SimulatedSnake};
 
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum EliminationStage {
     Hard,
@@ -545,7 +544,9 @@ mod tests {
         let ordered = enemy.ordered_legal_moves_with_profile(Some(&profile));
 
         assert_eq!(ordered.len(), enemy.legal_moves.len() as usize);
-        assert!(ordered.iter().all(|direction| enemy.legal_moves.contains(*direction)));
+        assert!(ordered
+            .iter()
+            .all(|direction| enemy.legal_moves.contains(*direction)));
     }
 
     #[test]
