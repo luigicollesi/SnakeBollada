@@ -1053,9 +1053,9 @@ fn build_node_with_key(
             AnalysisProfile::BeamLean => trace_actor_relative_with_mobility(&state, &mobility),
         });
         let tactical = match profile {
-            AnalysisProfile::Full => {
-                Arc::new(TacticalStateAnalysis::from_parts(&state, &tracing, &mobility))
-            }
+            AnalysisProfile::Full => Arc::new(TacticalStateAnalysis::from_parts(
+                &state, &tracing, &mobility,
+            )),
             AnalysisProfile::BeamLean => shared_empty_tactical(),
         };
         let border = Arc::new(match profile {
