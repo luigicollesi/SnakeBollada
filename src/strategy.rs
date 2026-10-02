@@ -361,6 +361,60 @@ mod tests {
     }
 
     #[test]
+    fn hobbs_turn_31_real_state_returns_inward_instead_of_entering_corner() {
+        let mut ours = snake(
+            "ours",
+            vec![
+                Coord { x: 9, y: 10 },
+                Coord { x: 8, y: 10 },
+                Coord { x: 7, y: 10 },
+                Coord { x: 6, y: 10 },
+            ],
+        );
+        ours.health = 99;
+        let mut enemy = snake(
+            "enemy",
+            vec![
+                Coord { x: 7, y: 8 },
+                Coord { x: 6, y: 8 },
+                Coord { x: 5, y: 8 },
+                Coord { x: 5, y: 7 },
+            ],
+        );
+        enemy.health = 71;
+
+        let mut state = state_on_board(
+            11,
+            11,
+            ours,
+            vec![enemy],
+            vec![
+                Coord { x: 5, y: 5 },
+                Coord { x: 1, y: 8 },
+                Coord { x: 9, y: 4 },
+                Coord { x: 7, y: 5 },
+                Coord { x: 3, y: 3 },
+            ],
+        );
+        state.turn = 31;
+        state.game.ruleset.insert(
+            "settings".to_string(),
+            json!({
+                "foodSpawnChance": 15,
+                "minimumFood": 1,
+                "hazardDamagePerTurn": 14
+            }),
+        );
+
+        let decision = choose_move(&state);
+
+        assert_eq!(decision.reason, DecisionReason::BeamUtility);
+        assert_eq!(decision.direction, Direction::Down);
+        assert_ne!(decision.direction, Direction::Right);
+        assert!(decision.search.analyzed_depth <= crate::search::beam::MAX_BEAM_DEPTH);
+    }
+
+    #[test]
     fn beam_avoids_equal_head_to_head_when_enemy_response_is_forced() {
         let ours = snake(
             "ours",
