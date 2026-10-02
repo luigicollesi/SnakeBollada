@@ -82,15 +82,15 @@ impl EnclosureAnalysis {
                     } else {
                         tactical
                             .enemies
-                        .get(&snake.id)
-                        .map(|enemy| {
-                            if all_legal_enemy_moves || enemy.plausible_moves.is_empty() {
-                                enemy.legal_moves.len()
-                            } else {
-                                enemy.plausible_moves.len()
-                            }
-                        })
-                        .unwrap_or(0)
+                            .get(&snake.id)
+                            .map(|enemy| {
+                                if all_legal_enemy_moves || enemy.plausible_moves.is_empty() {
+                                    enemy.legal_moves.len()
+                                } else {
+                                    enemy.plausible_moves.len()
+                                }
+                            })
+                            .unwrap_or(0)
                     }
                 } else {
                     0
