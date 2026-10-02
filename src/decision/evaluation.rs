@@ -52,10 +52,10 @@ impl DirectionSurvivalSummary {
     fn leaf(node: &SearchNode, terminal: TerminalAssessment) -> Self {
         let safe_moves = node
             .active_analysis()
-            .map_or(0, |analysis| analysis.tactical.ours.safe_moves.len());
+            .map_or(0, |analysis| analysis.tactical().ours.safe_moves.len());
         let reachable_space = node
             .active_analysis()
-            .map_or(0, |analysis| analysis.tactical.ours.best_reachable_space);
+            .map_or(0, |analysis| analysis.tactical().ours.best_reachable_space);
         let enclosure_risk = node.active_analysis().map_or(0, |analysis| {
             analysis
                 .enclosure
@@ -98,7 +98,7 @@ impl DirectionSurvivalSummary {
         let analysis = parent
             .active_analysis()
             .expect("running parent must have analysis");
-        let safe_moves = analysis.tactical.ours.safe_moves.len();
+        let safe_moves = analysis.tactical().ours.safe_moves.len();
         let enclosure_risk = analysis
             .enclosure
             .ours(&parent.state)
@@ -121,7 +121,7 @@ impl DirectionSurvivalSummary {
         self.min_future_mobility = self.min_future_mobility.min(safe_moves);
         self.min_reachable_space = self
             .min_reachable_space
-            .min(analysis.tactical.ours.best_reachable_space);
+            .min(analysis.tactical().ours.best_reachable_space);
         self
     }
 
@@ -461,8 +461,8 @@ fn strategic_drives(node: &SearchNode) -> (f32, f32) {
     };
 
     (
-        f32::from(analysis.posture.food_drive_milli()) / 1000.0,
-        f32::from(analysis.posture.hunt_drive_milli) / 1000.0,
+        f32::from(analysis.posture().food_drive_milli()) / 1000.0,
+        f32::from(analysis.posture().hunt_drive_milli) / 1000.0,
     )
 }
 
@@ -572,7 +572,7 @@ fn apply_edge(
 
     let child_safe_moves = child_node
         .active_analysis()
-        .map_or(0, |analysis| analysis.tactical.ours.safe_moves.len());
+        .map_or(0, |analysis| analysis.tactical().ours.safe_moves.len());
     let child_enclosure_risk = child_node.active_analysis().map_or(0, |analysis| {
         analysis
             .enclosure
@@ -627,7 +627,7 @@ fn apply_edge(
     survival.min_reachable_space = survival.min_reachable_space.min(
         child_node
             .active_analysis()
-            .map_or(0, |analysis| analysis.tactical.ours.best_reachable_space),
+            .map_or(0, |analysis| analysis.tactical().ours.best_reachable_space),
     );
     survival.min_second_order_mobility = survival
         .min_second_order_mobility
@@ -936,7 +936,7 @@ fn enemy_pressure_level(node: &SearchNode, enemy: ActorIndex) -> f32 {
     };
     let Some(enemy) = node
         .active_analysis()
-        .and_then(|analysis| analysis.tactical.enemies.get(enemy_id))
+        .and_then(|analysis| analysis.tactical().enemies.get(enemy_id))
     else {
         return 0.0;
     };
@@ -953,10 +953,10 @@ fn enemy_pressure_level(node: &SearchNode, enemy: ActorIndex) -> f32 {
 fn territorial_setup_delta(parent: &SearchNode, child: &SearchNode) -> f32 {
     let plan_before = parent
         .active_analysis()
-        .map_or(0.0, |analysis| analysis.hunting.best_plan_score());
+        .map_or(0.0, |analysis| analysis.hunting().best_plan_score());
     let plan_after = child
         .active_analysis()
-        .map_or(0.0, |analysis| analysis.hunting.best_plan_score());
+        .map_or(0.0, |analysis| analysis.hunting().best_plan_score());
     let plan_delta = ((plan_after - plan_before) * 0.20).clamp(-0.20, 0.20);
     let competitive_delta = competitive_territory_delta(parent, child);
 
@@ -1165,7 +1165,7 @@ fn hunting_leaf_potential(node: &SearchNode) -> f32 {
         });
 
     tactical_pressure
-        .max(analysis.hunting.best_plan_score())
+        .max(analysis.hunting().best_plan_score())
         .max(competitive_control)
         .min(1.0)
 }
