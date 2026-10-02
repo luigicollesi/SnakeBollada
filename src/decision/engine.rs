@@ -16,7 +16,7 @@ use crate::decision::intent::{committable_hunt_plan, DecisionIntent, EscapeInten
 use crate::decision::policy::ReservedCellPolicy;
 use crate::forecast::ForecastCertainty;
 use crate::modes::{food, hunting::HuntingPlanKind};
-use crate::search::beam_search::search_beam;
+use crate::search::beam_search::{search_beam, BeamSearchResult};
 use crate::search::budget::SearchBudget;
 use crate::search::graph::FutureGraph;
 use crate::search::scheduler::SelectiveSearchScheduler;
@@ -58,9 +58,67 @@ impl DecisionEngine {
             return choose_move_baseline(state);
         }
 
+        let mut beam_graph = FutureGraph::new_beam(normalized.clone());
+        if let Some(decision) = self.try_decide_beam_with_graph(state, &mut beam_graph, 0) {
+            return decision;
+        }
+
         let prioritize_food = normalized.aggression.fruits_eaten < OPENING_FOOD_TARGET_FRUITS;
-        let mut graph = FutureGraph::new(normalized);
-        self.decide_with_graph_with_reserve_and_intent(state, &mut graph, 0, None, prioritize_food)
+        let mut legacy_graph = FutureGraph::new(normalized);
+        self.decide_with_graph_with_reserve_and_intent(
+            state,
+            &mut legacy_graph,
+            0,
+            None,
+            prioritize_food,
+        )
+    }
+
+    pub(crate) fn try_decide_beam_with_graph(
+        &self,
+        state: &GameState,
+        graph: &mut FutureGraph,
+        extra_reserve_ms: u64,
+    ) -> Option<Decision> {
+        let budget = SearchBudget::from_state_with_extra_reserve(state, extra_reserve_ms);
+        graph.reset_performance();
+
+        let result = search_beam(graph, &budget).ok().flatten()?;
+        let best = result.best_line()?;
+        let direction = best.root_direction;
+        let root = graph.node(graph.root());
+        let reachable_cells = root.active_analysis().map_or(0, |analysis| {
+            analysis
+                .mobility
+                .reachable_space(&root.state, &root.state.our_snake_id, direction)
+        });
+        let beam_metadata = beam_metadata(graph, &result, budget.elapsed(), None);
+
+        let mut search = SearchMetadata::default();
+        search.completed_depth = result.completed_depth();
+        search.analyzed_depth = result.completed_depth();
+        search.nodes = graph.node_count().try_into().unwrap_or(u32::MAX);
+        search.edges = graph.edge_count();
+        search.transposition_hits = graph.transposition_hits();
+        search.elapsed_us = budget.elapsed().as_micros().try_into().unwrap_or(u64::MAX);
+        search.safety_reserve_us = budget
+            .safety_reserve()
+            .as_micros()
+            .try_into()
+            .unwrap_or(u64::MAX);
+        search.runtime_jitter_reserve_us = extra_reserve_ms.saturating_mul(1000);
+        search.beam_shadow = beam_metadata;
+
+        Some(Decision {
+            direction,
+            reason: DecisionReason::BeamUtility,
+            target_food: None,
+            target_enemy: None,
+            hunt_kind: None,
+            path_distance: None,
+            reachable_cells,
+            search,
+        })
     }
 
     pub(crate) fn decide_with_graph_with_reserve_and_intent(
@@ -480,6 +538,79 @@ impl DecisionEngine {
     }
 }
 
+fn beam_metadata(
+    graph: &FutureGraph,
+    result: &BeamSearchResult,
+    elapsed: Duration,
+    legacy_direction: Option<crate::direction::Direction>,
+) -> BeamShadowMetadata {
+    let perf = graph.performance();
+    let mut metadata = BeamShadowMetadata {
+        enabled: true,
+        completed: true,
+        completed_depth: result.completed_depth(),
+        attempted_depth: result.deepening.attempted_depth,
+        line_count: result.checkpoint.lines.len().try_into().unwrap_or(u8::MAX),
+        elapsed_us: elapsed.as_micros().try_into().unwrap_or(u64::MAX),
+        action_batches: perf.action_batches,
+        parallel_action_batches: perf.parallel_action_batches,
+        resolved_actions: perf.resolved_actions,
+        new_nodes_built: perf.new_nodes_built,
+        resolve_us: perf.resolve_us,
+        node_build_us: perf.node_build_us,
+        merge_us: perf.merge_us,
+        edge_score_us: perf.edge_score_us,
+        ..BeamShadowMetadata::default()
+    };
+
+    let Some(best) = result.best_line() else {
+        return metadata;
+    };
+
+    metadata.direction = Some(best.root_direction);
+    metadata.agreed_with_legacy =
+        legacy_direction.is_some_and(|direction| direction == best.root_direction);
+    metadata.best_value = best.value;
+
+    let root_state = &graph.node(graph.root()).state;
+    let our_index = root_state.actor_index(&root_state.our_snake_id);
+    for step in best.path.steps() {
+        let Some(edge) = graph.node(step.node).children.iter().find(|edge| {
+            edge.child == step.child && edge.joint_action == step.joint_action
+        }) else {
+            continue;
+        };
+
+        for (actor, score) in edge.transition.actors.iter() {
+            let food = score.food_benefit.saturating_sub(score.food_harm);
+            let hunting = score.hunting_benefit.saturating_sub(score.hunting_harm);
+            let survival = score.survival_benefit.saturating_sub(score.survival_harm);
+            let terminal = score.terminal_benefit.saturating_sub(score.terminal_harm);
+
+            if Some(actor) == our_index {
+                metadata.our_food_utility = metadata.our_food_utility.saturating_add(food);
+                metadata.our_hunting_utility =
+                    metadata.our_hunting_utility.saturating_add(hunting);
+                metadata.our_survival_utility =
+                    metadata.our_survival_utility.saturating_add(survival);
+                metadata.our_terminal_utility =
+                    metadata.our_terminal_utility.saturating_add(terminal);
+            } else {
+                metadata.opponent_food_utility =
+                    metadata.opponent_food_utility.saturating_add(food);
+                metadata.opponent_hunting_utility =
+                    metadata.opponent_hunting_utility.saturating_add(hunting);
+                metadata.opponent_survival_utility =
+                    metadata.opponent_survival_utility.saturating_add(survival);
+                metadata.opponent_terminal_utility =
+                    metadata.opponent_terminal_utility.saturating_add(terminal);
+            }
+        }
+    }
+
+    metadata
+}
+
 fn run_beam_shadow(
     graph: &FutureGraph,
     budget: &SearchBudget,
@@ -510,7 +641,16 @@ fn run_beam_shadow(
         ..BeamShadowMetadata::default()
     };
 
-    let search_result = search_beam(&mut shadow_graph, &shadow_budget);
+    if let Ok(Some(result)) = search_beam(&mut shadow_graph, &shadow_budget) {
+        return beam_metadata(
+            &shadow_graph,
+            &result,
+            started.elapsed(),
+            Some(legacy_direction),
+        );
+    }
+
+    metadata.elapsed_us = started.elapsed().as_micros().try_into().unwrap_or(u64::MAX);
     let perf = shadow_graph.performance();
     metadata.action_batches = perf.action_batches;
     metadata.parallel_action_batches = perf.parallel_action_batches;
@@ -520,56 +660,6 @@ fn run_beam_shadow(
     metadata.node_build_us = perf.node_build_us;
     metadata.merge_us = perf.merge_us;
     metadata.edge_score_us = perf.edge_score_us;
-
-    if let Ok(Some(result)) = search_result {
-        metadata.completed = true;
-        metadata.completed_depth = result.completed_depth();
-        metadata.attempted_depth = result.deepening.attempted_depth;
-        metadata.line_count = result.checkpoint.lines.len().try_into().unwrap_or(u8::MAX);
-
-        if let Some(best) = result.best_line() {
-            metadata.direction = Some(best.root_direction);
-            metadata.agreed_with_legacy = best.root_direction == legacy_direction;
-            metadata.best_value = best.value;
-
-            let root_state = &shadow_graph.node(shadow_graph.root()).state;
-            let our_index = root_state.actor_index(&root_state.our_snake_id);
-            for step in best.path.steps() {
-                let Some(edge) = shadow_graph.node(step.node).children.iter().find(|edge| {
-                    edge.child == step.child && edge.joint_action == step.joint_action
-                }) else {
-                    continue;
-                };
-                for (actor, score) in edge.transition.actors.iter() {
-                    let food = score.food_benefit.saturating_sub(score.food_harm);
-                    let hunting = score.hunting_benefit.saturating_sub(score.hunting_harm);
-                    let survival = score.survival_benefit.saturating_sub(score.survival_harm);
-                    let terminal = score.terminal_benefit.saturating_sub(score.terminal_harm);
-
-                    if Some(actor) == our_index {
-                        metadata.our_food_utility = metadata.our_food_utility.saturating_add(food);
-                        metadata.our_hunting_utility =
-                            metadata.our_hunting_utility.saturating_add(hunting);
-                        metadata.our_survival_utility =
-                            metadata.our_survival_utility.saturating_add(survival);
-                        metadata.our_terminal_utility =
-                            metadata.our_terminal_utility.saturating_add(terminal);
-                    } else {
-                        metadata.opponent_food_utility =
-                            metadata.opponent_food_utility.saturating_add(food);
-                        metadata.opponent_hunting_utility =
-                            metadata.opponent_hunting_utility.saturating_add(hunting);
-                        metadata.opponent_survival_utility =
-                            metadata.opponent_survival_utility.saturating_add(survival);
-                        metadata.opponent_terminal_utility =
-                            metadata.opponent_terminal_utility.saturating_add(terminal);
-                    }
-                }
-            }
-        }
-    }
-
-    metadata.elapsed_us = started.elapsed().as_micros().try_into().unwrap_or(u64::MAX);
     metadata
 }
 
