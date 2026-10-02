@@ -29,6 +29,7 @@ const TERMINAL_UTILITY: i64 = 1_000_000_000;
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 struct ActorTransitionFacts {
     ate_food: bool,
+    consumed_food: Option<crate::Coord>,
     food_potential_before: u16,
     food_potential_after: u16,
     space_capacity_delta_milli: i16,
@@ -158,13 +159,13 @@ impl TransitionScore {
 impl TransitionFacts {
     fn from_parts(parent: &SearchNode, events: &[InstantEvent], child: &SearchNode) -> Self {
         let hunting_transfers = hunting_territory_benefits(parent, child);
-        let mut ate_food = ActorVec::<bool>::with_capacity(parent.state.snakes.len());
+        let mut ate_food = ActorVec::<crate::Coord>::with_capacity(parent.state.snakes.len());
         let mut kill_benefits = ActorVec::<i64>::with_capacity(parent.state.snakes.len());
 
         for event in events {
             match event {
-                InstantEvent::AteFood { actor, .. } => {
-                    ate_food.insert(*actor, true);
+                InstantEvent::AteFood { actor, food } => {
+                    ate_food.insert(*actor, *food);
                 }
                 InstantEvent::EnemyKilled {
                     enemy, attribution, ..
@@ -203,7 +204,8 @@ impl TransitionFacts {
             let after = actor_evaluation(child, actor_index);
             let child_actor = child.state.snake_at(actor_index);
             let alive_after = child_actor.is_some_and(|snake| snake.alive);
-            let ate_food_now = ate_food.get(actor_index).copied().unwrap_or(false);
+            let consumed_food = ate_food.get(actor_index).copied();
+            let ate_food_now = consumed_food.is_some();
             let health_pressure_milli = after
                 .map(|snapshot| snapshot.metrics.health_pressure_milli)
                 .unwrap_or(0);
@@ -215,7 +217,23 @@ impl TransitionFacts {
 
             let facts = ActorTransitionFacts {
                 ate_food: ate_food_now,
-                food_potential_before: before.metrics.food_potential_milli,
+                consumed_food,
+                food_potential_before: consumed_food.map_or(
+                    before.metrics.food_potential_milli,
+                    |food| {
+                        parent.active_analysis().map_or(
+                            before.metrics.food_potential_milli,
+                            |analysis| {
+                                super::metrics::food_potential_milli_excluding(
+                                    &parent.state,
+                                    &analysis.territory,
+                                    actor_index,
+                                    Some(food),
+                                )
+                            },
+                        )
+                    },
+                ),
                 food_potential_after: after
                     .map(|snapshot| snapshot.metrics.food_potential_milli)
                     .unwrap_or(0),
@@ -280,11 +298,11 @@ fn score_actor_transition(
     facts: ActorTransitionFacts,
     weights: StrategicWeights,
 ) -> ActorTransitionScore {
-    let (mut food_benefit, mut food_harm) = if facts.ate_food {
-        (FOOD_CONSUMED, 0)
-    } else {
-        food_potential_delta(facts.food_potential_before, facts.food_potential_after)
-    };
+    let (mut food_benefit, mut food_harm) =
+        food_potential_delta(facts.food_potential_before, facts.food_potential_after);
+    if facts.ate_food {
+        food_benefit = food_benefit.saturating_add(FOOD_CONSUMED);
+    }
 
     let mut hunting_benefit = facts
         .hunting_territory_benefit
@@ -1042,6 +1060,30 @@ mod tests {
         assert_eq!(second.survival_harm, 650);
         assert_eq!(first.net, -650);
         assert_eq!(second.net, -650);
+    }
+
+    #[test]
+    fn eating_food_keeps_residual_food_potential_delta() {
+        let weights = StrategicWeights {
+            food: 1000,
+            hunting: 0,
+            survival: 0,
+        };
+        let facts = ActorTransitionFacts {
+            ate_food: true,
+            consumed_food: Some(Coord { x: 3, y: 3 }),
+            food_potential_before: 500,
+            food_potential_after: 550,
+            ..ActorTransitionFacts::default()
+        };
+
+        let score = score_actor_transition(facts, weights);
+
+        assert_eq!(
+            score.food_benefit,
+            FOOD_CONSUMED + 30 * FOOD_POTENTIAL_DELTA_SCALE
+        );
+        assert_eq!(score.food_harm, 0);
     }
 
     #[test]

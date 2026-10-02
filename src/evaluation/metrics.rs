@@ -66,9 +66,19 @@ fn food_potential_milli(
     territory: &TerritoryAnalysis,
     actor: ActorIndex,
 ) -> u16 {
+    food_potential_milli_excluding(state, territory, actor, None)
+}
+
+pub(super) fn food_potential_milli_excluding(
+    state: &SimulatedGameState,
+    territory: &TerritoryAnalysis,
+    actor: ActorIndex,
+    excluded_food: Option<crate::Coord>,
+) -> u16 {
     let mut candidates = state
         .food
         .iter()
+        .filter(|food| excluded_food != Some(**food))
         .filter_map(|food| {
             let own_distance = territory.distance_for_actor(actor, *food)?;
             let nearest_enemy = state
