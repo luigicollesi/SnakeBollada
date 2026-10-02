@@ -106,7 +106,8 @@ fn survival_weight_from_metrics(metrics: &ActorUtilityMetrics) -> u16 {
     let border_pressure = metrics
         .border_structural_risk_milli
         .max(metrics.border_exposure_milli)
-        .max(metrics.border_pin_risk_milli);
+        .max(metrics.border_pin_risk_milli)
+        .max(metrics.border_escape_pressure_milli);
     let mut pressures = [
         space_survival_weight(metrics.space_capacity_milli),
         territory_survival_weight(metrics.territory_control_milli)
@@ -357,12 +358,24 @@ mod tests {
             border_structural_risk_milli: border,
             border_exposure_milli: 0,
             border_pin_risk_milli: 0,
+            border_escape_pressure_milli: 0,
             space_capacity_milli: space,
             territory_control_milli: territory,
             food_potential_milli: 0,
             food_survival_pressure_milli: starvation,
             health_pressure_milli: health,
         }
+    }
+
+    #[test]
+    fn border_escape_pressure_dominates_hunting_size_advantage() {
+        let state = state(&[("ours", 15), ("enemy", 6)]);
+        let mut current = metrics(1000, 800, 0, 0, 0, 0);
+        current.border_escape_pressure_milli = 900;
+        let weights = StrategicWeights::for_actor_metrics(&state, "ours", &current).unwrap();
+
+        assert!(weights.survival >= 825);
+        assert!(weights.survival > weights.hunting);
     }
 
     #[test]

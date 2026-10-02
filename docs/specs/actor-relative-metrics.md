@@ -152,3 +152,5 @@ Temporary intermediate vectors, maps, choke details, and aggregates should be co
 ## Opponent tracing invariant
 
 Enemy tracing is an ordering layer, not a pruning layer. Every deterministic legal opponent move remains in the joint-action generator. Historical opponent profiles may change move order only; they never alter actor utility and never remove a legal move.
+
+- border escape pressure is an instantaneous Survival pressure used for weighting and continuity emergency detection; it is not added as a second transition harm.

@@ -22,6 +22,7 @@ pub(crate) struct BorderFobicSnapshot {
     pub(crate) structural_risk_milli: u16,
     pub(crate) inward_control_milli: u16,
     pub(crate) enemy_pin_risk_milli: u16,
+    pub(crate) escape_pressure_milli: u16,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -126,6 +127,12 @@ impl BorderFobicAnalysis {
                         .try_into()
                         .unwrap_or(1000)
                 };
+                let escape_pressure_milli = border_escape_pressure_milli(
+                    head_edge_distance,
+                    inward_safe_moves,
+                    enemy_pin_risk_milli,
+                    corner_contact,
+                );
 
                 Some((
                     snake.id.clone(),
@@ -140,6 +147,7 @@ impl BorderFobicAnalysis {
                         structural_risk_milli,
                         inward_control_milli,
                         enemy_pin_risk_milli,
+                        escape_pressure_milli,
                     },
                 ))
             })
@@ -262,6 +270,42 @@ fn length_fear_milli(state: &SimulatedGameState, length: usize) -> u16 {
         .min(1000)
         .try_into()
         .unwrap_or(1000)
+}
+
+fn border_escape_pressure_milli(
+    head_edge_distance: u16,
+    inward_safe_moves: u8,
+    enemy_pin_risk_milli: u16,
+    corner_contact: bool,
+) -> u16 {
+    if head_edge_distance > 1 {
+        return 0;
+    }
+
+    let exit_pressure = match (head_edge_distance, inward_safe_moves) {
+        (0, 0) => 1000_u32,
+        (0, 1) => 550,
+        (0, _) => 150,
+        (1, 0) => 750,
+        (1, 1) => 350,
+        (1, _) => 100,
+        _ => 0,
+    };
+    let pin = u32::from(enemy_pin_risk_milli);
+    let primary = exit_pressure.max(pin);
+    let secondary = exit_pressure.min(pin);
+    let mut combined = primary
+        .saturating_add(secondary.saturating_mul(200).saturating_div(1000))
+        .min(1000);
+
+    if head_edge_distance == 0 && inward_safe_moves <= 1 && enemy_pin_risk_milli >= 500 {
+        combined = combined.max(850);
+    }
+    if corner_contact && enemy_pin_risk_milli >= 400 {
+        combined = combined.max(900);
+    }
+
+    combined.try_into().unwrap_or(1000)
 }
 
 fn scale_by_fear(base: u32, fear_milli: u16) -> u16 {
@@ -409,6 +453,38 @@ mod tests {
 
         assert!(snapshot.enemy_pin_risk_milli > 0);
         assert!(snapshot.inward_control_milli < 1000);
+    }
+
+    #[test]
+    fn enemy_pin_with_single_inward_lane_creates_escape_emergency() {
+        let mut state = state(&[(0, 3), (0, 2), (0, 1), (0, 0), (1, 0), (2, 0)]);
+        state.snakes.push(SimulatedSnake {
+            id: "enemy".to_string(),
+            health: 100,
+            body: vec![
+                Coord { x: 2, y: 3 },
+                Coord { x: 2, y: 4 },
+                Coord { x: 3, y: 4 },
+                Coord { x: 4, y: 4 },
+            ],
+            alive: true,
+        });
+
+        let snapshot = *analyze(&state).ours().unwrap();
+
+        assert_eq!(snapshot.head_edge_distance, 0);
+        assert!(snapshot.inward_safe_moves <= 1);
+        assert!(snapshot.enemy_pin_risk_milli >= 500);
+        assert!(snapshot.escape_pressure_milli >= 850);
+    }
+
+    #[test]
+    fn edge_without_enemy_pin_is_not_an_escape_emergency() {
+        let state = state(&[(0, 5), (0, 4), (0, 3), (0, 2)]);
+        let snapshot = *analyze(&state).ours().unwrap();
+
+        assert_eq!(snapshot.head_edge_distance, 0);
+        assert!(snapshot.escape_pressure_milli < 800);
     }
 
     #[test]

@@ -9,6 +9,7 @@ pub(crate) struct ActorUtilityMetrics {
     pub(crate) border_structural_risk_milli: u16,
     pub(crate) border_exposure_milli: u16,
     pub(crate) border_pin_risk_milli: u16,
+    pub(crate) border_escape_pressure_milli: u16,
     pub(crate) space_capacity_milli: u16,
     pub(crate) territory_control_milli: u16,
     pub(crate) food_potential_milli: u16,
@@ -46,6 +47,8 @@ impl ActorUtilityMetrics {
             }),
             border_pin_risk_milli: border_snapshot
                 .map_or(0, |snapshot| snapshot.enemy_pin_risk_milli),
+            border_escape_pressure_milli: border_snapshot
+                .map_or(0, |snapshot| snapshot.escape_pressure_milli),
             space_capacity_milli: space_capacity_milli(
                 territory_snapshot.reachable_space,
                 actor_snake.length(),
