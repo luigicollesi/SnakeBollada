@@ -1,7 +1,7 @@
 #![allow(dead_code)]
 
 use super::{ActorVec, StrategicWeights};
-use crate::search::graph::{SearchEdge, SearchNode};
+use crate::search::graph::SearchNode;
 use crate::simulation::resolver::{EliminationAttribution, InstantEvent};
 use crate::simulation::state::ActorIndex;
 
@@ -67,10 +67,6 @@ pub(crate) struct TransitionScore {
 }
 
 impl TransitionScore {
-    pub(crate) fn from_edge(parent: &SearchNode, edge: &SearchEdge, child: &SearchNode) -> Self {
-        Self::from_parts(parent, &edge.events, child)
-    }
-
     pub(crate) fn from_parts(
         parent: &SearchNode,
         events: &[InstantEvent],
@@ -647,8 +643,7 @@ mod tests {
 
         let root = graph.node(graph.root());
         let edge = first_edge_for(&graph, Direction::Right, |_| true);
-        let child = graph.node(edge.child);
-        let score = TransitionScore::from_edge(root, edge, child);
+        let score = &edge.transition;
 
         let ours = actor_index(&root.state, "ours");
         let enemy = actor_index(&root.state, "enemy");
@@ -666,17 +661,14 @@ mod tests {
         graph.expand_to_depth(1).unwrap();
 
         let root = graph.node(graph.root());
-        let our_actor = actor_index(&root.state, "ours");
         let edge = first_edge_for(&graph, Direction::Right, |edge| {
-            !edge.events.iter().any(|event| {
-                matches!(
-                    event,
-                    InstantEvent::AteFood { actor, .. } if *actor == our_actor
-                )
-            })
+            graph
+                .node(edge.child)
+                .state
+                .food
+                .contains(&Coord { x: 4, y: 1 })
         });
-        let child = graph.node(edge.child);
-        let score = TransitionScore::from_edge(root, edge, child);
+        let score = &edge.transition;
         let ours = score.for_actor(actor_index(&root.state, "ours")).unwrap();
 
         assert!(ours.food_benefit > 0);
@@ -792,14 +784,14 @@ mod tests {
         graph.expand_to_depth(1).unwrap();
 
         let root = graph.node(graph.root());
-        let our_actor = actor_index(&root.state, "ours");
         let edge = first_edge_for(&graph, Direction::Right, |edge| {
-            edge.events.iter().any(
-                |event| matches!(event, InstantEvent::AteFood { actor, .. } if *actor == our_actor),
-            )
+            !graph
+                .node(edge.child)
+                .state
+                .food
+                .contains(&Coord { x: 3, y: 1 })
         });
-        let child = graph.node(edge.child);
-        let score = TransitionScore::from_edge(root, edge, child);
+        let score = &edge.transition;
         let ours = score.for_actor(actor_index(&root.state, "ours")).unwrap();
 
         assert!(ours.food_benefit > 0);
