@@ -3,6 +3,8 @@ use crate::simulation::state::SimulatedGameState;
 const STRATEGIC_BUDGET: u16 = 1000;
 const MIN_CATEGORY_WEIGHT: u16 = 100;
 const MAX_CATEGORY_WEIGHT: u16 = 900;
+const MIN_SURVIVAL_WEIGHT: u16 = 150;
+const MAX_SURVIVAL_WEIGHT: u16 = 900;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct StrategicWeights {
@@ -46,9 +48,7 @@ impl StrategicWeights {
         let (size_advantage_milli, size_disadvantage_milli) =
             relative_size_pressure(actor_length, reference_enemy);
 
-        let survival = STRATEGIC_BUDGET
-            .saturating_sub(territory_share_milli)
-            .clamp(MIN_CATEGORY_WEIGHT, MAX_CATEGORY_WEIGHT);
+        let survival = survival_weight(territory_share_milli);
         let offensive_budget = STRATEGIC_BUDGET.saturating_sub(survival);
 
         let food_share = 500_i32
@@ -78,6 +78,39 @@ impl StrategicWeights {
             .saturating_add(self.hunting)
             .saturating_add(self.survival)
     }
+}
+
+fn survival_weight(territory_share_milli: u16) -> u16 {
+    let territory = territory_share_milli.min(1000);
+    match territory {
+        0..=100 => MAX_SURVIVAL_WEIGHT,
+        101..=150 => interpolate(territory, 100, 150, 900, 750),
+        151..=200 => interpolate(territory, 150, 200, 750, 600),
+        201..=250 => interpolate(territory, 200, 250, 600, 450),
+        251..=300 => interpolate(territory, 250, 300, 450, 350),
+        301..=350 => interpolate(territory, 300, 350, 350, 250),
+        351..=450 => interpolate(territory, 350, 450, 250, 150),
+        _ => MIN_SURVIVAL_WEIGHT,
+    }
+}
+
+fn interpolate(
+    value: u16,
+    x0: u16,
+    x1: u16,
+    y0: u16,
+    y1: u16,
+) -> u16 {
+    let span = u32::from(x1.saturating_sub(x0)).max(1);
+    let offset = u32::from(value.saturating_sub(x0).min(x1.saturating_sub(x0)));
+    let drop = u32::from(y0.saturating_sub(y1))
+        .saturating_mul(offset)
+        .saturating_div(span);
+
+    u32::from(y0)
+        .saturating_sub(drop)
+        .try_into()
+        .unwrap_or(y1)
 }
 
 fn relative_size_pressure(actor_length: u32, reference_enemy: u32) -> (u16, u16) {
@@ -169,6 +202,26 @@ mod tests {
             constrained.food.saturating_add(constrained.hunting)
                 < comfortable.food.saturating_add(comfortable.hunting)
         );
+    }
+
+    #[test]
+    fn survival_curve_is_moderate_at_normal_four_player_share() {
+        assert_eq!(survival_weight(100), 900);
+        assert_eq!(survival_weight(150), 750);
+        assert_eq!(survival_weight(200), 600);
+        assert_eq!(survival_weight(250), 450);
+        assert_eq!(survival_weight(300), 350);
+        assert_eq!(survival_weight(350), 250);
+        assert_eq!(survival_weight(450), 150);
+        assert_eq!(survival_weight(700), 150);
+    }
+
+    #[test]
+    fn survival_curve_decreases_monotonically_with_control() {
+        let samples = [50, 100, 150, 200, 250, 300, 350, 450, 700];
+        for pair in samples.windows(2) {
+            assert!(survival_weight(pair[0]) >= survival_weight(pair[1]));
+        }
     }
 
     #[test]
