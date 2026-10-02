@@ -484,9 +484,7 @@ impl TerritoryAnalysis {
                         }
                     }
                 }
-                CompetitiveClaim::Unclaimed
-                | CompetitiveClaim::Owned(_)
-                | CompetitiveClaim::Contested(_) => {}
+                CompetitiveClaim::Unclaimed | CompetitiveClaim::Owned(_) => {}
             }
         }
 
