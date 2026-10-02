@@ -87,6 +87,25 @@ impl MobilityAnalysis {
         )
     }
 
+    pub(crate) fn in_bounds_moves_for(
+        &self,
+        state: &SimulatedGameState,
+        snake_id: &str,
+    ) -> MoveMask {
+        let Some(snake) = state.snake(snake_id).filter(|snake| snake.alive) else {
+            return MoveMask::empty();
+        };
+        let Some(head) = snake.head() else {
+            return MoveMask::empty();
+        };
+
+        MoveMask::from_iter(
+            Direction::ALL
+                .into_iter()
+                .filter(|direction| self.in_bounds(direction.apply(head))),
+        )
+    }
+
     pub(crate) fn reachable_space(
         &self,
         state: &SimulatedGameState,
@@ -182,6 +201,20 @@ mod tests {
             mobility.classify_move(&initial, ours, Direction::Down),
             Some(DeterministicMoveBlock::DeterministicBodyCollision)
         );
+    }
+
+    #[test]
+    fn in_bounds_fallback_excludes_wall_moves_at_corner() {
+        let initial = state(vec![snake("ours", 100, &[(0, 6)])]);
+        let mobility = MobilityAnalysis::from_state(&initial);
+        let moves = mobility.in_bounds_moves_for(&initial, "ours");
+
+        assert_eq!(
+            moves.iter().collect::<Vec<_>>(),
+            vec![Direction::Right, Direction::Down]
+        );
+        assert!(!moves.contains(Direction::Up));
+        assert!(!moves.contains(Direction::Left));
     }
 
     #[test]
