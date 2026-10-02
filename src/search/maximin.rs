@@ -3,7 +3,8 @@
 use std::collections::HashMap;
 
 use crate::direction::Direction;
-use crate::evaluation::{ActorTable, TransitionScore};
+use crate::evaluation::{ActorVec, TransitionScore};
+use crate::simulation::state::ActorIndex;
 
 use super::beam::{select_seed_beam, BeamLine, BeamStep, LineId, LineTerminal};
 use super::bounds::ValueBound;
@@ -34,7 +35,7 @@ pub(crate) struct ContinuationEvaluation {
     pub(crate) harm_total: i64,
     pub(crate) our_utility_total: i64,
     pub(crate) opponent_utility_total: i64,
-    pub(crate) actor_utility_totals: ActorTable<i64>,
+    pub(crate) actor_utility_totals: ActorVec<i64>,
     pub(crate) value: i64,
     pub(crate) terminal: LineTerminal,
     pub(crate) bound: ValueBound,
@@ -48,7 +49,7 @@ struct EvaluatedLine {
     harm_total: i64,
     our_utility_total: i64,
     opponent_utility_total: i64,
-    actor_utility_totals: ActorTable<i64>,
+    actor_utility_totals: ActorVec<i64>,
     terminal: LineTerminal,
     bound: ValueBound,
     steps: Vec<BeamStep>,
@@ -61,8 +62,8 @@ impl EvaluatedLine {
         edge: &SearchEdge,
         transition: &TransitionScore,
     ) -> Self {
-        for (actor_id, score) in transition.actors.iter() {
-            self.actor_utility_totals.add(actor_id, score.net);
+        for (actor, score) in transition.actors.iter() {
+            self.actor_utility_totals.add(actor, score.net);
         }
 
         if self.terminal == LineTerminal::Running {
@@ -328,7 +329,7 @@ fn frontier_line(exact: bool) -> EvaluatedLine {
         harm_total: 0,
         our_utility_total: 0,
         opponent_utility_total: 0,
-        actor_utility_totals: ActorTable::new(),
+        actor_utility_totals: ActorVec::new(),
         terminal: LineTerminal::Running,
         bound: if exact {
             ValueBound::Exact(0)
@@ -351,7 +352,7 @@ fn terminal_line(node: &SearchNode) -> Option<EvaluatedLine> {
             harm_total: TERMINAL_VALUE,
             our_utility_total: -TERMINAL_VALUE,
             opponent_utility_total: 0,
-            actor_utility_totals: ActorTable::new(),
+            actor_utility_totals: ActorVec::new(),
             terminal: LineTerminal::Lost,
             bound: ValueBound::Exact(-TERMINAL_VALUE),
             steps: Vec::new(),
@@ -373,7 +374,7 @@ fn terminal_line(node: &SearchNode) -> Option<EvaluatedLine> {
         harm_total: 0,
         our_utility_total: TERMINAL_VALUE,
         opponent_utility_total: 0,
-        actor_utility_totals: ActorTable::new(),
+        actor_utility_totals: ActorVec::new(),
         terminal: LineTerminal::Won,
         bound: ValueBound::Exact(TERMINAL_VALUE),
         steps: Vec::new(),
@@ -404,8 +405,9 @@ fn select_selfish_opponent_response(node: &SearchNode, lines: Vec<EvaluatedLine>
         .state
         .snakes
         .iter()
-        .filter(|snake| snake.alive && snake.id != node.state.our_snake_id)
-        .map(|snake| snake.id.as_str())
+        .enumerate()
+        .filter(|(_, snake)| snake.alive && snake.id != node.state.our_snake_id)
+        .filter_map(|(index, _)| ActorIndex::new(index))
         .collect::<Vec<_>>();
 
     let pure_best_responses = lines
@@ -457,7 +459,7 @@ fn is_pure_best_response(
     node: &SearchNode,
     candidate: &EvaluatedLine,
     lines: &[EvaluatedLine],
-    enemies: &[&str],
+    enemies: &[ActorIndex],
 ) -> bool {
     enemies.iter().all(|enemy_id| {
         let current = actor_utility(candidate, enemy_id);
@@ -476,7 +478,7 @@ fn is_pure_best_response(
 fn unilateral_regret(
     node: &SearchNode,
     candidate: &EvaluatedLine,
-    enemies: &[&str],
+    enemies: &[ActorIndex],
     lines: &[EvaluatedLine],
 ) -> (i64, i64) {
     enemies
@@ -500,7 +502,7 @@ fn same_joint_context_except_actor(
     node: &SearchNode,
     left: &EvaluatedLine,
     right: &EvaluatedLine,
-    deviating_actor: &str,
+    deviating_actor: ActorIndex,
 ) -> bool {
     let (Some(left_action), Some(right_action)) = (
         left.steps.first().map(|step| &step.joint_action),
@@ -512,15 +514,17 @@ fn same_joint_context_except_actor(
     node.state
         .snakes
         .iter()
-        .filter(|snake| snake.alive && snake.id != deviating_actor)
-        .all(|snake| left_action.direction_for(&snake.id) == right_action.direction_for(&snake.id))
+        .enumerate()
+        .filter(|(index, snake)| {
+            snake.alive && ActorIndex::new(*index) != Some(deviating_actor)
+        })
+        .all(|(_, snake)| {
+            left_action.direction_for(&snake.id) == right_action.direction_for(&snake.id)
+        })
 }
 
-fn actor_utility(line: &EvaluatedLine, actor_id: &str) -> i64 {
-    line.actor_utility_totals
-        .get(actor_id)
-        .copied()
-        .unwrap_or(0)
+fn actor_utility(line: &EvaluatedLine, actor: ActorIndex) -> i64 {
+    line.actor_utility_totals.get(actor).copied().unwrap_or(0)
 }
 
 fn rank_and_dedup_variants(lines: &mut Vec<EvaluatedLine>, limit: usize) {
@@ -669,10 +673,10 @@ mod tests {
             harm_total: ours.max(0).saturating_sub(ours),
             our_utility_total: ours,
             opponent_utility_total: opponents,
-            actor_utility_totals: ActorTable::from_iter([
-                ("ours".to_string(), ours),
-                ("enemy-a".to_string(), enemy_a),
-                ("enemy-b".to_string(), enemy_b),
+            actor_utility_totals: ActorVec::from_iter([
+                (ActorIndex::new(0).unwrap(), ours),
+                (ActorIndex::new(1).unwrap(), enemy_a),
+                (ActorIndex::new(2).unwrap(), enemy_b),
             ]),
             terminal: LineTerminal::Running,
             bound: ValueBound::Exact(value),
@@ -692,9 +696,9 @@ mod tests {
             harm_total: ours.max(0).saturating_sub(ours),
             our_utility_total: ours,
             opponent_utility_total: opponents,
-            actor_utility_totals: ActorTable::from_iter([
-                ("ours".to_string(), ours),
-                ("enemy".to_string(), opponents),
+            actor_utility_totals: ActorVec::from_iter([
+                (ActorIndex::new(0).unwrap(), ours),
+                (ActorIndex::new(1).unwrap(), opponents),
             ]),
             terminal: LineTerminal::Running,
             bound: ValueBound::Exact(value),
@@ -882,8 +886,8 @@ mod tests {
         );
 
         assert_eq!(chosen.opponent_utility_total, 280);
-        assert_eq!(actor_utility(&chosen, "enemy-a"), 140);
-        assert_eq!(actor_utility(&chosen, "enemy-b"), 140);
+        assert_eq!(actor_utility(&chosen, ActorIndex::new(1).unwrap()), 140);
+        assert_eq!(actor_utility(&chosen, ActorIndex::new(2).unwrap()), 140);
     }
 
     #[test]
