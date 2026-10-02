@@ -5,7 +5,7 @@ use crate::analysis::{
 };
 use crate::direction::Direction;
 use crate::enemy::tracing::EnemyTracingOutput;
-use crate::simulation::state::SimulatedGameState;
+use crate::simulation::state::{ActorIndex, SimulatedGameState};
 use crate::Coord;
 
 pub(crate) const EDGE_PIN_MIN_LENGTH: usize = 6;
@@ -78,15 +78,19 @@ pub(crate) fn analyze(
     let mut plans = Vec::new();
     let board_cells = state.width.saturating_mul(state.height).max(1);
 
-    for enemy in state
+    for (index, enemy) in state
         .snakes
         .iter()
-        .filter(|snake| snake.alive && snake.id != state.our_snake_id)
+        .enumerate()
+        .filter(|(_, snake)| snake.alive && snake.id != state.our_snake_id)
     {
+        let Some(actor) = ActorIndex::new(index) else {
+            continue;
+        };
         let Some(enemy_head) = enemy.head() else {
             continue;
         };
-        let Some(move_set) = tracing.for_enemy(&enemy.id) else {
+        let Some(move_set) = tracing.for_actor(actor) else {
             continue;
         };
         let Some(enemy_territory) = territory.for_snake(&enemy.id) else {
