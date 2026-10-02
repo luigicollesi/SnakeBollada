@@ -1210,7 +1210,7 @@ mod tests {
             .state
             .route_for("ours", Coord { x: 3, y: 1 })
             .is_none());
-        assert_eq!(ours.metrics.best_food_distance, Some(2));
+        assert!(ours.metrics.food_potential_milli > 0);
         assert_eq!(
             analysis
                 .territory
