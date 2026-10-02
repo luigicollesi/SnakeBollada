@@ -223,6 +223,7 @@ mod tests {
                 Coord { x: 1, y: 0 },
                 Coord { x: 0, y: 0 },
                 Coord { x: 0, y: 1 },
+                Coord { x: 0, y: 2 },
             ],
         );
         let enemy = snake(
@@ -234,6 +235,7 @@ mod tests {
                 Coord { x: 5, y: 2 },
                 Coord { x: 5, y: 3 },
                 Coord { x: 4, y: 3 },
+                Coord { x: 3, y: 3 },
             ],
         );
         let state = state(ours, vec![enemy], vec![Coord { x: 3, y: 2 }]);
