@@ -417,15 +417,14 @@ fn hunting_territory_benefits(parent: &SearchNode, child: &SearchNode) -> ActorV
                 x: i32::try_from(x).unwrap_or(i32::MAX),
                 y: i32::try_from(y).unwrap_or(i32::MAX),
             };
-            let Some(previous_owner) = parent_territory.competitive_owner_at(coord) else {
+            let Some(previous_owner) = parent_territory.competitive_owner_actor_at(coord)
+            else {
                 continue;
             };
 
-            if let Some(new_owner) = child_territory.competitive_owner_at(coord) {
+            if let Some(new_owner) = child_territory.competitive_owner_actor_at(coord) {
                 if previous_owner != new_owner {
-                    if let Some(actor) = parent.state.actor_index(new_owner) {
-                        benefits.add(actor, cell_value);
-                    }
+                    benefits.add(new_owner, cell_value);
                 }
                 continue;
             }
@@ -439,14 +438,21 @@ fn hunting_territory_benefits(parent: &SearchNode, child: &SearchNode) -> ActorV
                 .saturating_div(i64::try_from(contender_count).unwrap_or(i64::MAX))
                 .max(1);
 
-            for actor in child.state.snakes.iter().filter(|snake| snake.alive) {
-                if actor.id == previous_owner {
+            for (index, actor) in child
+                .state
+                .snakes
+                .iter()
+                .enumerate()
+                .filter(|(_, snake)| snake.alive)
+            {
+                let Some(actor_index) = ActorIndex::new(index) else {
+                    continue;
+                };
+                if actor_index == previous_owner {
                     continue;
                 }
-                if child_territory.competitive_contested_by(coord, &actor.id) {
-                    if let Some(actor_index) = parent.state.actor_index(&actor.id) {
-                        benefits.add(actor_index, split_denial);
-                    }
+                if child_territory.competitive_contested_by_actor(coord, actor_index) {
+                    benefits.add(actor_index, split_denial);
                 }
             }
         }
