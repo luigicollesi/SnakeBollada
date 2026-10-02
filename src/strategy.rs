@@ -1,12 +1,8 @@
 use serde::{Deserialize, Serialize};
 
-use crate::analysis::{StateAnalysis, StrategicPhase};
+use crate::analysis::StrategicPhase;
 use crate::direction::Direction;
-use crate::forecast::ForecastCertainty;
-use crate::modes::food;
-use crate::modes::hunting::HuntingPlanKind;
 use crate::navigation::{reachable_after_move, NavigationMap};
-use crate::simulation::state::SimulatedGameState;
 use crate::{Coord, GameState};
 
 #[derive(Deserialize, Serialize, Debug, Clone, Copy, PartialEq, Eq)]
@@ -239,10 +235,6 @@ impl Default for SearchMetadata {
 pub(crate) struct Decision {
     pub(crate) direction: Direction,
     pub(crate) reason: DecisionReason,
-    pub(crate) target_food: Option<Coord>,
-    pub(crate) target_enemy: Option<String>,
-    pub(crate) hunt_kind: Option<HuntingPlanKind>,
-    pub(crate) path_distance: Option<u16>,
     pub(crate) reachable_cells: u32,
     pub(crate) search: SearchMetadata,
 }
@@ -262,10 +254,6 @@ pub(crate) fn choose_move_baseline(state: &GameState) -> Decision {
         return Decision {
             direction: Direction::Up,
             reason: DecisionReason::NoSafeMove,
-            target_food: None,
-            target_enemy: None,
-            hunt_kind: None,
-            path_distance: None,
             reachable_cells: 0,
             search: SearchMetadata::default(),
         };
@@ -276,116 +264,49 @@ pub(crate) fn choose_move_baseline(state: &GameState) -> Decision {
         return Decision {
             direction,
             reason: DecisionReason::OnlyLegalMove,
-            target_food: None,
-            target_enemy: None,
-            hunt_kind: None,
-            path_distance: None,
             reachable_cells: reachable_after_move(&map, state, direction),
             search: SearchMetadata::default(),
         };
     }
 
-    let simulated = SimulatedGameState::from(state);
-    let analysis = StateAnalysis::from_simulated(&simulated);
-    let food_output = food::candidates(&simulated, &analysis, ForecastCertainty::Deterministic);
-
-    if let Some(decision) = choose_food_candidate(&map, state, &legal_moves, &food_output, false) {
-        return decision;
-    }
-
-    if let Some(decision) = choose_food_candidate(&map, state, &legal_moves, &food_output, true) {
-        return decision;
-    }
-
-    survival_fallback(&map, state, &legal_moves)
-}
-
-fn choose_food_candidate(
-    map: &NavigationMap,
-    state: &GameState,
-    legal_moves: &[Direction],
-    output: &food::FoodModeOutput,
-    allow_hazards: bool,
-) -> Option<Decision> {
-    for candidate in &output.candidates {
-        if !legal_moves.contains(&candidate.first_move) {
-            continue;
-        }
-
-        let destination = candidate.first_move.apply(state.you.head);
-        if !allow_hazards && map.is_hazard(destination) {
-            continue;
-        }
-
-        let reachable = reachable_after_move(map, state, candidate.first_move);
-        if reachable < state.you.length {
-            continue;
-        }
-
-        return Some(Decision {
-            direction: candidate.first_move,
-            reason: DecisionReason::FoodStrategic,
-            target_food: Some(candidate.target_food),
-            target_enemy: None,
-            hunt_kind: None,
-            path_distance: Some(candidate.distance),
-            reachable_cells: reachable,
-            search: SearchMetadata::default(),
-        });
-    }
-
-    None
-}
-
-fn survival_fallback(
-    map: &NavigationMap,
-    state: &GameState,
-    legal_moves: &[Direction],
-) -> Decision {
-    let evaluations = legal_moves
+    let best = legal_moves
         .iter()
         .copied()
         .map(|direction| {
             let destination = direction.apply(state.you.head);
+            let reachable = reachable_after_move(&map, state, direction);
+            let hazard = map.is_hazard(destination);
+            let cramped = reachable < state.you.length;
+            let food_distance = state
+                .board
+                .food
+                .iter()
+                .map(|food| destination.x.abs_diff(food.x) + destination.y.abs_diff(food.y))
+                .min()
+                .unwrap_or(u32::MAX);
+
             (
                 direction,
-                reachable_after_move(map, state, direction),
-                map.is_hazard(destination),
+                reachable,
+                hazard,
+                cramped,
+                food_distance,
             )
         })
-        .collect::<Vec<_>>();
-
-    let best = evaluations
-        .iter()
-        .copied()
-        .filter(|(_, reachable, hazard)| !hazard && *reachable >= state.you.length)
-        .min_by_key(|(direction, reachable, _)| (std::cmp::Reverse(*reachable), direction.rank()))
-        .or_else(|| {
-            evaluations
-                .iter()
-                .copied()
-                .filter(|(_, reachable, _)| *reachable >= state.you.length)
-                .min_by_key(|(direction, reachable, hazard)| {
-                    (std::cmp::Reverse(*reachable), *hazard, direction.rank())
-                })
+        .min_by_key(|(direction, reachable, hazard, cramped, food_distance)| {
+            (
+                *cramped,
+                *hazard,
+                *food_distance,
+                std::cmp::Reverse(*reachable),
+                direction.rank(),
+            )
         })
-        .unwrap_or_else(|| {
-            evaluations
-                .iter()
-                .copied()
-                .min_by_key(|(direction, reachable, hazard)| {
-                    (std::cmp::Reverse(*reachable), *hazard, direction.rank())
-                })
-                .expect("legal moves are not empty")
-        });
+        .expect("legal moves are not empty");
 
     Decision {
         direction: best.0,
-        reason: DecisionReason::FutureMobility,
-        target_food: None,
-        target_enemy: None,
-        hunt_kind: None,
-        path_distance: None,
+        reason: DecisionReason::BaselineFallback,
         reachable_cells: best.1,
         search: SearchMetadata::default(),
     }
