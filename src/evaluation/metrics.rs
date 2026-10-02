@@ -7,6 +7,7 @@ pub(crate) struct ActorUtilityMetrics {
     pub(crate) safe_non_reverse_moves: u8,
     pub(crate) enclosure_risk: u8,
     pub(crate) border_structural_risk_milli: u16,
+    pub(crate) border_exposure_milli: u16,
     pub(crate) territory_share_milli: u16,
     pub(crate) best_food_distance: Option<u16>,
 }
@@ -31,6 +32,13 @@ impl ActorUtilityMetrics {
             enclosure_risk: enclosure_snapshot.risk.rank(),
             border_structural_risk_milli: border_snapshot
                 .map_or(0, |snapshot| snapshot.structural_risk_milli),
+            border_exposure_milli: border_snapshot.map_or(0, |snapshot| {
+                if snapshot.head_edge_distance == 0 {
+                    snapshot.preference_milli
+                } else {
+                    0
+                }
+            }),
             territory_share_milli: territory_share_milli(
                 state,
                 territory_snapshot.exclusive_space,
