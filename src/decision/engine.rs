@@ -534,7 +534,7 @@ fn run_beam_shadow(
 
             let root_state = &shadow_graph.node(shadow_graph.root()).state;
             let our_index = root_state.actor_index(&root_state.our_snake_id);
-            for step in &best.steps {
+            for step in best.path.steps() {
                 let Some(edge) = shadow_graph.node(step.node).children.iter().find(|edge| {
                     edge.child == step.child && edge.joint_action == step.joint_action
                 }) else {
