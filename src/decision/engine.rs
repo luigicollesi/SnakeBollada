@@ -80,10 +80,6 @@ impl DecisionEngine {
         Some(Decision {
             direction,
             reason: DecisionReason::BeamUtility,
-            target_food: None,
-            target_enemy: None,
-            hunt_kind: None,
-            path_distance: None,
             reachable_cells,
             search,
         })
