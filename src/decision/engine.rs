@@ -122,7 +122,7 @@ fn select_line_with_continuity<'a>(
     result: &'a BeamSearchResult,
     incumbent_direction: Option<Direction>,
 ) -> Option<&'a BeamLine> {
-    let best = result.best_line()?;
+    let best = best_line_respecting_root_step_safety(graph, result)?;
     let Some(direction) = incumbent_direction else {
         return Some(best);
     };
@@ -139,11 +139,72 @@ fn select_line_with_continuity<'a>(
         return Some(best);
     }
 
+    let incumbent_emergency = line_enters_immediate_survival_emergency(graph, incumbent);
+    let challenger_emergency = line_enters_immediate_survival_emergency(graph, best);
+    if incumbent_emergency != challenger_emergency {
+        return Some(if incumbent_emergency { best } else { incumbent });
+    }
+
     Some(select_incumbent_or_challenger(
         best,
         incumbent,
         root_has_survival_emergency(graph),
     ))
+}
+
+fn best_line_respecting_root_step_safety<'a>(
+    graph: &FutureGraph,
+    result: &'a BeamSearchResult,
+) -> Option<&'a BeamLine> {
+    let viable = result
+        .checkpoint
+        .lines
+        .iter()
+        .filter(|line| line.is_viable())
+        .collect::<Vec<_>>();
+    let candidates = if viable.is_empty() {
+        result.checkpoint.lines.iter().collect::<Vec<_>>()
+    } else {
+        viable
+    };
+    let has_non_emergency = candidates
+        .iter()
+        .any(|line| !line_enters_immediate_survival_emergency(graph, line));
+
+    candidates
+        .into_iter()
+        .filter(|line| {
+            !has_non_emergency || !line_enters_immediate_survival_emergency(graph, line)
+        })
+        .max_by(|left, right| {
+            left.value
+                .cmp(&right.value)
+                .then_with(|| right.root_direction.rank().cmp(&left.root_direction.rank()))
+                .then_with(|| right.id.cmp(&left.id))
+        })
+}
+
+fn line_enters_immediate_survival_emergency(graph: &FutureGraph, line: &BeamLine) -> bool {
+    let Some(first_step) = line.path.first() else {
+        return false;
+    };
+    let child = graph.node(first_step.child);
+    let Some(analysis) = child.active_analysis() else {
+        return false;
+    };
+    let Some(actor) = child.state.actor_index(&child.state.our_snake_id) else {
+        return true;
+    };
+    let Some(snapshot) = analysis.actor_snapshot(actor) else {
+        return true;
+    };
+    let metrics = &snapshot.metrics;
+
+    metrics.safe_non_reverse_moves <= 1
+        || metrics.space_capacity_milli <= 100
+        || metrics.enclosure_risk >= 3
+        || (metrics.border_pin_risk_milli >= 900
+            && metrics.border_escape_pressure_milli >= 900)
 }
 
 fn select_incumbent_or_challenger<'a>(
