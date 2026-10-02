@@ -221,8 +221,8 @@ fn feed_snakes(
             .enumerate()
             .filter(|(_, snake)| snake.alive)
         {
-            let actor =
-                ActorIndex::new(index).ok_or_else(|| ResolveError::MissingMove(snake.id.clone()))?;
+            let actor = ActorIndex::new(index)
+                .ok_or_else(|| ResolveError::MissingMove(snake.id.clone()))?;
             let head = snake
                 .head()
                 .ok_or_else(|| ResolveError::EmptyBody(snake.id.clone()))?;
