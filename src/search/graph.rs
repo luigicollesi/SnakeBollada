@@ -627,7 +627,9 @@ impl FutureGraph {
             .mobility
             .deterministic_moves_for(&state, &state.our_snake_id);
         let our_moves = if deterministic_moves.is_empty() {
-            MoveMask::all()
+            parent_analysis
+                .mobility
+                .in_bounds_moves_for(&state, &state.our_snake_id)
         } else {
             deterministic_moves
         };
@@ -1272,6 +1274,41 @@ mod tests {
         assert_eq!(expansion.requested_depth, 2);
         assert_eq!(graph.node(root).children.len(), root_children_before);
         assert!(graph.node(tip).expansion_complete());
+    }
+
+    #[test]
+    fn emergency_fallback_never_reintroduces_out_of_bounds_moves() {
+        let mut initial = state();
+        initial.food.clear();
+        initial.snakes = vec![
+            snake(
+                "ours",
+                &[(0, 6), (0, 5), (1, 5), (1, 6), (2, 6)],
+            ),
+            snake("enemy", &[(5, 5), (5, 4)]),
+        ];
+
+        let mobility = MobilityAnalysis::from_state(&initial);
+        assert!(mobility
+            .deterministic_moves_for(&initial, "ours")
+            .is_empty());
+
+        let mut graph = FutureGraph::new(initial);
+        graph.expand_to_depth(1).unwrap();
+
+        let root = graph.root();
+        let our_actor = graph.node(root).state.actor_index("ours").unwrap();
+        let directions = graph
+            .node(root)
+            .children
+            .iter()
+            .filter_map(|edge| edge.joint_action.direction_for(our_actor))
+            .collect::<Vec<_>>();
+
+        assert!(!directions.is_empty());
+        assert!(directions
+            .iter()
+            .all(|direction| matches!(direction, crate::direction::Direction::Right | crate::direction::Direction::Down)));
     }
 
     #[test]
