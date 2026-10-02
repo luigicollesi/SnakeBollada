@@ -158,11 +158,10 @@ impl DecisionState {
                 continue;
             };
 
-            let intent = infer_observed_intent(graph, actor, direction);
-            self.opponent_profiles
-                .entry(enemy.id.clone())
-                .or_default()
-                .observe_with_intent(move_set, direction, intent);
+            let inference = infer_observed_intent(graph, actor, direction);
+            let profile = self.opponent_profiles.entry(enemy.id.clone()).or_default();
+            profile.record_intent_inference(direction, inference);
+            profile.observe_with_intent(move_set, direction, inference.contrast());
         }
     }
 }
