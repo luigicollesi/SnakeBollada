@@ -1281,10 +1281,7 @@ mod tests {
         let mut initial = state();
         initial.food.clear();
         initial.snakes = vec![
-            snake(
-                "ours",
-                &[(0, 6), (0, 5), (1, 5), (1, 6), (2, 6)],
-            ),
+            snake("ours", &[(0, 6), (0, 5), (1, 5), (1, 6), (2, 6)]),
             snake("enemy", &[(5, 5), (5, 4)]),
         ];
 
@@ -1306,9 +1303,10 @@ mod tests {
             .collect::<Vec<_>>();
 
         assert!(!directions.is_empty());
-        assert!(directions
-            .iter()
-            .all(|direction| matches!(direction, crate::direction::Direction::Right | crate::direction::Direction::Down)));
+        assert!(directions.iter().all(|direction| matches!(
+            direction,
+            crate::direction::Direction::Right | crate::direction::Direction::Down
+        )));
     }
 
     #[test]
