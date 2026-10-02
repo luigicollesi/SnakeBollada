@@ -144,12 +144,9 @@ impl TransitionFacts {
                 InstantEvent::EnemyKilled {
                     enemy, attribution, ..
                 } => {
-                    if let Some(killer) = attributed_actor(attribution, &parent.state.our_snake_id)
-                    {
-                        if killer != enemy {
-                            if let Some(actor) = parent.state.actor_index(killer) {
-                                kill_benefits.add(actor, KILL_BENEFIT);
-                            }
+                    if let Some(killer) = attributed_actor(attribution) {
+                        if killer != *enemy {
+                            kill_benefits.add(killer, KILL_BENEFIT);
                         }
                     }
                 }
@@ -458,13 +455,9 @@ fn hunting_territory_benefits(parent: &SearchNode, child: &SearchNode) -> ActorV
     benefits
 }
 
-fn attributed_actor<'a>(
-    attribution: &'a EliminationAttribution,
-    our_id: &'a str,
-) -> Option<&'a str> {
+fn attributed_actor(attribution: &EliminationAttribution) -> Option<ActorIndex> {
     match attribution {
-        EliminationAttribution::OurSnake => Some(our_id),
-        EliminationAttribution::OtherSnake(killer) => Some(killer.as_str()),
+        EliminationAttribution::Actor(actor) => Some(*actor),
         EliminationAttribution::SelfInflicted | EliminationAttribution::Environment => None,
     }
 }
