@@ -589,6 +589,10 @@ mod tests {
         }
     }
 
+    fn actor_index(state: &SimulatedGameState, actor_id: &str) -> ActorIndex {
+        state.actor_index(actor_id).expect("actor must exist")
+    }
+
     #[test]
     fn hunting_credits_actor_capturing_enemy_owned_cells() {
         let parent_graph =
@@ -601,7 +605,8 @@ mod tests {
             child_graph.node(child_graph.root()),
         );
 
-        assert!(benefits.get("ours").copied().unwrap_or(0) > 0);
+        let ours = actor_index(&parent_graph.node(parent_graph.root()).state, "ours");
+        assert!(benefits.get(ours).copied().unwrap_or(0) > 0);
     }
 
     #[test]
@@ -634,7 +639,8 @@ mod tests {
 
         assert!(found_denial, "fixture must create causal contested denial");
         let benefits = hunting_territory_benefits(parent, child);
-        assert!(benefits.get("ours").copied().unwrap_or(0) > 0);
+        let ours = actor_index(&parent.state, "ours");
+        assert!(benefits.get(ours).copied().unwrap_or(0) > 0);
     }
 
     #[test]
@@ -647,12 +653,11 @@ mod tests {
         let child = graph.node(edge.child);
         let score = TransitionScore::from_edge(root, edge, child);
 
-        assert!(score.for_actor("ours").is_some());
-        assert!(score.for_actor("enemy").is_some());
-        assert_eq!(
-            score.opponent_net_total,
-            score.for_actor("enemy").unwrap().net
-        );
+        let ours = actor_index(&root.state, "ours");
+        let enemy = actor_index(&root.state, "enemy");
+        assert!(score.for_actor(ours).is_some());
+        assert!(score.for_actor(enemy).is_some());
+        assert_eq!(score.opponent_net_total, score.for_actor(enemy).unwrap().net);
     }
 
     #[test]
@@ -668,7 +673,9 @@ mod tests {
         });
         let child = graph.node(edge.child);
         let score = TransitionScore::from_edge(root, edge, child);
-        let ours = score.for_actor("ours").unwrap();
+        let ours = score
+            .for_actor(actor_index(&root.state, "ours"))
+            .unwrap();
 
         assert!(ours.food_benefit > 0);
         assert!(ours.net > -TERMINAL_UTILITY);
@@ -706,8 +713,13 @@ mod tests {
             child_graph.node(child_graph.root()),
         );
 
-        let ours = score.for_actor("ours").unwrap();
-        let enemy = score.for_actor("enemy").unwrap();
+        let parent = parent_graph.node(parent_graph.root());
+        let ours = score
+            .for_actor(actor_index(&parent.state, "ours"))
+            .unwrap();
+        let enemy = score
+            .for_actor(actor_index(&parent.state, "enemy"))
+            .unwrap();
 
         assert_eq!(ours.terminal_benefit, TERMINAL_UTILITY);
         assert_eq!(ours.terminal_harm, 0);
