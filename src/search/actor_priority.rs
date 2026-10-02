@@ -158,7 +158,7 @@ fn forcing_score(parent: &SearchNode, edge: &SearchEdge) -> i64 {
 mod tests {
     use crate::search::graph::FutureGraph;
     use crate::simulation::state::{
-        AggressionState, RulesContext, SimulatedGameState, SimulatedSnake,
+        RulesContext, SimulatedGameState, SimulatedSnake,
     };
     use crate::Coord;
 
@@ -190,7 +190,6 @@ mod tests {
                 max_health: 100,
                 hazard_damage_per_turn: 0,
             },
-            aggression: AggressionState::default(),
         }
     }
 
