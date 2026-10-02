@@ -110,10 +110,8 @@ impl DecisionState {
         {
             decision
         } else {
-            let mut legacy_graph = FutureGraph::new_with_opponent_profiles(
-                normalized,
-                self.opponent_profiles.clone(),
-            );
+            let mut legacy_graph =
+                FutureGraph::new_with_opponent_profiles(normalized, self.opponent_profiles.clone());
             DecisionEngine::stateless().decide_with_graph_with_reserve_and_intent(
                 state,
                 &mut legacy_graph,
