@@ -538,7 +538,17 @@ fn run_beam_shadow(
                 .our_snake_id
                 .as_str();
             for step in &best.steps {
-                for (actor_id, score) in step.transition.actors.iter() {
+                let Some(edge) = shadow_graph
+                    .node(step.node)
+                    .children
+                    .iter()
+                    .find(|edge| {
+                        edge.child == step.child && edge.joint_action == step.joint_action
+                    })
+                else {
+                    continue;
+                };
+                for (actor_id, score) in edge.transition.actors.iter() {
                     let food = score.food_benefit.saturating_sub(score.food_harm);
                     let hunting = score.hunting_benefit.saturating_sub(score.hunting_harm);
                     let survival = score.survival_benefit.saturating_sub(score.survival_harm);
