@@ -472,7 +472,10 @@ mod tests {
 
         let our_before = initial.snake("ours").unwrap().body.clone();
         let resolved = resolve_turn(&initial, &action).unwrap();
-        assert_eq!(resolved.state.snake("ours").unwrap().body.len(), our_before.len());
+        assert_eq!(
+            resolved.state.snake("ours").unwrap().body.len(),
+            our_before.len()
+        );
     }
 
     #[test]
