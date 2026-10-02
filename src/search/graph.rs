@@ -279,10 +279,15 @@ impl FutureGraph {
             return;
         }
 
-        let our_id = self.nodes[self.root].state.our_snake_id.clone();
+        let root_state = &self.nodes[self.root].state;
+        let Some(our_actor) = root_state.actor_index(&root_state.our_snake_id) else {
+            self.nodes[self.root].children.clear();
+            self.garbage_collect();
+            return;
+        };
         self.nodes[self.root]
             .children
-            .retain(|edge| edge.joint_action.direction_for(&our_id) == Some(direction));
+            .retain(|edge| edge.joint_action.direction_for(our_actor) == Some(direction));
         self.garbage_collect();
     }
 
@@ -1320,7 +1325,11 @@ mod tests {
         graph.expand_to_depth(1).unwrap();
 
         let root = graph.root();
-        let our_id = graph.node(root).state.our_snake_id.clone();
+        let our_actor = graph
+            .node(root)
+            .state
+            .actor_index(&graph.node(root).state.our_snake_id)
+            .unwrap();
         let mut found_shared_child = false;
 
         for direction in crate::direction::Direction::ALL {
@@ -1328,7 +1337,7 @@ mod tests {
                 .node(root)
                 .children
                 .iter()
-                .filter(|edge| edge.joint_action.direction_for(&our_id) == Some(direction))
+                .filter(|edge| edge.joint_action.direction_for(our_actor) == Some(direction))
                 .map(|edge| edge.child)
                 .collect::<Vec<_>>();
             if children.len() >= 2 && children.windows(2).any(|pair| pair[0] == pair[1]) {
@@ -1366,13 +1375,17 @@ mod tests {
         graph.expand_to_depth(1).unwrap();
 
         let root = graph.root();
-        let our_id = graph.node(root).state.our_snake_id.clone();
+        let our_actor = graph
+            .node(root)
+            .state
+            .actor_index(&graph.node(root).state.our_snake_id)
+            .unwrap();
         let border_edges = graph
             .node(root)
             .children
             .iter()
             .filter(|edge| {
-                edge.joint_action.direction_for(&our_id) == Some(crate::direction::Direction::Left)
+                edge.joint_action.direction_for(our_actor) == Some(crate::direction::Direction::Left)
             })
             .collect::<Vec<_>>();
 
@@ -1390,16 +1403,20 @@ mod tests {
         graph.expand_to_depth(2).unwrap();
 
         let root = graph.root();
-        let our_id = graph.node(root).state.our_snake_id.clone();
+        let our_actor = graph
+            .node(root)
+            .state
+            .actor_index(&graph.node(root).state.our_snake_id)
+            .unwrap();
         let direction = graph.node(root).children[0]
             .joint_action
-            .direction_for(&our_id)
+            .direction_for(our_actor)
             .unwrap();
         let expected_responses = graph
             .node(root)
             .children
             .iter()
-            .filter(|edge| edge.joint_action.direction_for(&our_id) == Some(direction))
+            .filter(|edge| edge.joint_action.direction_for(our_actor) == Some(direction))
             .count();
 
         graph.retain_chosen_direction(direction);
@@ -1410,7 +1427,7 @@ mod tests {
             .node(0)
             .children
             .iter()
-            .all(|edge| { edge.joint_action.direction_for(&our_id) == Some(direction) }));
+            .all(|edge| { edge.joint_action.direction_for(our_actor) == Some(direction) }));
     }
 
     #[test]
@@ -1431,7 +1448,7 @@ mod tests {
         let our_id = graph.node(graph.root()).state.our_snake_id.clone();
         let direction = graph.node(graph.root()).children[0]
             .joint_action
-            .direction_for(&our_id)
+            .direction_for(our_actor)
             .unwrap();
 
         graph.retain_chosen_direction(direction);
