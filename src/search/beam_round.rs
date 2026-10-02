@@ -457,7 +457,7 @@ mod tests {
             harm_total: 300,
             our_utility_total: 900,
             opponent_utility_total: 300,
-            actor_utility_totals: crate::evaluation::ActorTable::from_iter([
+            actor_utility_totals: crate::evaluation::ActorVec::from_iter([
                 ("ours".to_string(), 900),
                 ("enemy".to_string(), 300),
             ]),
