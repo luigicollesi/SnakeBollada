@@ -275,6 +275,4 @@ mod tests {
         assert_eq!(decision.direction, Direction::Up);
         assert_eq!(decision.reason, DecisionReason::BaselineFallback);
     }
-
-
 }
