@@ -133,7 +133,8 @@ fn move_snakes(
         .enumerate()
         .filter(|(_, snake)| snake.alive)
     {
-        let actor = ActorIndex::new(index).ok_or_else(|| ResolveError::MissingMove(snake.id.clone()))?;
+        let actor =
+            ActorIndex::new(index).ok_or_else(|| ResolveError::MissingMove(snake.id.clone()))?;
         let direction = joint_action
             .direction_for(actor)
             .ok_or_else(|| ResolveError::MissingMove(snake.id.clone()))?;
@@ -450,10 +451,12 @@ mod tests {
     }
 
     fn action(state: &SimulatedGameState, moves: &[(&str, Direction)]) -> JointAction {
-        moves.iter().fold(JointAction::new(), |action, (actor_id, direction)| {
-            let actor = state.actor_index(actor_id).expect("actor must exist");
-            action.with_move(actor, *direction)
-        })
+        moves
+            .iter()
+            .fold(JointAction::new(), |action, (actor_id, direction)| {
+                let actor = state.actor_index(actor_id).expect("actor must exist");
+                action.with_move(actor, *direction)
+            })
     }
 
     #[test]
