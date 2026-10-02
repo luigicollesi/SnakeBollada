@@ -462,13 +462,13 @@ fn is_pure_best_response(
     enemies: &[ActorIndex],
 ) -> bool {
     enemies.iter().all(|enemy_id| {
-        let current = actor_utility(candidate, enemy_id);
+        let current = actor_utility(candidate, *enemy_id);
         lines
             .iter()
             .filter(|alternative| {
-                same_joint_context_except_actor(node, candidate, alternative, enemy_id)
+                same_joint_context_except_actor(node, candidate, alternative, *enemy_id)
             })
-            .map(|alternative| actor_utility(alternative, enemy_id))
+            .map(|alternative| actor_utility(alternative, *enemy_id))
             .max()
             .unwrap_or(current)
             <= current
@@ -484,13 +484,13 @@ fn unilateral_regret(
     enemies
         .iter()
         .fold((0_i64, 0_i64), |(worst, total), enemy_id| {
-            let current = actor_utility(candidate, enemy_id);
+            let current = actor_utility(candidate, *enemy_id);
             let best = lines
                 .iter()
                 .filter(|alternative| {
-                    same_joint_context_except_actor(node, candidate, alternative, enemy_id)
+                    same_joint_context_except_actor(node, candidate, alternative, *enemy_id)
                 })
-                .map(|alternative| actor_utility(alternative, enemy_id))
+                .map(|alternative| actor_utility(alternative, *enemy_id))
                 .max()
                 .unwrap_or(current);
             let regret = best.saturating_sub(current).max(0);
