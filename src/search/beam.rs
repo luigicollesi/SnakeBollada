@@ -1,7 +1,7 @@
 #![allow(dead_code)]
 
 use crate::direction::Direction;
-use crate::evaluation::ActorTable;
+use crate::evaluation::ActorVec;
 use crate::simulation::joint_action::JointAction;
 
 use super::bounds::ValueBound;
@@ -37,7 +37,7 @@ pub(crate) struct BeamLine {
     pub(crate) harm_total: i64,
     pub(crate) our_utility_total: i64,
     pub(crate) opponent_utility_total: i64,
-    pub(crate) actor_utility_totals: ActorTable<i64>,
+    pub(crate) actor_utility_totals: ActorVec<i64>,
     pub(crate) value: i64,
     pub(crate) terminal: LineTerminal,
     pub(crate) bound: ValueBound,
@@ -62,7 +62,7 @@ impl BeamLine {
             harm_total,
             our_utility_total: value,
             opponent_utility_total: 0,
-            actor_utility_totals: ActorTable::new(),
+            actor_utility_totals: ActorVec::new(),
             value,
             terminal,
             bound: ValueBound::exact(value),
