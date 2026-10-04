@@ -801,28 +801,19 @@ mod tests {
         let graph = FutureGraph::new(state());
         let root = graph.node(graph.root());
 
-        let exact_best = synthetic_response_line(
-            Direction::Down,
-            Direction::Right,
-            -501,
-            57,
-            1,
-        );
-        let near_best_trap = synthetic_response_line(
-            Direction::Down,
-            Direction::Up,
-            -556,
-            48,
-            2,
-        );
+        let exact_best = synthetic_response_line(Direction::Down, Direction::Right, -501, 57, 1);
+        let near_best_trap = synthetic_response_line(Direction::Down, Direction::Up, -556, 48, 2);
 
         let chosen =
             select_selfish_opponent_response(root, vec![exact_best, near_best_trap.clone()]);
 
         assert_eq!(
-            chosen.path.first().unwrap().joint_action.direction_for(
-                ActorIndex::new(1).unwrap()
-            ),
+            chosen
+                .path
+                .first()
+                .unwrap()
+                .joint_action
+                .direction_for(ActorIndex::new(1).unwrap()),
             Some(Direction::Up)
         );
         assert_eq!(chosen.value, near_best_trap.value);
@@ -833,20 +824,9 @@ mod tests {
         let graph = FutureGraph::new(state());
         let root = graph.node(graph.root());
 
-        let exact_best = synthetic_response_line(
-            Direction::Down,
-            Direction::Right,
-            -501,
-            57,
-            1,
-        );
-        let irrational_attack = synthetic_response_line(
-            Direction::Down,
-            Direction::Left,
-            -10_000,
-            -870,
-            2,
-        );
+        let exact_best = synthetic_response_line(Direction::Down, Direction::Right, -501, 57, 1);
+        let irrational_attack =
+            synthetic_response_line(Direction::Down, Direction::Left, -10_000, -870, 2);
 
         let chosen =
             select_selfish_opponent_response(root, vec![exact_best.clone(), irrational_attack]);
