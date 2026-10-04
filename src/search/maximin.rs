@@ -795,7 +795,6 @@ mod tests {
         }
     }
 
-
     #[test]
     fn near_best_enemy_response_can_be_selected_when_it_is_worse_for_us() {
         let graph = FutureGraph::new(state());
@@ -832,9 +831,12 @@ mod tests {
             select_selfish_opponent_response(root, vec![exact_best.clone(), irrational_attack]);
 
         assert_eq!(
-            chosen.path.first().unwrap().joint_action.direction_for(
-                ActorIndex::new(1).unwrap()
-            ),
+            chosen
+                .path
+                .first()
+                .unwrap()
+                .joint_action
+                .direction_for(ActorIndex::new(1).unwrap()),
             Some(Direction::Right)
         );
         assert_eq!(chosen.value, exact_best.value);
