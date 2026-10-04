@@ -563,8 +563,7 @@ mod tests {
         let policy = crate::search::forecast::FoodForecastPolicy::from_game_state(&state);
         let mut graph =
             crate::search::graph::FutureGraph::new_beam_with_forecast(normalized, policy);
-        let budget =
-            crate::search::budget::SearchBudget::from_state_with_extra_reserve(&state, 0);
+        let budget = crate::search::budget::SearchBudget::from_state_with_extra_reserve(&state, 0);
         let result = crate::search::beam_search::search_beam(&mut graph, &budget)
             .unwrap()
             .expect("turn 115 beam must return candidates");
@@ -575,15 +574,17 @@ mod tests {
             .checkpoint
             .lines
             .iter()
-            .map(|line| (
-                line.root_direction,
-                line.value,
-                line.depth,
-                line.terminal,
-                line.certainty,
-                line.our_utility_total,
-                line.opponent_utility_total,
-            ))
+            .map(|line| {
+                (
+                    line.root_direction,
+                    line.value,
+                    line.depth,
+                    line.terminal,
+                    line.certainty,
+                    line.our_utility_total,
+                    line.opponent_utility_total,
+                )
+            })
             .collect::<Vec<_>>();
 
         let root_edges = graph
@@ -597,9 +598,15 @@ mod tests {
                 let snapshot = child.active_analysis()?.actor_snapshot(our_actor)?;
                 Some((
                     direction,
-                    actor_score.food_benefit.saturating_sub(actor_score.food_harm),
-                    actor_score.hunting_benefit.saturating_sub(actor_score.hunting_harm),
-                    actor_score.survival_benefit.saturating_sub(actor_score.survival_harm),
+                    actor_score
+                        .food_benefit
+                        .saturating_sub(actor_score.food_harm),
+                    actor_score
+                        .hunting_benefit
+                        .saturating_sub(actor_score.hunting_harm),
+                    actor_score
+                        .survival_benefit
+                        .saturating_sub(actor_score.survival_harm),
                     actor_score.actor_terminal,
                     snapshot.metrics.safe_non_reverse_moves,
                     snapshot.metrics.space_capacity_milli,
@@ -616,7 +623,6 @@ mod tests {
             result.deepening.attempted_depth
         );
     }
-
 
     #[test]
     fn strategy_prefers_non_hazard_food_candidate_before_hazard_candidate() {
