@@ -603,8 +603,8 @@ mod tests {
             .iter()
             .filter_map(|edge| {
                 let direction = edge.joint_action.direction_for(our_actor)?;
-                let actor_score = edge.transition.for_actor(our_actor)?;
                 let enemy_direction = edge.joint_action.direction_for(enemy_actor)?;
+                let actor_score = edge.transition.for_actor(our_actor)?;
                 let enemy_score = edge.transition.for_actor(enemy_actor)?;
                 let child = graph.node(edge.child);
                 let snapshot = child.active_analysis()?.actor_snapshot(our_actor)?;
@@ -614,20 +614,9 @@ mod tests {
                     actor_score.actor_choice_net,
                     enemy_score.actor_choice_net,
                     actor_score
-                        .food_benefit
-                        .saturating_sub(actor_score.food_harm),
-                    actor_score
-                        .hunting_benefit
-                        .saturating_sub(actor_score.hunting_harm),
-                    actor_score
                         .survival_benefit
                         .saturating_sub(actor_score.survival_harm),
-                    actor_score.actor_terminal,
                     snapshot.metrics.safe_non_reverse_moves,
-                    snapshot.metrics.space_capacity_milli,
-                    snapshot.metrics.enclosure_risk,
-                    snapshot.metrics.border_pin_risk_milli,
-                    snapshot.metrics.border_escape_pressure_milli,
                 ))
             })
             .collect::<Vec<_>>();
