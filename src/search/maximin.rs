@@ -1082,8 +1082,11 @@ mod tests {
 
         let graph = FutureGraph::new(state());
         let node = graph.node(graph.root());
-        let chosen =
-            select_selfish_opponent_response(node, vec![hurts_us_more, benefits_enemy_more]);
+        let chosen = select_selfish_opponent_response(
+            &graph,
+            node,
+            vec![hurts_us_more, benefits_enemy_more],
+        );
 
         assert_eq!(chosen.opponent_utility_total, 200);
         assert_eq!(chosen.our_utility_total, -50);
@@ -1120,7 +1123,7 @@ mod tests {
         let unrelated = synthetic_joint_line(0, 70, 70, Direction::Down, Direction::Down, 4);
 
         let chosen = select_selfish_opponent_response(
-            self.graph,
+            &graph,
             node,
             vec![equilibrium, a_deviation, b_deviation, unrelated],
         );
@@ -1155,7 +1158,7 @@ mod tests {
         let individually_balanced = synthetic_multi_enemy_line(0, 140, 140, 3);
 
         let chosen = select_selfish_opponent_response(
-            self.graph,
+            &graph,
             node,
             vec![enemy_a_extreme, enemy_b_extreme, individually_balanced],
         );
