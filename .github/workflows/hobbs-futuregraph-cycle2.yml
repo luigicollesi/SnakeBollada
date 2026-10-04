@@ -4,7 +4,7 @@ on:
   pull_request:
     branches: [dev]
     paths:
-      - ".github/workflows/hobbs-growth-simulation.yml"
+      - ".github/workflows/hobbs-futuregraph-cycle2.yml"
   workflow_dispatch:
 
 jobs:
