@@ -7,11 +7,13 @@ use crate::evaluation::ActorVec;
 use crate::simulation::joint_action::JointAction;
 
 use super::bounds::ValueBound;
+use super::forecast::ForecastCertainty;
 use super::graph::NodeId;
 
 pub(crate) const SEED_DEPTH: u8 = 3;
 pub(crate) const BEAM_WIDTH: usize = 3;
 pub(crate) const ROUND_DEPTH: u8 = 2;
+pub(crate) const MAX_BEAM_DEPTH: u8 = 21;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub(crate) struct LineId(pub(crate) u32);
@@ -140,6 +142,7 @@ pub(crate) struct BeamLine {
     pub(crate) actor_utility_totals: ActorVec<i64>,
     pub(crate) value: i64,
     pub(crate) terminal: LineTerminal,
+    pub(crate) certainty: ForecastCertainty,
     pub(crate) bound: ValueBound,
     pub(crate) path: BeamPath,
 }
@@ -165,13 +168,22 @@ impl BeamLine {
             actor_utility_totals: ActorVec::new(),
             value,
             terminal,
+            certainty: ForecastCertainty::Deterministic,
             bound: ValueBound::exact(value),
             path: BeamPath::empty(),
         }
     }
 
     pub(crate) fn is_viable(&self) -> bool {
-        self.terminal != LineTerminal::Lost
+        !self.is_confirmed_loss()
+    }
+
+    pub(crate) fn is_confirmed_loss(&self) -> bool {
+        self.terminal == LineTerminal::Lost && self.certainty == ForecastCertainty::Deterministic
+    }
+
+    pub(crate) fn is_confirmed_win(&self) -> bool {
+        self.terminal == LineTerminal::Won && self.certainty == ForecastCertainty::Deterministic
     }
 
     pub(crate) fn completes_depth(&self, target_depth: u8) -> bool {
@@ -216,6 +228,12 @@ impl BeamCheckpoint {
                 .then_with(|| right.root_direction.rank().cmp(&left.root_direction.rank()))
                 .then_with(|| right.id.cmp(&left.id))
         })
+    }
+
+    pub(crate) fn has_running_lines(&self) -> bool {
+        self.lines
+            .iter()
+            .any(|line| line.terminal == LineTerminal::Running)
     }
 }
 
@@ -386,6 +404,16 @@ mod tests {
 
         next[2].depth = 5;
         assert!(checkpoint.can_commit(&next));
+    }
+
+    #[test]
+    fn provisional_loss_remains_viable_for_comparison() {
+        let mut loss = line(9, Direction::Down, -50_000);
+        loss.terminal = LineTerminal::Lost;
+        loss.certainty = ForecastCertainty::FoodProvisional;
+
+        assert!(loss.is_viable());
+        assert!(!loss.is_confirmed_loss());
     }
 
     #[test]

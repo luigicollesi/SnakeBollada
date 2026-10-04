@@ -20,6 +20,7 @@ use crate::spatial::SpatialOccupancy;
 
 use super::actor_priority::ordered_child_ids_for_search;
 use super::budget::SearchBudget;
+use super::forecast::{FoodForecastPolicy, ForecastDelta};
 
 pub(crate) type NodeId = usize;
 
@@ -72,6 +73,7 @@ pub(crate) struct SubtreeExpansion {
 pub(crate) struct SearchEdge {
     pub(crate) joint_action: JointAction,
     pub(crate) transition: TransitionScore,
+    pub(crate) forecast_delta: ForecastDelta,
     pub(crate) child: NodeId,
 }
 
@@ -139,18 +141,25 @@ pub(crate) struct FutureGraph {
     transposition_hits: u32,
     edge_count: u32,
     opponent_profiles: OpponentProfiles,
+    forecast_policy: FoodForecastPolicy,
     action_batch_estimate: Duration,
     perf_stats: GraphPerfStats,
 }
 
 impl FutureGraph {
+    #[cfg(test)]
     pub(crate) fn new(root_state: SimulatedGameState) -> Self {
-        Self::new_with_opponent_profiles(root_state, OpponentProfiles::default())
+        Self::new_with_context(
+            root_state,
+            OpponentProfiles::default(),
+            FoodForecastPolicy::default(),
+        )
     }
 
-    pub(crate) fn new_with_opponent_profiles(
+    pub(crate) fn new_with_context(
         root_state: SimulatedGameState,
         opponent_profiles: OpponentProfiles,
+        forecast_policy: FoodForecastPolicy,
     ) -> Self {
         let root_node = build_node(root_state);
         let root_key = root_node.key.clone();
@@ -162,20 +171,30 @@ impl FutureGraph {
             transposition_hits: 0,
             edge_count: 0,
             opponent_profiles,
+            forecast_policy,
             action_batch_estimate: INITIAL_BATCH_ESTIMATE,
             perf_stats: GraphPerfStats::default(),
         }
     }
 
+    #[cfg(test)]
     pub(crate) fn new_beam(root_state: SimulatedGameState) -> Self {
         Self::new(root_state)
     }
 
-    pub(crate) fn new_beam_with_opponent_profiles(
+    pub(crate) fn new_beam_with_forecast(
+        root_state: SimulatedGameState,
+        forecast_policy: FoodForecastPolicy,
+    ) -> Self {
+        Self::new_with_context(root_state, OpponentProfiles::default(), forecast_policy)
+    }
+
+    pub(crate) fn new_beam_with_opponent_profiles_and_forecast(
         root_state: SimulatedGameState,
         opponent_profiles: OpponentProfiles,
+        forecast_policy: FoodForecastPolicy,
     ) -> Self {
-        Self::new_with_opponent_profiles(root_state, opponent_profiles)
+        Self::new_with_context(root_state, opponent_profiles, forecast_policy)
     }
 
     pub(crate) fn set_opponent_profiles(&mut self, opponent_profiles: OpponentProfiles) {
@@ -766,6 +785,7 @@ impl FutureGraph {
                     SearchEdge {
                         joint_action: candidate.joint_action,
                         transition,
+                        forecast_delta: self.forecast_policy.delta_after(&nodes[child].state),
                         child,
                     }
                 })
@@ -1092,6 +1112,32 @@ mod tests {
         assert!(found_shared_child);
         assert!(graph.transposition_hits() > 0);
         assert!(graph.edge_count() as usize > graph.node_count().saturating_sub(1));
+    }
+
+    #[test]
+    fn random_food_spawn_marks_nonterminal_children_provisional() {
+        let mut graph = FutureGraph::new_with_context(
+            state(),
+            OpponentProfiles::default(),
+            FoodForecastPolicy {
+                spawn_chance_percent: 15,
+                minimum_food: 1,
+            },
+        );
+        graph.expand_to_depth(1).unwrap();
+
+        let root = graph.root();
+        let uncertain = graph
+            .node(root)
+            .children
+            .iter()
+            .filter(|edge| !graph.node(edge.child).is_terminal())
+            .collect::<Vec<_>>();
+
+        assert!(!uncertain.is_empty());
+        assert!(uncertain.iter().all(|edge| {
+            edge.forecast_delta == crate::search::forecast::ForecastDelta::FoodUncertainty
+        }));
     }
 
     #[test]

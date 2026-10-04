@@ -91,10 +91,11 @@ async fn handle_move(move_req: Json<GameState>, runtime: &State<GameRuntime>) ->
     let beam = decision.search.beam_shadow;
     let beam_direction = beam.direction.map_or("-", |direction| direction.as_str());
     info!(
-        "MOVE {}: {} ({:?}) depth={} nodes={} edges={} transpositions={} elapsed_us={} reserve_us={} beam_move={} beam_attempted={} beam_value={} batches={} parallel_batches={} actions={} new_nodes={} resolve_us={} build_us={} merge_us={} score_us={} ours_food={} ours_hunt={} ours_survival={} ours_terminal={} enemy_food={} enemy_hunt={} enemy_survival={} enemy_terminal={}",
+        "MOVE {}: {} ({:?}) depth={} completed_depth={} nodes={} edges={} transpositions={} elapsed_us={} reserve_us={} beam_move={} beam_attempted={} beam_value={} forecast_provisional={} terminal_confirmed={} batches={} parallel_batches={} actions={} new_nodes={} resolve_us={} build_us={} merge_us={} score_us={} ours_food={} ours_hunt={} ours_survival={} ours_terminal={} enemy_food={} enemy_hunt={} enemy_survival={} enemy_terminal={}",
         move_req.turn,
         decision.direction.as_str(),
         decision.reason,
+        decision.search.analyzed_depth,
         decision.search.completed_depth,
         decision.search.nodes,
         decision.search.edges,
@@ -104,6 +105,8 @@ async fn handle_move(move_req: Json<GameState>, runtime: &State<GameRuntime>) ->
         beam_direction,
         beam.attempted_depth,
         beam.best_value,
+        beam.forecast_provisional,
+        beam.terminal_confirmed,
         beam.action_batches,
         beam.parallel_action_batches,
         beam.resolved_actions,

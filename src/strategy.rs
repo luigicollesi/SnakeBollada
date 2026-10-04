@@ -26,6 +26,7 @@ pub(crate) struct BeamShadowMetadata {
     pub(crate) direction: Option<Direction>,
     pub(crate) agreed_with_legacy: bool,
     pub(crate) completed_depth: u8,
+    pub(crate) selected_depth: u8,
     pub(crate) attempted_depth: u8,
     pub(crate) line_count: u8,
     pub(crate) best_value: i64,
@@ -46,6 +47,8 @@ pub(crate) struct BeamShadowMetadata {
     pub(crate) opponent_hunting_utility: i64,
     pub(crate) opponent_survival_utility: i64,
     pub(crate) opponent_terminal_utility: i64,
+    pub(crate) forecast_provisional: bool,
+    pub(crate) terminal_confirmed: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -355,6 +358,66 @@ mod tests {
 
         assert_eq!(decision.reason, DecisionReason::BeamUtility);
         assert_eq!(decision.direction, Direction::Left);
+    }
+
+    #[test]
+    fn hobbs_cycle_one_turn_34_avoids_fatal_top_edge_corridor() {
+        let mut ours = snake(
+            "ours",
+            vec![
+                Coord { x: 4, y: 10 },
+                Coord { x: 4, y: 9 },
+                Coord { x: 4, y: 8 },
+                Coord { x: 3, y: 8 },
+            ],
+        );
+        ours.health = 87;
+
+        let mut enemy = snake(
+            "enemy",
+            vec![
+                Coord { x: 5, y: 7 },
+                Coord { x: 4, y: 7 },
+                Coord { x: 3, y: 7 },
+                Coord { x: 2, y: 7 },
+                Coord { x: 2, y: 6 },
+                Coord { x: 1, y: 6 },
+            ],
+        );
+        enemy.health = 93;
+
+        let mut state = state_on_board(
+            11,
+            11,
+            ours,
+            vec![enemy],
+            vec![
+                Coord { x: 8, y: 10 },
+                Coord { x: 9, y: 3 },
+                Coord { x: 10, y: 2 },
+                Coord { x: 10, y: 8 },
+            ],
+        );
+        state.turn = 34;
+        state.game.ruleset.insert(
+            "settings".to_string(),
+            json!({
+                "foodSpawnChance": 15,
+                "minimumFood": 1,
+                "hazardDamagePerTurn": 14
+            }),
+        );
+
+        let decision = choose_move(&state);
+
+        assert_eq!(decision.reason, DecisionReason::BeamUtility);
+        assert_eq!(
+            decision.direction,
+            Direction::Left,
+            "turn 34 must stay out of the top-edge corridor: {decision:?}"
+        );
+        assert!(decision.search.analyzed_depth <= crate::search::beam::MAX_BEAM_DEPTH);
+        assert!(decision.search.completed_depth <= crate::search::beam::MAX_BEAM_DEPTH);
     }
 
     #[test]
