@@ -490,6 +490,109 @@ mod tests {
     }
 
     #[test]
+    fn diagnostic_cycle2_turn114_hobbs_move_plausibility() {
+        let mut ours = snake(
+            "ours",
+            vec![
+                Coord { x: 2, y: 6 },
+                Coord { x: 2, y: 7 },
+                Coord { x: 2, y: 8 },
+                Coord { x: 2, y: 9 },
+                Coord { x: 3, y: 9 },
+                Coord { x: 3, y: 8 },
+                Coord { x: 4, y: 8 },
+                Coord { x: 4, y: 7 },
+                Coord { x: 4, y: 6 },
+                Coord { x: 4, y: 5 },
+                Coord { x: 5, y: 5 },
+                Coord { x: 5, y: 6 },
+                Coord { x: 5, y: 7 },
+            ],
+        );
+        ours.health = 98;
+
+        let mut enemy = snake(
+            "enemy",
+            vec![
+                Coord { x: 3, y: 3 },
+                Coord { x: 3, y: 2 },
+                Coord { x: 2, y: 2 },
+                Coord { x: 1, y: 2 },
+                Coord { x: 0, y: 2 },
+                Coord { x: 0, y: 3 },
+                Coord { x: 1, y: 3 },
+                Coord { x: 1, y: 4 },
+                Coord { x: 1, y: 5 },
+                Coord { x: 0, y: 5 },
+                Coord { x: 0, y: 6 },
+                Coord { x: 0, y: 7 },
+                Coord { x: 0, y: 8 },
+            ],
+        );
+        enemy.health = 96;
+
+        let mut state = state_on_board(
+            11,
+            11,
+            ours,
+            vec![enemy],
+            vec![Coord { x: 10, y: 6 }, Coord { x: 8, y: 10 }],
+        );
+        state.turn = 114;
+        state.game.ruleset.insert(
+            "settings".to_string(),
+            json!({
+                "foodSpawnChance": 15,
+                "minimumFood": 1,
+                "hazardDamagePerTurn": 14
+            }),
+        );
+
+        let normalized = crate::simulation::state::SimulatedGameState::from(&state);
+        let enemy_actor = normalized.actor_index("enemy").unwrap();
+        let profile = crate::enemy::profile::OpponentProfile {
+            food_bias_milli: 1300,
+            hunting_bias_milli: 1300,
+            trapping_bias_milli: 1010,
+            head_threat_bias_milli: 1000,
+            observations: 113,
+            unexpected_moves: 0,
+            intent_stats: crate::enemy::profile::OpponentIntentStats::default(),
+        };
+        let mut profiles = std::collections::HashMap::new();
+        profiles.insert("enemy".to_string(), profile);
+
+        let graph = crate::search::graph::FutureGraph::new_beam_with_opponent_profiles_and_forecast(
+            normalized,
+            profiles,
+            crate::search::forecast::FoodForecastPolicy::from_game_state(&state),
+        );
+        let move_set = graph
+            .node(graph.root())
+            .active_analysis()
+            .unwrap()
+            .tracing
+            .for_actor(enemy_actor)
+            .unwrap();
+
+        let rows = move_set
+            .hypotheses
+            .iter()
+            .map(|hypothesis| {
+                (
+                    hypothesis.direction,
+                    hypothesis.plausibility_milli,
+                    profile.adjusted_plausibility(*hypothesis),
+                    hypothesis.support,
+                    hypothesis.threat,
+                )
+            })
+            .collect::<Vec<_>>();
+
+        panic!("CYCLE2_T114_PLAUSIBILITY {rows:?}");
+    }
+
+    #[test]
     fn beam_avoids_equal_head_to_head_when_enemy_response_is_forced() {
         let ours = snake(
             "ours",
