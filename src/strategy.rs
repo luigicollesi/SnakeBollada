@@ -496,7 +496,6 @@ mod tests {
         ));
     }
 
-
     #[test]
     fn diagnostic_hobbs_cycle2_turn114_root_lines() {
         let mut ours = snake(
