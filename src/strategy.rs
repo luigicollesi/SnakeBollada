@@ -566,11 +566,24 @@ mod tests {
 
         let root = graph.root();
         let our_actor = graph.node(root).state.actor_index("ours").unwrap();
+        let enemy_actor = graph.node(root).state.actor_index("enemy").unwrap();
         let candidates = result
             .checkpoint
             .lines
             .iter()
             .map(|line| {
+                let opening = line
+                    .path
+                    .steps()
+                    .into_iter()
+                    .take(6)
+                    .map(|step| {
+                        (
+                            step.joint_action.direction_for(our_actor),
+                            step.joint_action.direction_for(enemy_actor),
+                        )
+                    })
+                    .collect::<Vec<_>>();
                 (
                     line.root_direction,
                     line.value,
@@ -579,6 +592,7 @@ mod tests {
                     line.certainty,
                     line.our_utility_total,
                     line.opponent_utility_total,
+                    opening,
                 )
             })
             .collect::<Vec<_>>();
