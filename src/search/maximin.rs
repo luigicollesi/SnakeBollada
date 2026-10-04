@@ -350,11 +350,7 @@ impl MaximinEvaluator<'_> {
                     .collect::<Vec<_>>();
 
                 if selected.len() == edge_variants.len() {
-                    policies.push(select_selfish_opponent_response(
-                        self.graph,
-                        node,
-                        selected,
-                    ));
+                    policies.push(select_selfish_opponent_response(self.graph, node, selected));
                 }
             }
         }
@@ -863,8 +859,11 @@ mod tests {
         let exact_best = synthetic_response_line(Direction::Down, Direction::Right, -501, 57, 1);
         let near_best_trap = synthetic_response_line(Direction::Down, Direction::Up, -556, 48, 2);
 
-        let chosen =
-            select_selfish_opponent_response(&graph, root, vec![exact_best, near_best_trap.clone()]);
+        let chosen = select_selfish_opponent_response(
+            &graph,
+            root,
+            vec![exact_best, near_best_trap.clone()],
+        );
 
         assert_eq!(
             chosen
@@ -914,8 +913,11 @@ mod tests {
         let irrational_attack =
             synthetic_response_line(Direction::Down, Direction::Left, -10_000, -870, 2);
 
-        let chosen =
-            select_selfish_opponent_response(&graph, root, vec![exact_best.clone(), irrational_attack]);
+        let chosen = select_selfish_opponent_response(
+            &graph,
+            root,
+            vec![exact_best.clone(), irrational_attack],
+        );
 
         assert_eq!(
             chosen
