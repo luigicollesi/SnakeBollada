@@ -496,12 +496,12 @@ mod tests {
         ));
     }
 
+
     #[test]
-    fn diagnostic_hobbs_cycle2_turn115_root_lines() {
+    fn diagnostic_hobbs_cycle2_turn114_root_lines() {
         let mut ours = snake(
             "ours",
             vec![
-                Coord { x: 2, y: 5 },
                 Coord { x: 2, y: 6 },
                 Coord { x: 2, y: 7 },
                 Coord { x: 2, y: 8 },
@@ -514,14 +514,14 @@ mod tests {
                 Coord { x: 4, y: 5 },
                 Coord { x: 5, y: 5 },
                 Coord { x: 5, y: 6 },
+                Coord { x: 5, y: 7 },
             ],
         );
-        ours.health = 97;
+        ours.health = 98;
 
         let mut enemy = snake(
             "enemy",
             vec![
-                Coord { x: 3, y: 4 },
                 Coord { x: 3, y: 3 },
                 Coord { x: 3, y: 2 },
                 Coord { x: 2, y: 2 },
@@ -534,22 +534,19 @@ mod tests {
                 Coord { x: 0, y: 5 },
                 Coord { x: 0, y: 6 },
                 Coord { x: 0, y: 7 },
+                Coord { x: 0, y: 8 },
             ],
         );
-        enemy.health = 95;
+        enemy.health = 96;
 
         let mut state = state_on_board(
             11,
             11,
             ours,
             vec![enemy],
-            vec![
-                Coord { x: 10, y: 6 },
-                Coord { x: 8, y: 10 },
-                Coord { x: 6, y: 3 },
-            ],
+            vec![Coord { x: 10, y: 6 }, Coord { x: 8, y: 10 }],
         );
-        state.turn = 115;
+        state.turn = 114;
         state.game.ruleset.insert(
             "settings".to_string(),
             json!({
@@ -566,7 +563,7 @@ mod tests {
         let budget = crate::search::budget::SearchBudget::from_state_with_extra_reserve(&state, 0);
         let result = crate::search::beam_search::search_beam(&mut graph, &budget)
             .unwrap()
-            .expect("turn 115 beam must return candidates");
+            .expect("turn 114 beam must return candidates");
 
         let root = graph.root();
         let our_actor = graph.node(root).state.actor_index("ours").unwrap();
@@ -618,7 +615,7 @@ mod tests {
             .collect::<Vec<_>>();
 
         panic!(
-            "TURN115_DIAGNOSTIC completed_depth={} attempted_depth={} candidates={candidates:?} root_edges={root_edges:?}",
+            "TURN114_DIAGNOSTIC completed_depth={} attempted_depth={} candidates={candidates:?} root_edges={root_edges:?}",
             result.completed_depth(),
             result.deepening.attempted_depth
         );
