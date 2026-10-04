@@ -497,6 +497,128 @@ mod tests {
     }
 
     #[test]
+    fn diagnostic_hobbs_cycle2_turn115_root_lines() {
+        let mut ours = snake(
+            "ours",
+            vec![
+                Coord { x: 2, y: 5 },
+                Coord { x: 2, y: 6 },
+                Coord { x: 2, y: 7 },
+                Coord { x: 2, y: 8 },
+                Coord { x: 2, y: 9 },
+                Coord { x: 3, y: 9 },
+                Coord { x: 3, y: 8 },
+                Coord { x: 4, y: 8 },
+                Coord { x: 4, y: 7 },
+                Coord { x: 4, y: 6 },
+                Coord { x: 4, y: 5 },
+                Coord { x: 5, y: 5 },
+                Coord { x: 5, y: 6 },
+            ],
+        );
+        ours.health = 97;
+
+        let mut enemy = snake(
+            "enemy",
+            vec![
+                Coord { x: 3, y: 4 },
+                Coord { x: 3, y: 3 },
+                Coord { x: 3, y: 2 },
+                Coord { x: 2, y: 2 },
+                Coord { x: 1, y: 2 },
+                Coord { x: 0, y: 2 },
+                Coord { x: 0, y: 3 },
+                Coord { x: 1, y: 3 },
+                Coord { x: 1, y: 4 },
+                Coord { x: 1, y: 5 },
+                Coord { x: 0, y: 5 },
+                Coord { x: 0, y: 6 },
+                Coord { x: 0, y: 7 },
+            ],
+        );
+        enemy.health = 95;
+
+        let mut state = state_on_board(
+            11,
+            11,
+            ours,
+            vec![enemy],
+            vec![
+                Coord { x: 10, y: 6 },
+                Coord { x: 8, y: 10 },
+                Coord { x: 6, y: 3 },
+            ],
+        );
+        state.turn = 115;
+        state.game.ruleset.insert(
+            "settings".to_string(),
+            json!({
+                "foodSpawnChance": 15,
+                "minimumFood": 1,
+                "hazardDamagePerTurn": 14
+            }),
+        );
+
+        let normalized = crate::simulation::state::SimulatedGameState::from(&state);
+        let policy = crate::search::forecast::FoodForecastPolicy::from_game_state(&state);
+        let mut graph =
+            crate::search::graph::FutureGraph::new_beam_with_forecast(normalized, policy);
+        let budget =
+            crate::search::budget::SearchBudget::from_state_with_extra_reserve(&state, 0);
+        let result = crate::search::beam_search::search_beam(&mut graph, &budget)
+            .unwrap()
+            .expect("turn 115 beam must return candidates");
+
+        let root = graph.root();
+        let our_actor = graph.node(root).state.actor_index("ours").unwrap();
+        let candidates = result
+            .checkpoint
+            .lines
+            .iter()
+            .map(|line| (
+                line.root_direction,
+                line.value,
+                line.depth,
+                line.terminal,
+                line.certainty,
+                line.our_utility_total,
+                line.opponent_utility_total,
+            ))
+            .collect::<Vec<_>>();
+
+        let root_edges = graph
+            .node(root)
+            .children
+            .iter()
+            .filter_map(|edge| {
+                let direction = edge.joint_action.direction_for(our_actor)?;
+                let actor_score = edge.transition.for_actor(our_actor)?;
+                let child = graph.node(edge.child);
+                let snapshot = child.active_analysis()?.actor_snapshot(our_actor)?;
+                Some((
+                    direction,
+                    actor_score.food_benefit.saturating_sub(actor_score.food_harm),
+                    actor_score.hunting_benefit.saturating_sub(actor_score.hunting_harm),
+                    actor_score.survival_benefit.saturating_sub(actor_score.survival_harm),
+                    actor_score.actor_terminal,
+                    snapshot.metrics.safe_non_reverse_moves,
+                    snapshot.metrics.space_capacity_milli,
+                    snapshot.metrics.enclosure_risk,
+                    snapshot.metrics.border_pin_risk_milli,
+                    snapshot.metrics.border_escape_pressure_milli,
+                ))
+            })
+            .collect::<Vec<_>>();
+
+        panic!(
+            "TURN115_DIAGNOSTIC completed_depth={} attempted_depth={} candidates={candidates:?} root_edges={root_edges:?}",
+            result.completed_depth(),
+            result.deepening.attempted_depth
+        );
+    }
+
+
+    #[test]
     fn strategy_prefers_non_hazard_food_candidate_before_hazard_candidate() {
         let ours = snake("ours", vec![Coord { x: 3, y: 3 }]);
         let hazard_food = Coord { x: 4, y: 3 };
