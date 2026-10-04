@@ -201,6 +201,13 @@ impl FutureGraph {
         self.opponent_profiles = opponent_profiles;
     }
 
+    pub(crate) fn opponent_profile(
+        &self,
+        snake_id: &str,
+    ) -> Option<&crate::enemy::profile::OpponentProfile> {
+        self.opponent_profiles.get(snake_id)
+    }
+
     pub(crate) fn reset_performance(&mut self) {
         self.perf_stats = GraphPerfStats::default();
     }

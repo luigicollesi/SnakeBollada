@@ -15,6 +15,8 @@ const TERMINAL_VALUE: i64 = 1_000_000_000;
 const INCOMPLETE_MARGIN: i64 = 20_000;
 const MAX_VARIANTS_PER_NODE: usize = 3;
 const OPPONENT_RESPONSE_UTILITY_SLACK: i64 = 100;
+const MIN_NEAR_BEST_PLAUSIBILITY_MILLI: u16 = 250;
+const OPPONENT_RESPONSE_PLAUSIBILITY_SLACK_MILLI: u16 = 150;
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub(crate) struct MaximinStats {
@@ -324,6 +326,7 @@ impl MaximinEvaluator<'_> {
 
         let mut policies = Vec::new();
         policies.push(select_selfish_opponent_response(
+            self.graph,
             node,
             edge_variants
                 .iter()
@@ -347,7 +350,11 @@ impl MaximinEvaluator<'_> {
                     .collect::<Vec<_>>();
 
                 if selected.len() == edge_variants.len() {
-                    policies.push(select_selfish_opponent_response(node, selected));
+                    policies.push(select_selfish_opponent_response(
+                        self.graph,
+                        node,
+                        selected,
+                    ));
                 }
             }
         }
@@ -442,7 +449,11 @@ fn max_our_choices(lines: Vec<EvaluatedLine>) -> EvaluatedLine {
         .expect("MAX requires at least one line")
 }
 
-fn select_selfish_opponent_response(node: &SearchNode, lines: Vec<EvaluatedLine>) -> EvaluatedLine {
+fn select_selfish_opponent_response(
+    graph: &FutureGraph,
+    node: &SearchNode,
+    lines: Vec<EvaluatedLine>,
+) -> EvaluatedLine {
     let lower = lines
         .iter()
         .map(|line| line.bound.lower())
@@ -466,7 +477,7 @@ fn select_selfish_opponent_response(node: &SearchNode, lines: Vec<EvaluatedLine>
 
     let near_best_responses = lines
         .iter()
-        .filter(|candidate| is_near_best_response(node, candidate, &lines, &enemies))
+        .filter(|candidate| is_near_best_response(graph, node, candidate, &lines, &enemies))
         .cloned()
         .collect::<Vec<_>>();
 
@@ -510,6 +521,7 @@ fn select_selfish_opponent_response(node: &SearchNode, lines: Vec<EvaluatedLine>
 }
 
 fn is_near_best_response(
+    graph: &FutureGraph,
     node: &SearchNode,
     candidate: &EvaluatedLine,
     lines: &[EvaluatedLine],
@@ -517,17 +529,65 @@ fn is_near_best_response(
 ) -> bool {
     enemies.iter().all(|enemy_id| {
         let current = actor_utility(candidate, *enemy_id);
-        lines
+        let alternatives = lines
             .iter()
             .filter(|alternative| {
                 same_joint_context_except_actor(node, candidate, alternative, *enemy_id)
             })
+            .collect::<Vec<_>>();
+        let best = alternatives
+            .iter()
             .map(|alternative| actor_utility(alternative, *enemy_id))
             .max()
-            .unwrap_or(current)
-            .saturating_sub(current)
-            <= OPPONENT_RESPONSE_UTILITY_SLACK
+            .unwrap_or(current);
+        let regret = best.saturating_sub(current);
+
+        if regret > OPPONENT_RESPONSE_UTILITY_SLACK {
+            return false;
+        }
+        if regret == 0 {
+            return true;
+        }
+
+        let Some(current_plausibility) =
+            response_plausibility_milli(graph, node, candidate, *enemy_id)
+        else {
+            return false;
+        };
+        if current_plausibility < MIN_NEAR_BEST_PLAUSIBILITY_MILLI {
+            return false;
+        }
+
+        let best_plausibility = alternatives
+            .iter()
+            .filter_map(|alternative| {
+                response_plausibility_milli(graph, node, alternative, *enemy_id)
+            })
+            .max()
+            .unwrap_or(current_plausibility);
+
+        best_plausibility.saturating_sub(current_plausibility)
+            <= OPPONENT_RESPONSE_PLAUSIBILITY_SLACK_MILLI
     })
+}
+
+fn response_plausibility_milli(
+    graph: &FutureGraph,
+    node: &SearchNode,
+    line: &EvaluatedLine,
+    enemy_id: ActorIndex,
+) -> Option<u16> {
+    let direction = line.path.first()?.joint_action.direction_for(enemy_id)?;
+    let move_set = node.active_analysis()?.tracing.for_actor(enemy_id)?;
+    let hypothesis = move_set.hypothesis(direction)?;
+    let enemy = node.state.snake_at(enemy_id)?;
+    Some(
+        graph
+            .opponent_profile(&enemy.id)
+            .map_or(hypothesis.plausibility_milli, |profile| {
+                profile.adjusted_plausibility(hypothesis)
+            }),
+    )
 }
 
 fn unilateral_regret(
@@ -804,7 +864,7 @@ mod tests {
         let near_best_trap = synthetic_response_line(Direction::Down, Direction::Up, -556, 48, 2);
 
         let chosen =
-            select_selfish_opponent_response(root, vec![exact_best, near_best_trap.clone()]);
+            select_selfish_opponent_response(&graph, root, vec![exact_best, near_best_trap.clone()]);
 
         assert_eq!(
             chosen
@@ -819,6 +879,33 @@ mod tests {
     }
 
     #[test]
+    fn unsupported_near_best_enemy_response_is_not_promoted_by_slack_alone() {
+        let graph = FutureGraph::new(state());
+        let root = graph.node(graph.root());
+
+        let supported_best = synthetic_response_line(Direction::Down, Direction::Up, -501, 57, 1);
+        let unsupported_near_best =
+            synthetic_response_line(Direction::Down, Direction::Right, -10_000, 48, 2);
+
+        let chosen = select_selfish_opponent_response(
+            &graph,
+            root,
+            vec![supported_best.clone(), unsupported_near_best],
+        );
+
+        assert_eq!(
+            chosen
+                .path
+                .first()
+                .unwrap()
+                .joint_action
+                .direction_for(ActorIndex::new(1).unwrap()),
+            Some(Direction::Up)
+        );
+        assert_eq!(chosen.value, supported_best.value);
+    }
+
+    #[test]
     fn clearly_irrational_enemy_response_remains_excluded_even_if_worse_for_us() {
         let graph = FutureGraph::new(state());
         let root = graph.node(graph.root());
@@ -828,7 +915,7 @@ mod tests {
             synthetic_response_line(Direction::Down, Direction::Left, -10_000, -870, 2);
 
         let chosen =
-            select_selfish_opponent_response(root, vec![exact_best.clone(), irrational_attack]);
+            select_selfish_opponent_response(&graph, root, vec![exact_best.clone(), irrational_attack]);
 
         assert_eq!(
             chosen
@@ -1031,6 +1118,7 @@ mod tests {
         let unrelated = synthetic_joint_line(0, 70, 70, Direction::Down, Direction::Down, 4);
 
         let chosen = select_selfish_opponent_response(
+            self.graph,
             node,
             vec![equilibrium, a_deviation, b_deviation, unrelated],
         );
@@ -1065,6 +1153,7 @@ mod tests {
         let individually_balanced = synthetic_multi_enemy_line(0, 140, 140, 3);
 
         let chosen = select_selfish_opponent_response(
+            self.graph,
             node,
             vec![enemy_a_extreme, enemy_b_extreme, individually_balanced],
         );
