@@ -604,10 +604,15 @@ mod tests {
             .filter_map(|edge| {
                 let direction = edge.joint_action.direction_for(our_actor)?;
                 let actor_score = edge.transition.for_actor(our_actor)?;
+                let enemy_direction = edge.joint_action.direction_for(enemy_actor)?;
+                let enemy_score = edge.transition.for_actor(enemy_actor)?;
                 let child = graph.node(edge.child);
                 let snapshot = child.active_analysis()?.actor_snapshot(our_actor)?;
                 Some((
                     direction,
+                    enemy_direction,
+                    actor_score.actor_choice_net,
+                    enemy_score.actor_choice_net,
                     actor_score
                         .food_benefit
                         .saturating_sub(actor_score.food_harm),
