@@ -14,6 +14,7 @@ use super::graph::{FutureGraph, NodeId, SearchEdge, SearchNode};
 const TERMINAL_VALUE: i64 = 1_000_000_000;
 const INCOMPLETE_MARGIN: i64 = 20_000;
 const MAX_VARIANTS_PER_NODE: usize = 3;
+const OPPONENT_RESPONSE_UTILITY_SLACK: i64 = 100;
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub(crate) struct MaximinStats {
@@ -463,13 +464,13 @@ fn select_selfish_opponent_response(node: &SearchNode, lines: Vec<EvaluatedLine>
         .filter_map(|(index, _)| ActorIndex::new(index))
         .collect::<Vec<_>>();
 
-    let pure_best_responses = lines
+    let near_best_responses = lines
         .iter()
-        .filter(|candidate| is_pure_best_response(node, candidate, &lines, &enemies))
+        .filter(|candidate| is_near_best_response(node, candidate, &lines, &enemies))
         .cloned()
         .collect::<Vec<_>>();
 
-    let mut chosen = if pure_best_responses.is_empty() {
+    let mut chosen = if near_best_responses.is_empty() {
         lines
             .iter()
             .min_by(|left, right| {
@@ -488,7 +489,7 @@ fn select_selfish_opponent_response(node: &SearchNode, lines: Vec<EvaluatedLine>
             .cloned()
             .expect("opponent response selection requires at least one line")
     } else {
-        pure_best_responses
+        near_best_responses
             .into_iter()
             .min_by(|left, right| {
                 left.value.cmp(&right.value).then_with(|| {
@@ -508,7 +509,7 @@ fn select_selfish_opponent_response(node: &SearchNode, lines: Vec<EvaluatedLine>
     chosen
 }
 
-fn is_pure_best_response(
+fn is_near_best_response(
     node: &SearchNode,
     candidate: &EvaluatedLine,
     lines: &[EvaluatedLine],
@@ -524,7 +525,8 @@ fn is_pure_best_response(
             .map(|alternative| actor_utility(alternative, *enemy_id))
             .max()
             .unwrap_or(current)
-            <= current
+            .saturating_sub(current)
+            <= OPPONENT_RESPONSE_UTILITY_SLACK
     })
 }
 
@@ -760,6 +762,102 @@ mod tests {
                 child,
             }),
         }
+    }
+
+    fn synthetic_response_line(
+        our_direction: Direction,
+        enemy_direction: Direction,
+        ours: i64,
+        enemy: i64,
+        child: NodeId,
+    ) -> EvaluatedLine {
+        let value = route_value(ours, enemy);
+        EvaluatedLine {
+            value,
+            benefit_total: ours.max(0),
+            harm_total: ours.max(0).saturating_sub(ours),
+            our_utility_total: ours,
+            opponent_utility_total: enemy,
+            actor_utility_totals: ActorVec::from_iter([
+                (ActorIndex::new(0).unwrap(), ours),
+                (ActorIndex::new(1).unwrap(), enemy),
+            ]),
+            terminal: LineTerminal::Running,
+            certainty: ForecastCertainty::Deterministic,
+            bound: ValueBound::Exact(value),
+            path: BeamPath::single(BeamStep {
+                node: 0,
+                joint_action: JointAction::new()
+                    .with_move(ActorIndex::new(0).unwrap(), our_direction)
+                    .with_move(ActorIndex::new(1).unwrap(), enemy_direction),
+                child,
+            }),
+        }
+    }
+
+
+    #[test]
+    fn near_best_enemy_response_can_be_selected_when_it_is_worse_for_us() {
+        let graph = FutureGraph::new(state());
+        let root = graph.node(graph.root());
+
+        let exact_best = synthetic_response_line(
+            Direction::Down,
+            Direction::Right,
+            -501,
+            57,
+            1,
+        );
+        let near_best_trap = synthetic_response_line(
+            Direction::Down,
+            Direction::Up,
+            -556,
+            48,
+            2,
+        );
+
+        let chosen =
+            select_selfish_opponent_response(root, vec![exact_best, near_best_trap.clone()]);
+
+        assert_eq!(
+            chosen.path.first().unwrap().joint_action.direction_for(
+                ActorIndex::new(1).unwrap()
+            ),
+            Some(Direction::Up)
+        );
+        assert_eq!(chosen.value, near_best_trap.value);
+    }
+
+    #[test]
+    fn clearly_irrational_enemy_response_remains_excluded_even_if_worse_for_us() {
+        let graph = FutureGraph::new(state());
+        let root = graph.node(graph.root());
+
+        let exact_best = synthetic_response_line(
+            Direction::Down,
+            Direction::Right,
+            -501,
+            57,
+            1,
+        );
+        let irrational_attack = synthetic_response_line(
+            Direction::Down,
+            Direction::Left,
+            -10_000,
+            -870,
+            2,
+        );
+
+        let chosen =
+            select_selfish_opponent_response(root, vec![exact_best.clone(), irrational_attack]);
+
+        assert_eq!(
+            chosen.path.first().unwrap().joint_action.direction_for(
+                ActorIndex::new(1).unwrap()
+            ),
+            Some(Direction::Right)
+        );
+        assert_eq!(chosen.value, exact_best.value);
     }
 
     #[test]

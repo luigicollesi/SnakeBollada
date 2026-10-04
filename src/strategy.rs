@@ -421,6 +421,75 @@ mod tests {
     }
 
     #[test]
+    fn hobbs_cycle_two_turn_114_does_not_accept_exact_best_response_trap() {
+        let mut ours = snake(
+            "ours",
+            vec![
+                Coord { x: 2, y: 6 },
+                Coord { x: 2, y: 7 },
+                Coord { x: 2, y: 8 },
+                Coord { x: 2, y: 9 },
+                Coord { x: 3, y: 9 },
+                Coord { x: 3, y: 8 },
+                Coord { x: 4, y: 8 },
+                Coord { x: 4, y: 7 },
+                Coord { x: 4, y: 6 },
+                Coord { x: 4, y: 5 },
+                Coord { x: 5, y: 5 },
+                Coord { x: 5, y: 6 },
+                Coord { x: 5, y: 7 },
+            ],
+        );
+        ours.health = 98;
+
+        let mut enemy = snake(
+            "enemy",
+            vec![
+                Coord { x: 3, y: 3 },
+                Coord { x: 3, y: 2 },
+                Coord { x: 2, y: 2 },
+                Coord { x: 1, y: 2 },
+                Coord { x: 0, y: 2 },
+                Coord { x: 0, y: 3 },
+                Coord { x: 1, y: 3 },
+                Coord { x: 1, y: 4 },
+                Coord { x: 1, y: 5 },
+                Coord { x: 0, y: 5 },
+                Coord { x: 0, y: 6 },
+                Coord { x: 0, y: 7 },
+                Coord { x: 0, y: 8 },
+            ],
+        );
+        enemy.health = 96;
+
+        let mut state = state_on_board(
+            11,
+            11,
+            ours,
+            vec![enemy],
+            vec![Coord { x: 10, y: 6 }, Coord { x: 8, y: 10 }],
+        );
+        state.turn = 114;
+        state.game.ruleset.insert(
+            "settings".to_string(),
+            json!({
+                "foodSpawnChance": 15,
+                "minimumFood": 1,
+                "hazardDamagePerTurn": 14
+            }),
+        );
+
+        let decision = choose_move(&state);
+
+        assert_eq!(decision.reason, DecisionReason::BeamUtility);
+        assert_ne!(
+            decision.direction,
+            Direction::Down,
+            "turn 114 must account for Hobbs' near-best trapping response: {decision:?}"
+        );
+    }
+
+    #[test]
     fn beam_avoids_equal_head_to_head_when_enemy_response_is_forced() {
         let ours = snake(
             "ours",
