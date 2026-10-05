@@ -644,6 +644,47 @@ mod tests {
                 })
                 .collect::<Vec<_>>();
 
+            for line in &result.checkpoint.lines {
+                let path = line
+                    .path
+                    .steps()
+                    .iter()
+                    .map(|step| {
+                        let node = graph.node(step.child);
+                        let our_head = node
+                            .state
+                            .snake("ours")
+                            .and_then(|snake| snake.head())
+                            .map(|head| (head.x, head.y));
+                        let enemy_head = node
+                            .state
+                            .snake("enemy")
+                            .and_then(|snake| snake.head())
+                            .map(|head| (head.x, head.y));
+                        let our_health = node.state.snake("ours").map(|snake| snake.health);
+                        let enemy_health = node.state.snake("enemy").map(|snake| snake.health);
+                        (
+                            step.joint_action.direction_for(ours_actor),
+                            node.state.actor_index("enemy").and_then(|actor| {
+                                step.joint_action.direction_for(actor)
+                            }),
+                            our_head,
+                            enemy_head,
+                            our_health,
+                            enemy_health,
+                            node.is_terminal(),
+                        )
+                    })
+                    .collect::<Vec<_>>();
+                eprintln!(
+                    "{label}_PATH dir={:?} terminal={:?} certainty={:?} value={} path={path:?}",
+                    line.root_direction,
+                    line.terminal,
+                    line.certainty,
+                    line.value
+                );
+            }
+
             eprintln!(
                 "{label} completed_depth={} rows={rows:?}",
                 result.completed_depth()
