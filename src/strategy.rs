@@ -656,7 +656,7 @@ mod tests {
     }
 
     #[test]
-    fn diagnostic_cycle8_turn_67_forced_corridor() {
+    fn diagnostic_cycle8_turn_67_forced_corridor() { // response-candidate trace
         let mut ours = snake(
             "ours",
             vec![
