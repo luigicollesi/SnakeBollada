@@ -560,31 +560,39 @@ mod tests {
                     .map(|step| step.child)
                     .unwrap_or(graph.root());
                 let node = graph.node(tip);
-                let ours = node.active_analysis().and_then(|a| a.actor_snapshot(our_actor));
-                let enemy = node.active_analysis().and_then(|a| a.actor_snapshot(enemy_actor));
+                let ours = node
+                    .active_analysis()
+                    .and_then(|a| a.actor_snapshot(our_actor));
+                let enemy = node
+                    .active_analysis()
+                    .and_then(|a| a.actor_snapshot(enemy_actor));
                 (
                     line.root_direction,
                     line.value,
                     line.depth,
                     line.our_utility_total,
                     line.opponent_utility_total,
-                    ours.map(|s| (
-                        s.metrics.growth_pressure_milli,
-                        s.metrics.safe_non_reverse_moves,
-                        s.metrics.enclosure_risk,
-                        s.metrics.space_capacity_milli,
-                        s.metrics.border_pin_risk_milli,
-                        s.metrics.border_escape_pressure_milli,
-                    )),
+                    ours.map(|s| {
+                        (
+                            s.metrics.growth_pressure_milli,
+                            s.metrics.safe_non_reverse_moves,
+                            s.metrics.enclosure_risk,
+                            s.metrics.space_capacity_milli,
+                            s.metrics.border_pin_risk_milli,
+                            s.metrics.border_escape_pressure_milli,
+                        )
+                    }),
                     enemy.map(|s| s.metrics.growth_pressure_milli),
                     line.path
                         .steps()
                         .into_iter()
                         .take(5)
-                        .map(|step| (
-                            step.joint_action.direction_for(our_actor),
-                            step.joint_action.direction_for(enemy_actor),
-                        ))
+                        .map(|step| {
+                            (
+                                step.joint_action.direction_for(our_actor),
+                                step.joint_action.direction_for(enemy_actor),
+                            )
+                        })
                         .collect::<Vec<_>>(),
                 )
             })
