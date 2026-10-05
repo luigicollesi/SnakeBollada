@@ -585,6 +585,150 @@ mod tests {
     }
 
     #[test]
+    fn diagnostic_hobbs_cycle_five_turn_270_root_scores() {
+        let mut ours = snake(
+            "ours",
+            vec![
+                Coord { x: 5, y: 5 },
+                Coord { x: 5, y: 4 },
+                Coord { x: 5, y: 3 },
+                Coord { x: 6, y: 3 },
+                Coord { x: 7, y: 3 },
+                Coord { x: 7, y: 2 },
+                Coord { x: 8, y: 2 },
+                Coord { x: 9, y: 2 },
+                Coord { x: 9, y: 1 },
+                Coord { x: 10, y: 1 },
+                Coord { x: 10, y: 2 },
+                Coord { x: 10, y: 3 },
+                Coord { x: 9, y: 3 },
+                Coord { x: 9, y: 4 },
+                Coord { x: 8, y: 4 },
+                Coord { x: 7, y: 4 },
+                Coord { x: 6, y: 4 },
+                Coord { x: 6, y: 5 },
+                Coord { x: 7, y: 5 },
+                Coord { x: 7, y: 6 },
+                Coord { x: 6, y: 6 },
+                Coord { x: 6, y: 7 },
+                Coord { x: 6, y: 8 },
+                Coord { x: 6, y: 9 },
+                Coord { x: 6, y: 10 },
+                Coord { x: 5, y: 10 },
+                Coord { x: 5, y: 9 },
+                Coord { x: 4, y: 9 },
+            ],
+        );
+        ours.health = 93;
+
+        let mut enemy = snake(
+            "enemy",
+            vec![
+                Coord { x: 5, y: 7 },
+                Coord { x: 4, y: 7 },
+                Coord { x: 4, y: 6 },
+                Coord { x: 3, y: 6 },
+                Coord { x: 3, y: 5 },
+                Coord { x: 2, y: 5 },
+                Coord { x: 1, y: 5 },
+                Coord { x: 1, y: 4 },
+                Coord { x: 2, y: 4 },
+                Coord { x: 2, y: 3 },
+                Coord { x: 3, y: 3 },
+                Coord { x: 3, y: 4 },
+                Coord { x: 4, y: 4 },
+                Coord { x: 4, y: 3 },
+                Coord { x: 4, y: 2 },
+                Coord { x: 4, y: 1 },
+                Coord { x: 5, y: 1 },
+                Coord { x: 6, y: 1 },
+                Coord { x: 7, y: 1 },
+                Coord { x: 8, y: 1 },
+                Coord { x: 8, y: 0 },
+            ],
+        );
+        enemy.health = 84;
+
+        let mut state = state_on_board(
+            11,
+            11,
+            ours,
+            vec![enemy],
+            vec![
+                Coord { x: 1, y: 1 },
+                Coord { x: 0, y: 1 },
+                Coord { x: 0, y: 8 },
+                Coord { x: 0, y: 5 },
+                Coord { x: 4, y: 5 },
+                Coord { x: 2, y: 0 },
+            ],
+        );
+        state.turn = 270;
+        state.game.ruleset.insert(
+            "settings".to_string(),
+            json!({
+                "foodSpawnChance": 15,
+                "minimumFood": 1,
+                "hazardDamagePerTurn": 14
+            }),
+        );
+
+        let normalized = crate::simulation::state::SimulatedGameState::from(&state);
+        let policy = crate::search::forecast::FoodForecastPolicy::from_game_state(&state);
+        let mut graph =
+            crate::search::graph::FutureGraph::new_beam_with_forecast(normalized, policy);
+        let budget = crate::search::budget::SearchBudget::from_state_with_extra_reserve(&state, 0);
+        let result = crate::search::beam_search::search_beam(&mut graph, &budget)
+            .unwrap()
+            .expect("turn 270 beam must return candidates");
+
+        let root = graph.root();
+        let ours_actor = graph.node(root).state.actor_index("ours").unwrap();
+        let enemy_actor = graph.node(root).state.actor_index("enemy").unwrap();
+        let rows = result
+            .checkpoint
+            .lines
+            .iter()
+            .map(|line| {
+                let first = line.path.first().and_then(|step| {
+                    graph.node(step.node).children.iter().find(|edge| {
+                        edge.child == step.child && edge.joint_action == step.joint_action
+                    })
+                });
+                let ours_score = first.and_then(|edge| edge.transition.for_actor(ours_actor));
+                let enemy_move = line
+                    .path
+                    .first()
+                    .and_then(|step| step.joint_action.direction_for(enemy_actor));
+                let child_safe_moves = first
+                    .and_then(|edge| graph.node(edge.child).active_analysis())
+                    .and_then(|analysis| analysis.actor_snapshot(ours_actor))
+                    .map(|snapshot| snapshot.metrics.safe_non_reverse_moves);
+
+                (
+                    line.root_direction,
+                    enemy_move,
+                    line.value,
+                    line.our_utility_total,
+                    line.opponent_utility_total,
+                    line.depth,
+                    line.terminal,
+                    line.certainty,
+                    ours_score.map(|score| score.food_benefit),
+                    ours_score.map(|score| score.survival_harm),
+                    ours_score.map(|score| score.net),
+                    child_safe_moves,
+                )
+            })
+            .collect::<Vec<_>>();
+
+        panic!(
+            "CYCLE5_T270_DIAGNOSTIC completed_depth={} rows={rows:?}",
+            result.completed_depth()
+        );
+    }
+
+    #[test]
     fn beam_avoids_equal_head_to_head_when_enemy_response_is_forced() {
         let ours = snake(
             "ours",
