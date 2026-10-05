@@ -1271,7 +1271,7 @@ mod tests {
     }
 
     #[test]
-    fn depth_three_can_emit_multiple_variants_for_one_root_direction_before_beam_selection() {
+    fn depth_three_emits_one_rational_policy_per_root_direction() {
         let mut graph = FutureGraph::new(state());
         graph.expand_to_depth(SEED_DEPTH).unwrap();
 
@@ -1282,6 +1282,7 @@ mod tests {
                 counts[usize::from(line.root_direction.rank())].saturating_add(1);
         }
 
-        assert!(counts.into_iter().any(|count| count >= 2));
+        assert!(!result.lines.is_empty());
+        assert!(counts.into_iter().all(|count| count <= 1));
     }
 }
