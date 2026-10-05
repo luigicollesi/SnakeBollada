@@ -633,13 +633,9 @@ mod tests {
             .iter()
             .map(|line| {
                 let first_edge = line.path.first().and_then(|step| {
-                    graph
-                        .node(step.node)
-                        .children
-                        .iter()
-                        .find(|edge| {
-                            edge.child == step.child && edge.joint_action == step.joint_action
-                        })
+                    graph.node(step.node).children.iter().find(|edge| {
+                        edge.child == step.child && edge.joint_action == step.joint_action
+                    })
                 });
                 let first_score = first_edge.and_then(|edge| edge.transition.for_actor(ours_actor));
                 (
