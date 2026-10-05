@@ -586,7 +586,7 @@ mod tests {
 
 
     #[test]
-    fn diagnostic_cycle6_provisional_wins() {
+    fn diagnostic_cycle6_provisional_wins() { // trigger diagnostic CI
         fn diagnose(label: &str, raw: &str) {
             let state: GameState = serde_json::from_str(raw).expect("fixture must deserialize");
             let normalized = crate::simulation::state::SimulatedGameState::from(&state);
