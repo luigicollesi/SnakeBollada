@@ -657,6 +657,7 @@ mod tests {
 
     #[test]
     fn diagnostic_cycle8_turn_67_forced_corridor() {
+        // Force a fresh PR synchronize event for the response-candidate trace.
         let mut ours = snake(
             "ours",
             vec![
