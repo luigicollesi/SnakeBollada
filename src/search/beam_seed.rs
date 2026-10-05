@@ -8,7 +8,7 @@ use super::beam::{
 use super::beam_round::append_continuation;
 use super::budget::SearchBudget;
 use super::graph::{FutureGraph, NodeId, SearchError};
-use super::maximin::{evaluate_continuations, evaluate_seed_beam};
+use super::maximin::{evaluate_seed_beam, evaluate_seed_lines};
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub(crate) struct BeamSeedStats {
