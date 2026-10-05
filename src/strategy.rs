@@ -321,6 +321,87 @@ mod tests {
     }
 
     #[test]
+    fn diagnostic_food_one_longer_root_lines() {
+        let ours = snake(
+            "ours",
+            vec![
+                Coord { x: 2, y: 9 },
+                Coord { x: 2, y: 8 },
+                Coord { x: 2, y: 7 },
+            ],
+        );
+        let enemy = snake(
+            "enemy",
+            vec![
+                Coord { x: 3, y: 6 },
+                Coord { x: 4, y: 6 },
+                Coord { x: 5, y: 6 },
+                Coord { x: 6, y: 6 },
+            ],
+        );
+        let state = state_on_board(
+            11,
+            11,
+            ours,
+            vec![enemy],
+            vec![
+                Coord { x: 0, y: 2 },
+                Coord { x: 5, y: 5 },
+                Coord { x: 1, y: 9 },
+                Coord { x: 9, y: 4 },
+            ],
+        );
+
+        let normalized = crate::simulation::state::SimulatedGameState::from(&state);
+        let policy = crate::search::forecast::FoodForecastPolicy::from_game_state(&state);
+        let mut graph =
+            crate::search::graph::FutureGraph::new_beam_with_forecast(normalized, policy);
+        let budget =
+            crate::search::budget::SearchBudget::from_state_with_extra_reserve(&state, 0);
+        let result = crate::search::beam_search::search_beam(&mut graph, &budget)
+            .unwrap()
+            .expect("diagnostic beam must return candidates");
+
+        let rows = result
+            .checkpoint
+            .lines
+            .iter()
+            .map(|line| {
+                (
+                    line.root_direction,
+                    line.value,
+                    line.depth,
+                    line.terminal,
+                    line.our_utility_total,
+                    line.opponent_utility_total,
+                )
+            })
+            .collect::<Vec<_>>();
+
+        let root = graph.root();
+        let ours_actor = graph.node(root).state.actor_index("ours").unwrap();
+        let edges = graph
+            .node(root)
+            .children
+            .iter()
+            .filter_map(|edge| {
+                let direction = edge.joint_action.direction_for(ours_actor)?;
+                let score = edge.transition.for_actor(ours_actor)?;
+                Some((
+                    direction,
+                    score.food_benefit,
+                    score.food_harm,
+                    score.survival_benefit,
+                    score.survival_harm,
+                    score.actor_choice_net,
+                ))
+            })
+            .collect::<Vec<_>>();
+
+        panic!("FOOD_ONE_LONGER rows={rows:?} edges={edges:?}");
+    }
+
+    #[test]
     fn hobbs_regression_does_not_voluntarily_enter_corner_pin() {
         let ours = snake(
             "ours",
