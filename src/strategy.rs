@@ -636,8 +636,7 @@ mod tests {
         let policy = crate::search::forecast::FoodForecastPolicy::from_game_state(&state);
         let mut graph =
             crate::search::graph::FutureGraph::new_beam_with_forecast(normalized, policy);
-        let budget =
-            crate::search::budget::SearchBudget::from_state_with_extra_reserve(&state, 0);
+        let budget = crate::search::budget::SearchBudget::from_state_with_extra_reserve(&state, 0);
         let result = crate::search::beam_search::search_beam(&mut graph, &budget)
             .unwrap()
             .expect("turn 34 beam must return candidates");
@@ -647,19 +646,19 @@ mod tests {
             .lines
             .iter()
             .map(|line| {
-                let leaf = line
-                    .path
-                    .steps()
-                    .last()
-                    .map(|step| graph.node(step.child));
+                let leaf = line.path.steps().last().map(|step| graph.node(step.child));
                 let ours_actor = leaf.and_then(|node| node.state.actor_index("ours"));
                 let enemy_actor = leaf.and_then(|node| node.state.actor_index("enemy"));
-                let ours_snapshot = leaf
-                    .and_then(|node| node.active_analysis())
-                    .and_then(|analysis| ours_actor.and_then(|actor| analysis.actor_snapshot(actor)));
-                let enemy_snapshot = leaf
-                    .and_then(|node| node.active_analysis())
-                    .and_then(|analysis| enemy_actor.and_then(|actor| analysis.actor_snapshot(actor)));
+                let ours_snapshot =
+                    leaf.and_then(|node| node.active_analysis())
+                        .and_then(|analysis| {
+                            ours_actor.and_then(|actor| analysis.actor_snapshot(actor))
+                        });
+                let enemy_snapshot =
+                    leaf.and_then(|node| node.active_analysis())
+                        .and_then(|analysis| {
+                            enemy_actor.and_then(|actor| analysis.actor_snapshot(actor))
+                        });
 
                 (
                     line.root_direction,
