@@ -471,8 +471,7 @@ fn score_actor_transition(
         &mut survival_harm,
     );
 
-    food_benefit =
-        weighted(food_benefit, weights.food).saturating_add(growth_consumption_urgency);
+    food_benefit = weighted(food_benefit, weights.food).saturating_add(growth_consumption_urgency);
     food_harm = weighted(food_harm, weights.food);
     hunting_benefit = weighted(hunting_benefit, weights.hunting);
     hunting_harm = weighted(hunting_harm, weights.hunting);
