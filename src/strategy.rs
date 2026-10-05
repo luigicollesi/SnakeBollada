@@ -807,10 +807,7 @@ mod tests {
 
     #[test]
     fn diagnostic_hobbs_cycle_five_turn_267_and_268_root_scores() {
-        fn diagnose(
-            state: GameState,
-            label: &str,
-        ) -> Vec<(
+        type DiagnosticRow = (
             Direction,
             i64,
             i64,
@@ -819,7 +816,9 @@ mod tests {
             LineTerminal,
             ForecastCertainty,
             Option<u8>,
-        )> {
+        );
+
+        fn diagnose(state: GameState, label: &str) -> Vec<DiagnosticRow> {
             let normalized = crate::simulation::state::SimulatedGameState::from(&state);
             let policy = crate::search::forecast::FoodForecastPolicy::from_game_state(&state);
             let mut graph =
