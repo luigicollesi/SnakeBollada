@@ -15,6 +15,8 @@ use crate::GameState;
 
 const ABSOLUTE_SWITCH_MARGIN: i64 = 150;
 const RELATIVE_SWITCH_MARGIN_PERCENT: i64 = 8;
+const IMMEDIATE_GROWTH_PRESSURE_THRESHOLD_MILLI: u16 = 750;
+const IMMEDIATE_SAFE_FOOD_REGRET: i64 = 1_500;
 
 #[derive(Debug, Clone)]
 pub(crate) struct BeamDecisionOutcome {
@@ -123,6 +125,10 @@ fn select_line_with_continuity<'a>(
     incumbent_direction: Option<Direction>,
 ) -> Option<&'a BeamLine> {
     let best = result.best_line()?;
+    if let Some(food_claim) = immediate_safe_growth_claim(graph, result, best) {
+        return Some(food_claim);
+    }
+
     let Some(direction) = incumbent_direction else {
         return Some(best);
     };
@@ -144,6 +150,76 @@ fn select_line_with_continuity<'a>(
         incumbent,
         root_has_survival_emergency(graph),
     ))
+}
+
+fn immediate_safe_growth_claim<'a>(
+    graph: &FutureGraph,
+    result: &'a BeamSearchResult,
+    best: &'a BeamLine,
+) -> Option<&'a BeamLine> {
+    let root = graph.node(graph.root());
+    let our_actor = root.state.actor_index(&root.state.our_snake_id)?;
+    let snapshot = root.active_analysis()?.actor_snapshot(our_actor)?;
+    if snapshot.metrics.growth_pressure_milli < IMMEDIATE_GROWTH_PRESSURE_THRESHOLD_MILLI {
+        return None;
+    }
+
+    result
+        .checkpoint
+        .lines
+        .iter()
+        .filter(|line| {
+            line.is_viable()
+                && line
+                    .value
+                    .saturating_add(IMMEDIATE_SAFE_FOOD_REGRET)
+                    >= best.value
+        })
+        .filter(|line| line_immediately_claims_safe_food(graph, line, our_actor))
+        .max_by(|left, right| {
+            left.value
+                .cmp(&right.value)
+                .then_with(|| right.root_direction.rank().cmp(&left.root_direction.rank()))
+        })
+}
+
+fn line_immediately_claims_safe_food(
+    graph: &FutureGraph,
+    line: &BeamLine,
+    our_actor: crate::simulation::state::ActorIndex,
+) -> bool {
+    let root = graph.node(graph.root());
+    let Some(step) = line.path.first() else {
+        return false;
+    };
+    if step.node != graph.root() {
+        return false;
+    }
+    let Some(edge) = root
+        .children
+        .iter()
+        .find(|edge| edge.child == step.child && edge.joint_action == step.joint_action)
+    else {
+        return false;
+    };
+    let child = graph.node(edge.child);
+    let Some(our_snake) = child.state.snake_at(our_actor) else {
+        return false;
+    };
+    if !our_snake.alive {
+        return false;
+    }
+    let Some(head) = our_snake.head() else {
+        return false;
+    };
+    if !root.state.food.contains(&head) {
+        return false;
+    }
+
+    child
+        .active_analysis()
+        .and_then(|analysis| analysis.actor_snapshot(our_actor))
+        .is_some_and(|snapshot| snapshot.metrics.safe_non_reverse_moves > 0)
 }
 
 fn select_incumbent_or_challenger<'a>(
