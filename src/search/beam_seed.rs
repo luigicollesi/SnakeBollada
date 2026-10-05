@@ -3,7 +3,7 @@
 use std::time::Instant;
 
 use super::beam::{
-    select_seed_beam, BeamCheckpoint, BeamLine, LineId, LineTerminal, BEAM_WIDTH, SEED_DEPTH,
+    select_seed_beam, BeamCheckpoint, BeamLine, LineTerminal, BEAM_WIDTH, SEED_DEPTH,
 };
 use super::beam_round::append_continuation;
 use super::budget::SearchBudget;
@@ -63,15 +63,7 @@ pub(crate) fn build_seed_checkpoint(
         )));
     }
 
-    let mut next_line_id = checkpoint
-        .lines
-        .iter()
-        .map(|line| line.id.0)
-        .max()
-        .unwrap_or(0)
-        .saturating_add(1);
-
-    checkpoint = deepen_seed_while_affordable(graph, checkpoint, budget, &mut next_line_id)?;
+    checkpoint = deepen_seed_while_affordable(graph, checkpoint, budget)?;
     completed_depth = checkpoint.completed_depth;
 
     let valid = checkpoint.lines.iter().all(|line| {
@@ -96,16 +88,13 @@ fn deepen_seed_while_affordable(
     graph: &mut FutureGraph,
     mut checkpoint: BeamCheckpoint,
     budget: &SearchBudget,
-    next_line_id: &mut u32,
 ) -> Result<BeamCheckpoint, SearchError> {
     while checkpoint.completed_depth < SEED_DEPTH && !has_single_root_direction(&checkpoint.lines) {
         if budget.expired() {
             break;
         }
 
-        let Some(next_checkpoint) =
-            deepen_seed_one_layer(graph, &checkpoint, budget, next_line_id)?
-        else {
+        let Some(next_checkpoint) = deepen_seed_one_layer(graph, &checkpoint, budget)? else {
             break;
         };
 
@@ -119,49 +108,55 @@ fn deepen_seed_one_layer(
     graph: &mut FutureGraph,
     checkpoint: &BeamCheckpoint,
     budget: &SearchBudget,
-    next_line_id: &mut u32,
 ) -> Result<Option<BeamCheckpoint>, SearchError> {
-    let mut tips = Vec::<NodeId>::new();
-    for line in &checkpoint.lines {
-        if line.terminal != LineTerminal::Running {
-            continue;
-        }
-        let Some(tip) = line.path.last().map(|step| step.child) else {
-            return Ok(None);
-        };
-        if !tips.contains(&tip) {
-            tips.push(tip);
-        }
-    }
+    let target_depth = checkpoint.completed_depth.saturating_add(1).min(SEED_DEPTH);
+    let root = graph.root();
+    let Some(our_actor) = graph
+        .node(root)
+        .state
+        .actor_index(&graph.node(root).state.our_snake_id)
+    else {
+        return Ok(None);
+    };
 
-    for tip in tips {
-        let expansion = graph.expand_prioritized_subtree(tip, 1, budget)?;
+    let mut active_directions = checkpoint
+        .lines
+        .iter()
+        .map(|line| line.root_direction)
+        .collect::<Vec<_>>();
+    active_directions.sort_by_key(|direction| direction.rank());
+    active_directions.dedup();
+
+    let mut response_children = graph
+        .node(root)
+        .children
+        .iter()
+        .filter(|edge| {
+            edge.joint_action
+                .direction_for(our_actor)
+                .is_some_and(|direction| active_directions.contains(&direction))
+        })
+        .map(|edge| edge.child)
+        .collect::<Vec<_>>();
+    response_children.sort_unstable();
+    response_children.dedup();
+
+    let additional_depth = target_depth.saturating_sub(1);
+    for child in response_children {
+        let expansion =
+            graph.expand_prioritized_subtree(child, additional_depth, budget)?;
         if !expansion.completed {
             return Ok(None);
         }
     }
 
-    let mut candidates = Vec::<BeamLine>::new();
-    for line in &checkpoint.lines {
-        if line.terminal != LineTerminal::Running {
-            candidates.push(line.clone());
-            continue;
-        }
-
-        let Some(tip) = line.path.last().map(|step| step.child) else {
-            return Ok(None);
-        };
-        let continuations = evaluate_continuations(graph, tip, 1, line.certainty);
-        for continuation in continuations
-            .into_iter()
-            .filter(|continuation| continuation.bound.is_exact())
-        {
-            let mut candidate = append_continuation(line, continuation);
-            candidate.id = LineId(*next_line_id);
-            *next_line_id = next_line_id.saturating_add(1);
-            candidates.push(candidate);
-        }
-    }
+    let candidates = evaluate_seed_lines(graph, target_depth)
+        .lines
+        .into_iter()
+        .filter(|line| active_directions.contains(&line.root_direction))
+        .filter(|line| line.bound.is_exact())
+        .filter(|line| line.terminal != LineTerminal::Running || line.depth == target_depth)
+        .collect::<Vec<BeamLine>>();
 
     if candidates.is_empty() {
         return Ok(None);
@@ -305,18 +300,9 @@ mod tests {
         let checkpoint =
             BeamCheckpoint::new(first_evaluation.lines).expect("depth-one checkpoint must exist");
         let original = checkpoint.clone();
-        let mut next_line_id = original
-            .lines
-            .iter()
-            .map(|line| line.id.0)
-            .max()
-            .unwrap_or(0)
-            .saturating_add(1);
         let expired = SearchBudget::for_duration(Duration::ZERO);
 
-        let retained =
-            deepen_seed_while_affordable(&mut graph, checkpoint, &expired, &mut next_line_id)
-                .unwrap();
+        let retained = deepen_seed_while_affordable(&mut graph, checkpoint, &expired).unwrap();
 
         assert_eq!(retained, original);
         assert_eq!(retained.completed_depth, 1);
