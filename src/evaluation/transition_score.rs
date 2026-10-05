@@ -354,8 +354,8 @@ fn score_actor_transition(
     let (mut food_benefit, mut food_harm) =
         food_potential_delta(facts.food_potential_before, facts.food_potential_after);
     if facts.ate_food {
-        let growth_urgency_bonus = i64::from(facts.growth_pressure_before)
-            .saturating_mul(GROWTH_CONSUMPTION_BONUS_SCALE);
+        let growth_urgency_bonus =
+            i64::from(facts.growth_pressure_before).saturating_mul(GROWTH_CONSUMPTION_BONUS_SCALE);
         food_benefit = food_benefit.saturating_add(
             FOOD_CONSUMED
                 .saturating_add(growth_urgency_bonus)
@@ -396,9 +396,8 @@ fn score_actor_transition(
             } else {
                 GROWTH_STALL_DIVISOR
             };
-            food_harm = food_harm.saturating_add(
-                i64::from(facts.growth_pressure_after).saturating_div(divisor),
-            );
+            food_harm = food_harm
+                .saturating_add(i64::from(facts.growth_pressure_after).saturating_div(divisor));
         }
     }
 
