@@ -167,6 +167,8 @@ pub(crate) fn choose_move_baseline(state: &GameState) -> Decision {
 mod tests {
     use std::collections::HashMap;
 
+    use crate::search::beam::LineTerminal;
+    use crate::search::forecast::ForecastCertainty;
     use serde_json::json;
 
     use super::*;
@@ -582,6 +584,251 @@ mod tests {
             Direction::Up,
             "turn 253 must reject the adjacent food that leaves zero deterministic exits: {decision:?}"
         );
+    }
+
+
+    #[test]
+    fn diagnostic_hobbs_cycle_five_turn_267_and_268_root_scores() {
+        fn diagnose(
+            state: GameState,
+            label: &str,
+        ) -> Vec<(
+            Direction,
+            i64,
+            i64,
+            i64,
+            u8,
+            LineTerminal,
+            ForecastCertainty,
+            Option<u8>,
+        )> {
+            let normalized = crate::simulation::state::SimulatedGameState::from(&state);
+            let policy = crate::search::forecast::FoodForecastPolicy::from_game_state(&state);
+            let mut graph =
+                crate::search::graph::FutureGraph::new_beam_with_forecast(normalized, policy);
+            let budget =
+                crate::search::budget::SearchBudget::from_state_with_extra_reserve(&state, 0);
+            let result = crate::search::beam_search::search_beam(&mut graph, &budget)
+                .unwrap()
+                .expect("beam must return candidates");
+
+            let root = graph.root();
+            let ours_actor = graph.node(root).state.actor_index("ours").unwrap();
+            let rows = result
+                .checkpoint
+                .lines
+                .iter()
+                .map(|line| {
+                    let child_safe_moves = line
+                        .path
+                        .first()
+                        .and_then(|step| {
+                            graph.node(step.node).children.iter().find(|edge| {
+                                edge.child == step.child && edge.joint_action == step.joint_action
+                            })
+                        })
+                        .and_then(|edge| graph.node(edge.child).active_analysis())
+                        .and_then(|analysis| analysis.actor_snapshot(ours_actor))
+                        .map(|snapshot| snapshot.metrics.safe_non_reverse_moves);
+
+                    (
+                        line.root_direction,
+                        line.value,
+                        line.our_utility_total,
+                        line.opponent_utility_total,
+                        line.depth,
+                        line.terminal,
+                        line.certainty,
+                        child_safe_moves,
+                    )
+                })
+                .collect::<Vec<_>>();
+
+            eprintln!(
+                "{label} completed_depth={} rows={rows:?}",
+                result.completed_depth()
+            );
+            rows
+        }
+
+        let mut ours_267 = snake(
+            "ours",
+            vec![
+                Coord { x: 6, y: 3 },
+                Coord { x: 7, y: 3 },
+                Coord { x: 7, y: 2 },
+                Coord { x: 8, y: 2 },
+                Coord { x: 9, y: 2 },
+                Coord { x: 9, y: 1 },
+                Coord { x: 10, y: 1 },
+                Coord { x: 10, y: 2 },
+                Coord { x: 10, y: 3 },
+                Coord { x: 9, y: 3 },
+                Coord { x: 9, y: 4 },
+                Coord { x: 8, y: 4 },
+                Coord { x: 7, y: 4 },
+                Coord { x: 6, y: 4 },
+                Coord { x: 6, y: 5 },
+                Coord { x: 7, y: 5 },
+                Coord { x: 7, y: 6 },
+                Coord { x: 6, y: 6 },
+                Coord { x: 6, y: 7 },
+                Coord { x: 6, y: 8 },
+                Coord { x: 6, y: 9 },
+                Coord { x: 6, y: 10 },
+                Coord { x: 5, y: 10 },
+                Coord { x: 5, y: 9 },
+                Coord { x: 4, y: 9 },
+                Coord { x: 3, y: 9 },
+                Coord { x: 3, y: 8 },
+                Coord { x: 4, y: 8 },
+            ],
+        );
+        ours_267.health = 96;
+
+        let mut enemy_267 = snake(
+            "enemy",
+            vec![
+                Coord { x: 3, y: 6 },
+                Coord { x: 3, y: 5 },
+                Coord { x: 2, y: 5 },
+                Coord { x: 1, y: 5 },
+                Coord { x: 1, y: 4 },
+                Coord { x: 2, y: 4 },
+                Coord { x: 2, y: 3 },
+                Coord { x: 3, y: 3 },
+                Coord { x: 3, y: 4 },
+                Coord { x: 4, y: 4 },
+                Coord { x: 4, y: 3 },
+                Coord { x: 4, y: 2 },
+                Coord { x: 4, y: 1 },
+                Coord { x: 5, y: 1 },
+                Coord { x: 6, y: 1 },
+                Coord { x: 7, y: 1 },
+                Coord { x: 8, y: 1 },
+                Coord { x: 8, y: 0 },
+                Coord { x: 7, y: 0 },
+                Coord { x: 6, y: 0 },
+                Coord { x: 5, y: 0 },
+            ],
+        );
+        enemy_267.health = 96;
+
+        let mut state_267 = state_on_board(
+            11,
+            11,
+            ours_267,
+            vec![enemy_267],
+            vec![
+                Coord { x: 1, y: 1 },
+                Coord { x: 0, y: 1 },
+                Coord { x: 0, y: 8 },
+                Coord { x: 0, y: 5 },
+                Coord { x: 4, y: 5 },
+                Coord { x: 2, y: 0 },
+            ],
+        );
+        state_267.turn = 267;
+        state_267.game.ruleset.insert(
+            "settings".to_string(),
+            json!({
+                "foodSpawnChance": 15,
+                "minimumFood": 1,
+                "hazardDamagePerTurn": 14
+            }),
+        );
+
+        let mut ours_268 = snake(
+            "ours",
+            vec![
+                Coord { x: 5, y: 3 },
+                Coord { x: 6, y: 3 },
+                Coord { x: 7, y: 3 },
+                Coord { x: 7, y: 2 },
+                Coord { x: 8, y: 2 },
+                Coord { x: 9, y: 2 },
+                Coord { x: 9, y: 1 },
+                Coord { x: 10, y: 1 },
+                Coord { x: 10, y: 2 },
+                Coord { x: 10, y: 3 },
+                Coord { x: 9, y: 3 },
+                Coord { x: 9, y: 4 },
+                Coord { x: 8, y: 4 },
+                Coord { x: 7, y: 4 },
+                Coord { x: 6, y: 4 },
+                Coord { x: 6, y: 5 },
+                Coord { x: 7, y: 5 },
+                Coord { x: 7, y: 6 },
+                Coord { x: 6, y: 6 },
+                Coord { x: 6, y: 7 },
+                Coord { x: 6, y: 8 },
+                Coord { x: 6, y: 9 },
+                Coord { x: 6, y: 10 },
+                Coord { x: 5, y: 10 },
+                Coord { x: 5, y: 9 },
+                Coord { x: 4, y: 9 },
+                Coord { x: 3, y: 9 },
+                Coord { x: 3, y: 8 },
+            ],
+        );
+        ours_268.health = 95;
+
+        let mut enemy_268 = snake(
+            "enemy",
+            vec![
+                Coord { x: 4, y: 6 },
+                Coord { x: 3, y: 6 },
+                Coord { x: 3, y: 5 },
+                Coord { x: 2, y: 5 },
+                Coord { x: 1, y: 5 },
+                Coord { x: 1, y: 4 },
+                Coord { x: 2, y: 4 },
+                Coord { x: 2, y: 3 },
+                Coord { x: 3, y: 3 },
+                Coord { x: 3, y: 4 },
+                Coord { x: 4, y: 4 },
+                Coord { x: 4, y: 3 },
+                Coord { x: 4, y: 2 },
+                Coord { x: 4, y: 1 },
+                Coord { x: 5, y: 1 },
+                Coord { x: 6, y: 1 },
+                Coord { x: 7, y: 1 },
+                Coord { x: 8, y: 1 },
+                Coord { x: 8, y: 0 },
+                Coord { x: 7, y: 0 },
+                Coord { x: 6, y: 0 },
+            ],
+        );
+        enemy_268.health = 95;
+
+        let mut state_268 = state_on_board(
+            11,
+            11,
+            ours_268,
+            vec![enemy_268],
+            vec![
+                Coord { x: 1, y: 1 },
+                Coord { x: 0, y: 1 },
+                Coord { x: 0, y: 8 },
+                Coord { x: 0, y: 5 },
+                Coord { x: 4, y: 5 },
+                Coord { x: 2, y: 0 },
+            ],
+        );
+        state_268.turn = 268;
+        state_268.game.ruleset.insert(
+            "settings".to_string(),
+            json!({
+                "foodSpawnChance": 15,
+                "minimumFood": 1,
+                "hazardDamagePerTurn": 14
+            }),
+        );
+
+        let rows_267 = diagnose(state_267, "CYCLE5_T267_DIAGNOSTIC");
+        let rows_268 = diagnose(state_268, "CYCLE5_T268_DIAGNOSTIC");
+
+        panic!("CYCLE5_DIAGNOSTIC_DONE t267={rows_267:?} t268={rows_268:?}");
     }
 
     #[test]
