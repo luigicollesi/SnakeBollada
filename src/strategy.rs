@@ -699,7 +699,7 @@ mod tests {
             ],
         );
         state.turn = 67;
-        state.game.timeout = 5_000;
+        state.game.timeout = 5_000; // force full-depth diagnostic horizon
         state.game.ruleset.insert(
             "settings".to_string(),
             json!({
