@@ -17,8 +17,6 @@ const ABSOLUTE_SWITCH_MARGIN: i64 = 150;
 const RELATIVE_SWITCH_MARGIN_PERCENT: i64 = 8;
 const IMMEDIATE_GROWTH_PRESSURE_THRESHOLD_MILLI: u16 = 750;
 const IMMEDIATE_SAFE_FOOD_REGRET: i64 = 1_500;
-const FORCED_CORRIDOR_VALUE_REGRET: i64 = 5_000;
-const FORCED_CORRIDOR_OUR_UTILITY_REGRET: i64 = 1_000;
 
 #[derive(Debug, Clone)]
 pub(crate) struct BeamDecisionOutcome {
@@ -184,12 +182,6 @@ fn avoid_immediate_forced_corridor<'a>(
         .filter(|line| line.is_viable())
         .filter(|line| {
             line_first_child_mobility(graph, line, our_actor).is_some_and(|moves| moves >= 2)
-        })
-        .filter(|line| line.value.saturating_add(FORCED_CORRIDOR_VALUE_REGRET) >= best.value)
-        .filter(|line| {
-            line.our_utility_total
-                .saturating_add(FORCED_CORRIDOR_OUR_UTILITY_REGRET)
-                >= best.our_utility_total
         })
         .max_by(|left, right| {
             left.value
