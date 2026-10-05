@@ -585,6 +585,86 @@ mod tests {
     }
 
     #[test]
+    fn diagnostic_food_one_longer_root_scores() {
+        let ours = snake(
+            "ours",
+            vec![
+                Coord { x: 2, y: 9 },
+                Coord { x: 2, y: 8 },
+                Coord { x: 2, y: 7 },
+            ],
+        );
+        let enemy = snake(
+            "enemy",
+            vec![
+                Coord { x: 3, y: 6 },
+                Coord { x: 4, y: 6 },
+                Coord { x: 5, y: 6 },
+                Coord { x: 6, y: 6 },
+            ],
+        );
+        let state = state_on_board(
+            11,
+            11,
+            ours,
+            vec![enemy],
+            vec![
+                Coord { x: 0, y: 2 },
+                Coord { x: 5, y: 5 },
+                Coord { x: 1, y: 9 },
+                Coord { x: 9, y: 4 },
+            ],
+        );
+
+        let normalized = crate::simulation::state::SimulatedGameState::from(&state);
+        let policy = crate::search::forecast::FoodForecastPolicy::from_game_state(&state);
+        let mut graph =
+            crate::search::graph::FutureGraph::new_beam_with_forecast(normalized, policy);
+        let budget = crate::search::budget::SearchBudget::from_state_with_extra_reserve(&state, 0);
+        let result = crate::search::beam_search::search_beam(&mut graph, &budget)
+            .unwrap()
+            .expect("food regression beam must return candidates");
+
+        let root = graph.root();
+        let ours_actor = graph.node(root).state.actor_index("ours").unwrap();
+        let rows = result
+            .checkpoint
+            .lines
+            .iter()
+            .map(|line| {
+                let first_edge = line.path.first().and_then(|step| {
+                    graph
+                        .node(step.node)
+                        .children
+                        .iter()
+                        .find(|edge| {
+                            edge.child == step.child && edge.joint_action == step.joint_action
+                        })
+                });
+                let first_score = first_edge.and_then(|edge| edge.transition.for_actor(ours_actor));
+                (
+                    line.root_direction,
+                    line.value,
+                    line.our_utility_total,
+                    line.opponent_utility_total,
+                    line.depth,
+                    line.terminal,
+                    first_score.map(|s| s.food_benefit),
+                    first_score.map(|s| s.food_harm),
+                    first_score.map(|s| s.survival_benefit),
+                    first_score.map(|s| s.survival_harm),
+                    first_score.map(|s| s.net),
+                )
+            })
+            .collect::<Vec<_>>();
+
+        panic!(
+            "FOOD_ONE_LONGER_DIAGNOSTIC completed_depth={} rows={rows:?}",
+            result.completed_depth()
+        );
+    }
+
+    #[test]
     fn diagnostic_cycle1_turn34_frontier_scores() {
         let mut ours = snake(
             "ours",
