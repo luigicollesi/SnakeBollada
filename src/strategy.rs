@@ -722,8 +722,86 @@ mod tests {
             })
             .collect::<Vec<_>>();
 
+        let actual_profile = crate::enemy::profile::OpponentProfile {
+            food_bias_milli: 1286,
+            hunting_bias_milli: 968,
+            trapping_bias_milli: 1075,
+            head_threat_bias_milli: 955,
+            ..crate::enemy::profile::OpponentProfile::default()
+        };
+        let hypotheses = graph
+            .node(root)
+            .active_analysis()
+            .and_then(|analysis| analysis.tracing.for_actor(enemy_actor))
+            .map(|set| {
+                set.hypotheses
+                    .iter()
+                    .map(|hypothesis| {
+                        (
+                            hypothesis.direction,
+                            hypothesis.plausibility_milli,
+                            actual_profile.adjusted_plausibility(*hypothesis),
+                            hypothesis.support.food,
+                            hypothesis.support.hunting,
+                            hypothesis.support.trapping_milli,
+                            hypothesis.support.head_threat,
+                            hypothesis.threat,
+                        )
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+
+        let response_rows = graph
+            .node(root)
+            .children
+            .iter()
+            .filter(|edge| edge.joint_action.direction_for(ours_actor) == Some(Direction::Up))
+            .filter_map(|edge| {
+                let enemy_move = edge.joint_action.direction_for(enemy_actor)?;
+                let child = graph.node(edge.child);
+                let certainty = if child.is_terminal() {
+                    crate::search::forecast::ForecastCertainty::Deterministic
+                } else {
+                    crate::search::forecast::ForecastCertainty::Deterministic
+                        .after(edge.forecast_delta)
+                };
+                let continuation = crate::search::maximin::evaluate_continuations(
+                    &graph,
+                    edge.child,
+                    2,
+                    certainty,
+                )
+                .into_iter()
+                .next();
+                let edge_enemy = edge.transition.for_actor(enemy_actor)?;
+                let edge_ours = edge.transition.for_actor(ours_actor)?;
+                let enemy_future = continuation
+                    .as_ref()
+                    .and_then(|line| line.actor_utility_totals.get(enemy_actor).copied())
+                    .unwrap_or(0);
+                let ours_future = continuation
+                    .as_ref()
+                    .and_then(|line| line.actor_utility_totals.get(ours_actor).copied())
+                    .unwrap_or(0);
+                Some((
+                    enemy_move,
+                    edge_enemy.actor_choice_net,
+                    enemy_future,
+                    edge_enemy.actor_choice_net.saturating_add(enemy_future),
+                    edge_ours.actor_choice_net,
+                    ours_future,
+                    edge_ours.actor_choice_net.saturating_add(ours_future),
+                    child
+                        .active_analysis()
+                        .and_then(|analysis| analysis.actor_snapshot(ours_actor))
+                        .map(|snapshot| snapshot.metrics.safe_non_reverse_moves),
+                ))
+            })
+            .collect::<Vec<_>>();
+
         panic!(
-            "CYCLE5_T268_DIAGNOSTIC completed_depth={} rows={rows:?}",
+            "CYCLE5_T268_DIAGNOSTIC completed_depth={} rows={rows:?} hypotheses={hypotheses:?} responses={response_rows:?}",
             result.completed_depth()
         );
     }
