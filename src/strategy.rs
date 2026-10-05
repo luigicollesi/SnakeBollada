@@ -656,6 +656,100 @@ mod tests {
     }
 
     #[test]
+    fn diagnostic_cycle8_turn_67_forced_corridor() {
+        let mut ours = snake(
+            "ours",
+            vec![
+                Coord { x: 9, y: 4 },
+                Coord { x: 9, y: 3 },
+                Coord { x: 10, y: 3 },
+                Coord { x: 10, y: 2 },
+                Coord { x: 9, y: 2 },
+                Coord { x: 8, y: 2 },
+                Coord { x: 8, y: 1 },
+                Coord { x: 7, y: 1 },
+            ],
+        );
+        ours.health = 76;
+
+        let mut enemy = snake(
+            "enemy",
+            vec![
+                Coord { x: 6, y: 5 },
+                Coord { x: 6, y: 4 },
+                Coord { x: 6, y: 3 },
+                Coord { x: 7, y: 3 },
+                Coord { x: 7, y: 4 },
+            ],
+        );
+        enemy.health = 63;
+
+        let mut state = state_on_board(
+            11,
+            11,
+            ours,
+            vec![enemy],
+            vec![
+                Coord { x: 0, y: 7 },
+                Coord { x: 10, y: 5 },
+                Coord { x: 1, y: 0 },
+                Coord { x: 0, y: 2 },
+                Coord { x: 0, y: 1 },
+                Coord { x: 4, y: 8 },
+            ],
+        );
+        state.turn = 67;
+        state.game.ruleset.insert(
+            "settings".to_string(),
+            json!({
+                "foodSpawnChance": 15,
+                "minimumFood": 1,
+                "hazardDamagePerTurn": 14
+            }),
+        );
+
+        let normalized = crate::simulation::state::SimulatedGameState::from(&state);
+        let policy = crate::search::forecast::FoodForecastPolicy::from_game_state(&state);
+        let mut graph =
+            crate::search::graph::FutureGraph::new_beam_with_forecast(normalized, policy);
+        let budget =
+            crate::search::budget::SearchBudget::from_state_with_extra_reserve(&state, 0);
+        let result = crate::search::beam_search::search_beam(&mut graph, &budget)
+            .unwrap()
+            .expect("turn 67 beam must return candidates");
+        let root = graph.root();
+        let ours_actor = graph.node(root).state.actor_index("ours").unwrap();
+
+        for line in &result.checkpoint.lines {
+            let mobility = line
+                .path
+                .steps()
+                .iter()
+                .map(|step| {
+                    graph
+                        .node(step.child)
+                        .active_analysis()
+                        .and_then(|analysis| analysis.actor_snapshot(ours_actor))
+                        .map(|snapshot| snapshot.metrics.safe_non_reverse_moves)
+                })
+                .collect::<Vec<_>>();
+            let forced = mobility.iter().filter(|moves| **moves == Some(1)).count();
+            eprintln!(
+                "CYCLE8_T67 dir={:?} value={} our={} opp={} terminal={:?} certainty={:?} forced={} mobility={mobility:?}",
+                line.root_direction,
+                line.value,
+                line.our_utility_total,
+                line.opponent_utility_total,
+                line.terminal,
+                line.certainty,
+                forced
+            );
+        }
+
+        panic!("CYCLE8_T67_DONE");
+    }
+
+    #[test]
     fn beam_avoids_equal_head_to_head_when_enemy_response_is_forced() {
         let ours = snake(
             "ours",
