@@ -74,8 +74,7 @@ impl EvaluatedLine {
             // Forecast uncertainty belongs to the route value, not to the actor's
             // willingness to die. Keeping the raw actor terminal here prevents a
             // long survivable line from looking worse to the opponent than death.
-            self.actor_utility_totals
-                .add(actor, score.actor_choice_net);
+            self.actor_utility_totals.add(actor, score.actor_choice_net);
         }
 
         if self.terminal == LineTerminal::Running || self.certainty.is_provisional() {
