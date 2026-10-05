@@ -584,7 +584,6 @@ mod tests {
         );
     }
 
-
     #[test]
     fn diagnostic_cycle6_provisional_wins() {
         // trigger diagnostic CI
