@@ -586,7 +586,6 @@ mod tests {
         );
     }
 
-
     #[test]
     fn diagnostic_hobbs_cycle_five_turn_267_and_268_root_scores() {
         fn diagnose(
