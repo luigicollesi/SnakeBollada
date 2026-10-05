@@ -733,8 +733,20 @@ mod tests {
                 })
                 .collect::<Vec<_>>();
             let forced = mobility.iter().filter(|moves| **moves == Some(1)).count();
+            let enemy_actor = graph.node(root).state.actor_index("enemy").unwrap();
+            let actions = line
+                .path
+                .steps()
+                .iter()
+                .map(|step| {
+                    (
+                        step.joint_action.direction_for(ours_actor),
+                        step.joint_action.direction_for(enemy_actor),
+                    )
+                })
+                .collect::<Vec<_>>();
             eprintln!(
-                "CYCLE8_T67 dir={:?} value={} our={} opp={} terminal={:?} certainty={:?} forced={} mobility={mobility:?}",
+                "CYCLE8_T67 dir={:?} value={} our={} opp={} terminal={:?} certainty={:?} forced={} mobility={mobility:?} actions={actions:?}",
                 line.root_direction,
                 line.value,
                 line.our_utility_total,
