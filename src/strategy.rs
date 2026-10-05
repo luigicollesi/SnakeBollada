@@ -585,6 +585,106 @@ mod tests {
     }
 
     #[test]
+    fn diagnostic_cycle1_turn34_frontier_scores() {
+        let mut ours = snake(
+            "ours",
+            vec![
+                Coord { x: 4, y: 10 },
+                Coord { x: 4, y: 9 },
+                Coord { x: 4, y: 8 },
+                Coord { x: 3, y: 8 },
+            ],
+        );
+        ours.health = 87;
+
+        let mut enemy = snake(
+            "enemy",
+            vec![
+                Coord { x: 5, y: 7 },
+                Coord { x: 4, y: 7 },
+                Coord { x: 3, y: 7 },
+                Coord { x: 2, y: 7 },
+                Coord { x: 2, y: 6 },
+                Coord { x: 1, y: 6 },
+            ],
+        );
+        enemy.health = 93;
+
+        let mut state = state_on_board(
+            11,
+            11,
+            ours,
+            vec![enemy],
+            vec![
+                Coord { x: 8, y: 10 },
+                Coord { x: 9, y: 3 },
+                Coord { x: 10, y: 2 },
+                Coord { x: 10, y: 8 },
+            ],
+        );
+        state.turn = 34;
+        state.game.ruleset.insert(
+            "settings".to_string(),
+            json!({
+                "foodSpawnChance": 15,
+                "minimumFood": 1,
+                "hazardDamagePerTurn": 14
+            }),
+        );
+
+        let normalized = crate::simulation::state::SimulatedGameState::from(&state);
+        let policy = crate::search::forecast::FoodForecastPolicy::from_game_state(&state);
+        let mut graph =
+            crate::search::graph::FutureGraph::new_beam_with_forecast(normalized, policy);
+        let budget =
+            crate::search::budget::SearchBudget::from_state_with_extra_reserve(&state, 0);
+        let result = crate::search::beam_search::search_beam(&mut graph, &budget)
+            .unwrap()
+            .expect("turn 34 beam must return candidates");
+
+        let rows = result
+            .checkpoint
+            .lines
+            .iter()
+            .map(|line| {
+                let leaf = line
+                    .path
+                    .steps()
+                    .last()
+                    .map(|step| graph.node(step.child));
+                let ours_actor = leaf.and_then(|node| node.state.actor_index("ours"));
+                let enemy_actor = leaf.and_then(|node| node.state.actor_index("enemy"));
+                let ours_snapshot = leaf
+                    .and_then(|node| node.active_analysis())
+                    .and_then(|analysis| ours_actor.and_then(|actor| analysis.actor_snapshot(actor)));
+                let enemy_snapshot = leaf
+                    .and_then(|node| node.active_analysis())
+                    .and_then(|analysis| enemy_actor.and_then(|actor| analysis.actor_snapshot(actor)));
+
+                (
+                    line.root_direction,
+                    line.value,
+                    line.our_utility_total,
+                    line.opponent_utility_total,
+                    line.depth,
+                    line.terminal,
+                    ours_snapshot.map(|s| s.metrics.growth_pressure_milli),
+                    enemy_snapshot.map(|s| s.metrics.growth_pressure_milli),
+                    ours_snapshot.map(|s| s.metrics.safe_non_reverse_moves),
+                    ours_snapshot.map(|s| s.metrics.enclosure_risk),
+                    ours_snapshot.map(|s| s.metrics.border_pin_risk_milli),
+                    ours_snapshot.map(|s| s.metrics.space_capacity_milli),
+                )
+            })
+            .collect::<Vec<_>>();
+
+        panic!(
+            "TURN34_FRONTIER_DIAGNOSTIC completed_depth={} rows={rows:?}",
+            result.completed_depth()
+        );
+    }
+
+    #[test]
     fn beam_avoids_equal_head_to_head_when_enemy_response_is_forced() {
         let ours = snake(
             "ours",
