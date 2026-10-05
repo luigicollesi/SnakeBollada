@@ -17,7 +17,7 @@ const MAX_VARIANTS_PER_NODE: usize = 3;
 const OPPONENT_RESPONSE_UTILITY_SLACK: i64 = 100;
 const MIN_NEAR_BEST_PLAUSIBILITY_MILLI: u16 = 250;
 const OPPONENT_RESPONSE_PLAUSIBILITY_SLACK_MILLI: u16 = 150;
-const GROWTH_FRONTIER_PRESSURE_SCALE: i64 = 1;
+const GROWTH_FRONTIER_PRESSURE_SCALE: i64 = 2;
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub(crate) struct MaximinStats {
