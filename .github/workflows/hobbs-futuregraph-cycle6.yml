@@ -1,4 +1,5 @@
 name: Hobbs FutureGraph Cycle 6
+# deterministic victory-opportunity benchmark
 
 on:
   pull_request:
