@@ -644,6 +644,45 @@ mod tests {
                 })
                 .collect::<Vec<_>>();
 
+            if label == "CYCLE5_T268_DIAGNOSTIC" {
+                let root = graph.root();
+                let root_node = graph.node(root);
+                let enemy_actor = root_node.state.actor_index("enemy").unwrap();
+                for edge in root_node.children.iter().filter(|edge| {
+                    edge.joint_action.direction_for(ours_actor) == Some(Direction::Up)
+                }) {
+                    let enemy_direction = edge.joint_action.direction_for(enemy_actor);
+                    let edge_enemy_choice = edge
+                        .transition
+                        .for_actor(enemy_actor)
+                        .map(|score| score.actor_choice_net);
+                    let continuations = crate::search::maximin::evaluate_continuations(
+                        &graph,
+                        edge.child,
+                        1,
+                        ForecastCertainty::FoodProvisional,
+                    );
+                    let continuation_rows = continuations
+                        .iter()
+                        .map(|continuation| {
+                            (
+                                continuation.value,
+                                continuation.terminal,
+                                continuation.certainty,
+                                continuation
+                                    .actor_utility_totals
+                                    .get(enemy_actor)
+                                    .copied(),
+                                continuation.path.len(),
+                            )
+                        })
+                        .collect::<Vec<_>>();
+                    eprintln!(
+                        "CYCLE5_T268_EDGE enemy={enemy_direction:?} edge_enemy_choice={edge_enemy_choice:?} continuations={continuation_rows:?}"
+                    );
+                }
+            }
+
             for line in &result.checkpoint.lines {
                 let path = line
                     .path
