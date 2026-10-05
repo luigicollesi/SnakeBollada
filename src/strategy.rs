@@ -584,6 +584,65 @@ mod tests {
         );
     }
 
+
+    #[test]
+    fn diagnostic_cycle6_provisional_wins() {
+        fn diagnose(label: &str, raw: &str) {
+            let state: GameState = serde_json::from_str(raw).expect("fixture must deserialize");
+            let normalized = crate::simulation::state::SimulatedGameState::from(&state);
+            let policy = crate::search::forecast::FoodForecastPolicy::from_game_state(&state);
+            let mut graph =
+                crate::search::graph::FutureGraph::new_beam_with_forecast(normalized, policy);
+            let budget =
+                crate::search::budget::SearchBudget::from_state_with_extra_reserve(&state, 0);
+            let result = crate::search::beam_search::search_beam(&mut graph, &budget)
+                .unwrap()
+                .expect("beam must return candidates");
+
+            let root = graph.root();
+            let ours = graph.node(root).state.actor_index("fec287b3-6248-4a81-a5aa-b40573e7ec54").unwrap();
+            let enemy = graph.node(root).state.actor_index("1ed5385c-dcd4-48a0-95a6-9519fc92f815").unwrap();
+
+            for line in &result.checkpoint.lines {
+                let path = line
+                    .path
+                    .steps()
+                    .iter()
+                    .map(|step| {
+                        let node = graph.node(step.child);
+                        let our_snake = node.state.snake_at(ours);
+                        let enemy_snake = node.state.snake_at(enemy);
+                        (
+                            step.joint_action.direction_for(ours),
+                            step.joint_action.direction_for(enemy),
+                            our_snake.and_then(|s| s.head()).map(|h| (h.x,h.y)),
+                            enemy_snake.and_then(|s| s.head()).map(|h| (h.x,h.y)),
+                            our_snake.map(|s| (s.alive,s.health,s.length())),
+                            enemy_snake.map(|s| (s.alive,s.health,s.length())),
+                        )
+                    })
+                    .collect::<Vec<_>>();
+                eprintln!(
+                    "{label} dir={:?} value={} terminal={:?} certainty={:?} our={} opp={} path={path:?}",
+                    line.root_direction,
+                    line.value,
+                    line.terminal,
+                    line.certainty,
+                    line.our_utility_total,
+                    line.opponent_utility_total
+                );
+            }
+            panic!("{label}_DONE");
+        }
+
+        let t120 = r#"{"game":{"id":"e1a7fcbd-4987-4dfe-ae5f-73e3c6280ced","ruleset":{"name":"standard","version":"cli","settings":{"foodSpawnChance":15,"minimumFood":1,"hazardDamagePerTurn":14,"hazardMap":"","hazardMapAuthor":"","royale":{"shrinkEveryNTurns":25},"squad":{"allowBodyCollisions":false,"sharedElimination":false,"sharedHealth":false,"sharedLength":false}}},"map":"standard","timeout":500,"source":""},"turn":120,"board":{"height":11,"width":11,"snakes":[{"id":"fec287b3-6248-4a81-a5aa-b40573e7ec54","name":"SnakeBollada","latency":"3","health":90,"body":[{"x":4,"y":8},{"x":5,"y":8},{"x":5,"y":9},{"x":6,"y":9},{"x":7,"y":9},{"x":7,"y":8},{"x":8,"y":8},{"x":8,"y":7},{"x":7,"y":7},{"x":6,"y":7},{"x":5,"y":7},{"x":5,"y":6},{"x":4,"y":6}],"head":{"x":4,"y":8},"length":13,"shout":"","squad":"","customizations":{"color":"#C2410C","head":"tiger-king","tail":"mlh-gene"}},{"id":"1ed5385c-dcd4-48a0-95a6-9519fc92f815","name":"Hovering Hobbs","latency":"361","health":99,"body":[{"x":9,"y":1},{"x":9,"y":0},{"x":10,"y":0},{"x":10,"y":1},{"x":10,"y":2},{"x":10,"y":3},{"x":10,"y":4},{"x":10,"y":5},{"x":9,"y":5},{"x":8,"y":5},{"x":7,"y":5},{"x":6,"y":5}],"head":{"x":9,"y":1},"length":12,"shout":"","squad":"","customizations":{"color":"#da8a1a","head":"beach-puffin-special","tail":"beach-puffin-special"}}],"food":[{"x":3,"y":1},{"x":1,"y":2},{"x":8,"y":2},{"x":4,"y":10}],"hazards":[]},"you":{"id":"fec287b3-6248-4a81-a5aa-b40573e7ec54","name":"SnakeBollada","latency":"3","health":90,"body":[{"x":4,"y":8},{"x":5,"y":8},{"x":5,"y":9},{"x":6,"y":9},{"x":7,"y":9},{"x":7,"y":8},{"x":8,"y":8},{"x":8,"y":7},{"x":7,"y":7},{"x":6,"y":7},{"x":5,"y":7},{"x":5,"y":6},{"x":4,"y":6}],"head":{"x":4,"y":8},"length":13,"shout":"","squad":"","customizations":{"color":"#C2410C","head":"tiger-king","tail":"mlh-gene"}}}"#;
+        let result = std::panic::catch_unwind(|| diagnose("CYCLE6_T120", t120));
+        assert!(result.is_err());
+
+        let t131 = r#"{"game":{"id":"e1a7fcbd-4987-4dfe-ae5f-73e3c6280ced","ruleset":{"name":"standard","version":"cli","settings":{"foodSpawnChance":15,"minimumFood":1,"hazardDamagePerTurn":14,"hazardMap":"","hazardMapAuthor":"","royale":{"shrinkEveryNTurns":25},"squad":{"allowBodyCollisions":false,"sharedElimination":false,"sharedHealth":false,"sharedLength":false}}},"map":"standard","timeout":500,"source":""},"turn":131,"board":{"height":11,"width":11,"snakes":[{"id":"fec287b3-6248-4a81-a5aa-b40573e7ec54","name":"SnakeBollada","latency":"21","health":100,"body":[{"x":1,"y":2},{"x":2,"y":2},{"x":2,"y":3},{"x":3,"y":3},{"x":3,"y":4},{"x":3,"y":5},{"x":3,"y":6},{"x":3,"y":7},{"x":2,"y":7},{"x":2,"y":8},{"x":3,"y":8},{"x":4,"y":8},{"x":5,"y":8},{"x":5,"y":8}],"head":{"x":1,"y":2},"length":14,"shout":"","squad":"","customizations":{"color":"#C2410C","head":"tiger-king","tail":"mlh-gene"}},{"id":"1ed5385c-dcd4-48a0-95a6-9519fc92f815","name":"Hovering Hobbs","latency":"365","health":99,"body":[{"x":7,"y":4},{"x":8,"y":4},{"x":8,"y":5},{"x":9,"y":5},{"x":9,"y":4},{"x":9,"y":3},{"x":8,"y":3},{"x":7,"y":3},{"x":7,"y":2},{"x":8,"y":2},{"x":9,"y":2},{"x":9,"y":1},{"x":9,"y":0},{"x":10,"y":0}],"head":{"x":7,"y":4},"length":14,"shout":"","squad":"","customizations":{"color":"#da8a1a","head":"beach-puffin-special","tail":"beach-puffin-special"}}],"food":[{"x":3,"y":1},{"x":4,"y":10}],"hazards":[]},"you":{"id":"fec287b3-6248-4a81-a5aa-b40573e7ec54","name":"SnakeBollada","latency":"21","health":100,"body":[{"x":1,"y":2},{"x":2,"y":2},{"x":2,"y":3},{"x":3,"y":3},{"x":3,"y":4},{"x":3,"y":5},{"x":3,"y":6},{"x":3,"y":7},{"x":2,"y":7},{"x":2,"y":8},{"x":3,"y":8},{"x":4,"y":8},{"x":5,"y":8},{"x":5,"y":8}],"head":{"x":1,"y":2},"length":14,"shout":"","squad":"","customizations":{"color":"#C2410C","head":"tiger-king","tail":"mlh-gene"}}}"#;
+        diagnose("CYCLE6_T131", t131);
+    }
+
     #[test]
     fn beam_avoids_equal_head_to_head_when_enemy_response_is_forced() {
         let ours = snake(
