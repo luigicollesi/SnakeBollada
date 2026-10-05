@@ -14,7 +14,7 @@ use super::graph::{FutureGraph, NodeId, SearchEdge, SearchNode};
 const TERMINAL_VALUE: i64 = 1_000_000_000;
 const INCOMPLETE_MARGIN: i64 = 20_000;
 const MAX_VARIANTS_PER_NODE: usize = 3;
-const OPPONENT_RESPONSE_UTILITY_SLACK: i64 = 5_000;
+const OPPONENT_RESPONSE_UTILITY_SLACK: i64 = 100;
 const MIN_NEAR_BEST_PLAUSIBILITY_MILLI: u16 = 250;
 const OPPONENT_RESPONSE_PLAUSIBILITY_SLACK_MILLI: u16 = 150;
 const GROWTH_FRONTIER_PRESSURE_NUMERATOR: i64 = 3;
@@ -483,6 +483,33 @@ fn select_selfish_opponent_response(
     node: &SearchNode,
     lines: Vec<EvaluatedLine>,
 ) -> EvaluatedLine {
+    #[cfg(test)]
+    if node.state.turn == 67 {
+        let enemies = node
+            .state
+            .snakes
+            .iter()
+            .enumerate()
+            .filter(|(_, snake)| snake.alive && snake.id != node.state.our_snake_id)
+            .filter_map(|(index, _)| ActorIndex::new(index))
+            .collect::<Vec<_>>();
+        for candidate in &lines {
+            let first = candidate.path.first();
+            let ours = node.state.actor_index(&node.state.our_snake_id);
+            let enemy = enemies.first().copied();
+            eprintln!(
+                "T67_RESPONSE ours={:?} enemy={:?} value={} actor_enemy={} terminal={:?} certainty={:?} plaus={:?}",
+                ours.and_then(|actor| first.and_then(|step| step.joint_action.direction_for(actor))),
+                enemy.and_then(|actor| first.and_then(|step| step.joint_action.direction_for(actor))),
+                candidate.value,
+                enemy.map_or(0, |actor| actor_utility(candidate, actor)),
+                candidate.terminal,
+                candidate.certainty,
+                enemy.and_then(|actor| response_plausibility_milli(graph, node, candidate, actor))
+            );
+        }
+    }
+
     let lower = lines
         .iter()
         .map(|line| line.bound.lower())
