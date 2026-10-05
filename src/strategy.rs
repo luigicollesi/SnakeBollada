@@ -719,6 +719,26 @@ mod tests {
         let root = graph.root();
         let ours_actor = graph.node(root).state.actor_index("ours").unwrap();
 
+        let enemy_actor = graph.node(root).state.actor_index("enemy").unwrap();
+        if let Some(move_set) = graph
+            .node(root)
+            .active_analysis()
+            .and_then(|analysis| analysis.tracing.for_actor(enemy_actor))
+        {
+            for hypothesis in &move_set.hypotheses {
+                eprintln!(
+                    "CYCLE8_T67_HYP dir={:?} plaus={} food={} hunt={} trap={} head={} threat={:?}",
+                    hypothesis.direction,
+                    hypothesis.plausibility_milli,
+                    hypothesis.support.food,
+                    hypothesis.support.hunting,
+                    hypothesis.support.trapping_milli,
+                    hypothesis.support.head_threat,
+                    hypothesis.threat
+                );
+            }
+        }
+
         for line in &result.checkpoint.lines {
             let mobility = line
                 .path
@@ -733,7 +753,6 @@ mod tests {
                 })
                 .collect::<Vec<_>>();
             let forced = mobility.iter().filter(|moves| **moves == Some(1)).count();
-            let enemy_actor = graph.node(root).state.actor_index("enemy").unwrap();
             let actions = line
                 .path
                 .steps()
