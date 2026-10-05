@@ -586,7 +586,8 @@ mod tests {
 
 
     #[test]
-    fn diagnostic_cycle6_provisional_wins() { // trigger diagnostic CI
+    fn diagnostic_cycle6_provisional_wins() {
+        // trigger diagnostic CI
         fn diagnose(label: &str, raw: &str) {
             let state: GameState = serde_json::from_str(raw).expect("fixture must deserialize");
             let normalized = crate::simulation::state::SimulatedGameState::from(&state);
@@ -600,8 +601,16 @@ mod tests {
                 .expect("beam must return candidates");
 
             let root = graph.root();
-            let ours = graph.node(root).state.actor_index("fec287b3-6248-4a81-a5aa-b40573e7ec54").unwrap();
-            let enemy = graph.node(root).state.actor_index("1ed5385c-dcd4-48a0-95a6-9519fc92f815").unwrap();
+            let ours = graph
+                .node(root)
+                .state
+                .actor_index("fec287b3-6248-4a81-a5aa-b40573e7ec54")
+                .unwrap();
+            let enemy = graph
+                .node(root)
+                .state
+                .actor_index("1ed5385c-dcd4-48a0-95a6-9519fc92f815")
+                .unwrap();
 
             for line in &result.checkpoint.lines {
                 let path = line
@@ -615,10 +624,10 @@ mod tests {
                         (
                             step.joint_action.direction_for(ours),
                             step.joint_action.direction_for(enemy),
-                            our_snake.and_then(|s| s.head()).map(|h| (h.x,h.y)),
-                            enemy_snake.and_then(|s| s.head()).map(|h| (h.x,h.y)),
-                            our_snake.map(|s| (s.alive,s.health,s.length())),
-                            enemy_snake.map(|s| (s.alive,s.health,s.length())),
+                            our_snake.and_then(|s| s.head()).map(|h| (h.x, h.y)),
+                            enemy_snake.and_then(|s| s.head()).map(|h| (h.x, h.y)),
+                            our_snake.map(|s| (s.alive, s.health, s.length())),
+                            enemy_snake.map(|s| (s.alive, s.health, s.length())),
                         )
                     })
                     .collect::<Vec<_>>();
