@@ -169,11 +169,7 @@ fn immediate_safe_growth_claim<'a>(
         .lines
         .iter()
         .filter(|line| {
-            line.is_viable()
-                && line
-                    .value
-                    .saturating_add(IMMEDIATE_SAFE_FOOD_REGRET)
-                    >= best.value
+            line.is_viable() && line.value.saturating_add(IMMEDIATE_SAFE_FOOD_REGRET) >= best.value
         })
         .filter(|line| line_immediately_claims_safe_food(graph, line, our_actor))
         .max_by(|left, right| {
