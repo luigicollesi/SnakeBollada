@@ -182,7 +182,9 @@ fn avoid_immediate_forced_corridor<'a>(
         .lines
         .iter()
         .filter(|line| line.is_viable())
-        .filter(|line| line_first_child_mobility(graph, line, our_actor).is_some_and(|moves| moves >= 2))
+        .filter(|line| {
+            line_first_child_mobility(graph, line, our_actor).is_some_and(|moves| moves >= 2)
+        })
         .filter(|line| line.value.saturating_add(FORCED_CORRIDOR_VALUE_REGRET) >= best.value)
         .filter(|line| {
             line.our_utility_total
