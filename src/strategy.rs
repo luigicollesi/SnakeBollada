@@ -585,6 +585,77 @@ mod tests {
     }
 
     #[test]
+    fn hobbs_cycle_six_turn_133_preserves_second_escape_lane() {
+        let mut ours = snake(
+            "ours",
+            vec![
+                Coord { x: 0, y: 1 },
+                Coord { x: 0, y: 2 },
+                Coord { x: 1, y: 2 },
+                Coord { x: 2, y: 2 },
+                Coord { x: 2, y: 3 },
+                Coord { x: 3, y: 3 },
+                Coord { x: 3, y: 4 },
+                Coord { x: 3, y: 5 },
+                Coord { x: 3, y: 6 },
+                Coord { x: 3, y: 7 },
+                Coord { x: 2, y: 7 },
+                Coord { x: 2, y: 8 },
+                Coord { x: 3, y: 8 },
+                Coord { x: 4, y: 8 },
+            ],
+        );
+        ours.health = 98;
+
+        let mut enemy = snake(
+            "enemy",
+            vec![
+                Coord { x: 6, y: 3 },
+                Coord { x: 6, y: 4 },
+                Coord { x: 7, y: 4 },
+                Coord { x: 8, y: 4 },
+                Coord { x: 8, y: 5 },
+                Coord { x: 9, y: 5 },
+                Coord { x: 9, y: 4 },
+                Coord { x: 9, y: 3 },
+                Coord { x: 8, y: 3 },
+                Coord { x: 7, y: 3 },
+                Coord { x: 7, y: 2 },
+                Coord { x: 8, y: 2 },
+                Coord { x: 9, y: 2 },
+                Coord { x: 9, y: 1 },
+            ],
+        );
+        enemy.health = 97;
+
+        let mut state = state_on_board(
+            11,
+            11,
+            ours,
+            vec![enemy],
+            vec![Coord { x: 3, y: 1 }, Coord { x: 4, y: 10 }],
+        );
+        state.turn = 133;
+        state.game.ruleset.insert(
+            "settings".to_string(),
+            json!({
+                "foodSpawnChance": 15,
+                "minimumFood": 1,
+                "hazardDamagePerTurn": 14
+            }),
+        );
+
+        let decision = choose_move(&state);
+
+        assert_eq!(decision.reason, DecisionReason::BeamUtility);
+        assert_eq!(
+            decision.direction,
+            Direction::Right,
+            "turn 133 must preserve two deterministic exits instead of entering a forced corridor: {decision:?}"
+        );
+    }
+
+    #[test]
     fn beam_avoids_equal_head_to_head_when_enemy_response_is_forced() {
         let ours = snake(
             "ours",

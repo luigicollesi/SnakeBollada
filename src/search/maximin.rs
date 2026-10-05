@@ -518,7 +518,38 @@ fn select_selfish_opponent_response(
         .cloned()
         .collect::<Vec<_>>();
 
-    let mut chosen = if near_best_responses.is_empty() {
+    // A kill is only proven when the opponent has no strategically plausible
+    // escape. Actor utility is an estimate; it must not turn one preferred
+    // response into a forced win when another plausible legal response survives.
+    let plausible_terminal_escapes = if lines
+        .iter()
+        .any(|line| line.terminal == LineTerminal::Won)
+    {
+        lines
+            .iter()
+            .filter(|candidate| {
+                candidate.terminal != LineTerminal::Won
+                    && is_plausibility_supported_response(
+                        graph,
+                        node,
+                        candidate,
+                        &lines,
+                        &enemies,
+                    )
+            })
+            .cloned()
+            .collect::<Vec<_>>()
+    } else {
+        Vec::new()
+    };
+
+    let response_pool = if plausible_terminal_escapes.is_empty() {
+        near_best_responses
+    } else {
+        plausible_terminal_escapes
+    };
+
+    let mut chosen = if response_pool.is_empty() {
         lines
             .iter()
             .min_by(|left, right| {
@@ -537,7 +568,7 @@ fn select_selfish_opponent_response(
             .cloned()
             .expect("opponent response selection requires at least one line")
     } else {
-        near_best_responses
+        response_pool
             .into_iter()
             .min_by(|left, right| {
                 left.value.cmp(&right.value).then_with(|| {
@@ -586,26 +617,54 @@ fn is_near_best_response(
             return true;
         }
 
-        let Some(current_plausibility) =
-            response_plausibility_milli(graph, node, candidate, *enemy_id)
-        else {
-            return false;
-        };
-        if current_plausibility < MIN_NEAR_BEST_PLAUSIBILITY_MILLI {
-            return false;
-        }
-
-        let best_plausibility = alternatives
-            .iter()
-            .filter_map(|alternative| {
-                response_plausibility_milli(graph, node, alternative, *enemy_id)
-            })
-            .max()
-            .unwrap_or(current_plausibility);
-
-        best_plausibility.saturating_sub(current_plausibility)
-            <= OPPONENT_RESPONSE_PLAUSIBILITY_SLACK_MILLI
+        response_plausibility_supported(graph, node, candidate, &alternatives, *enemy_id)
     })
+}
+
+fn is_plausibility_supported_response(
+    graph: &FutureGraph,
+    node: &SearchNode,
+    candidate: &EvaluatedLine,
+    lines: &[EvaluatedLine],
+    enemies: &[ActorIndex],
+) -> bool {
+    enemies.iter().all(|enemy_id| {
+        let alternatives = lines
+            .iter()
+            .filter(|alternative| {
+                same_joint_context_except_actor(node, candidate, alternative, *enemy_id)
+            })
+            .collect::<Vec<_>>();
+        response_plausibility_supported(graph, node, candidate, &alternatives, *enemy_id)
+    })
+}
+
+fn response_plausibility_supported(
+    graph: &FutureGraph,
+    node: &SearchNode,
+    candidate: &EvaluatedLine,
+    alternatives: &[&EvaluatedLine],
+    enemy_id: ActorIndex,
+) -> bool {
+    let Some(current_plausibility) =
+        response_plausibility_milli(graph, node, candidate, enemy_id)
+    else {
+        return false;
+    };
+    if current_plausibility < MIN_NEAR_BEST_PLAUSIBILITY_MILLI {
+        return false;
+    }
+
+    let best_plausibility = alternatives
+        .iter()
+        .filter_map(|alternative| {
+            response_plausibility_milli(graph, node, alternative, enemy_id)
+        })
+        .max()
+        .unwrap_or(current_plausibility);
+
+    best_plausibility.saturating_sub(current_plausibility)
+        <= OPPONENT_RESPONSE_PLAUSIBILITY_SLACK_MILLI
 }
 
 fn response_plausibility_milli(
@@ -943,6 +1002,34 @@ mod tests {
             Some(Direction::Up)
         );
         assert_eq!(chosen.value, supported_best.value);
+    }
+
+    #[test]
+    fn plausible_escape_invalidates_modeled_terminal_win() {
+        let graph = FutureGraph::new(state());
+        let root = graph.node(graph.root());
+
+        let mut modeled_win =
+            synthetic_response_line(Direction::Down, Direction::Right, 10_000, 500, 1);
+        modeled_win.terminal = LineTerminal::Won;
+        modeled_win.certainty = ForecastCertainty::FoodProvisional;
+
+        let escape =
+            synthetic_response_line(Direction::Down, Direction::Up, -1_000, 0, 2);
+
+        let chosen =
+            select_selfish_opponent_response(&graph, root, vec![modeled_win, escape.clone()]);
+
+        assert_eq!(chosen.terminal, LineTerminal::Running);
+        assert_eq!(
+            chosen
+                .path
+                .first()
+                .unwrap()
+                .joint_action
+                .direction_for(ActorIndex::new(1).unwrap()),
+            Some(Direction::Up)
+        );
     }
 
     #[test]
