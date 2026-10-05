@@ -669,10 +669,7 @@ mod tests {
                                 continuation.value,
                                 continuation.terminal,
                                 continuation.certainty,
-                                continuation
-                                    .actor_utility_totals
-                                    .get(enemy_actor)
-                                    .copied(),
+                                continuation.actor_utility_totals.get(enemy_actor).copied(),
                                 continuation.path.len(),
                             )
                         })
