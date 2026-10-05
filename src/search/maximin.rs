@@ -363,8 +363,17 @@ impl MaximinEvaluator<'_> {
             }
         }
 
-        rank_and_dedup_variants(&mut policies, MAX_VARIANTS_PER_NODE);
-        policies
+        // The variants above are alternative continuations used to evaluate which
+        // current opponent response is rational. They are not additional choices
+        // available to us. Returning several policies here lets the upper MAX layer
+        // pick the most optimistic opponent continuation, which can model a rational
+        // opponent as voluntarily taking a losing head-to-head. Collapse them back
+        // to the single selfish response before exposing this direction upward.
+        vec![select_selfish_opponent_response(
+            self.graph,
+            node,
+            policies,
+        )]
     }
 }
 
