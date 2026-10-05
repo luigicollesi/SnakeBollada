@@ -15,7 +15,7 @@ const FOOD_ETA_STEP: i64 = 220;
 const SIZE_SECURITY_DELTA_SCALE: i64 = 3;
 const GROWTH_PRESSURE_DELTA_SCALE: i64 = 3;
 const GROWTH_STALL_THRESHOLD_MILLI: u16 = 750;
-const GROWTH_CONSUMPTION_BONUS_SCALE: i64 = 2;
+const GROWTH_CONSUMPTION_BONUS_SCALE: i64 = 4;
 const GROWTH_DETOUR_DIVISOR: i64 = 2;
 const GROWTH_STALL_DIVISOR: i64 = 8;
 const SPACE_CAPACITY_DELTA_SCALE: i64 = 2;
@@ -353,12 +353,17 @@ fn score_actor_transition(
 ) -> ActorTransitionScore {
     let (mut food_benefit, mut food_harm) =
         food_potential_delta(facts.food_potential_before, facts.food_potential_after);
+    let growth_consumption_urgency = if facts.ate_food {
+        i64::from(facts.growth_pressure_before)
+            .saturating_mul(GROWTH_CONSUMPTION_BONUS_SCALE)
+            .saturating_mul(i64::from(facts.food_consumption_factor_milli))
+            .saturating_div(1000)
+    } else {
+        0
+    };
     if facts.ate_food {
-        let growth_urgency_bonus =
-            i64::from(facts.growth_pressure_before).saturating_mul(GROWTH_CONSUMPTION_BONUS_SCALE);
         food_benefit = food_benefit.saturating_add(
             FOOD_CONSUMED
-                .saturating_add(growth_urgency_bonus)
                 .saturating_mul(i64::from(facts.food_consumption_factor_milli))
                 .saturating_div(1000),
         );
@@ -466,7 +471,8 @@ fn score_actor_transition(
         &mut survival_harm,
     );
 
-    food_benefit = weighted(food_benefit, weights.food);
+    food_benefit =
+        weighted(food_benefit, weights.food).saturating_add(growth_consumption_urgency);
     food_harm = weighted(food_harm, weights.food);
     hunting_benefit = weighted(hunting_benefit, weights.hunting);
     hunting_harm = weighted(hunting_harm, weights.hunting);
@@ -798,6 +804,27 @@ mod tests {
 
         assert_eq!(score.food_benefit, 0);
         assert!(score.food_harm >= 500);
+    }
+
+    #[test]
+    fn growth_consumption_urgency_is_not_erased_by_low_food_weight() {
+        let facts = ActorTransitionFacts {
+            ate_food: true,
+            food_consumption_factor_milli: 1000,
+            growth_pressure_before: 850,
+            growth_pressure_after: 650,
+            ..ActorTransitionFacts::default()
+        };
+        let low_food_weight = StrategicWeights {
+            food: 200,
+            hunting: 50,
+            survival: 750,
+        };
+
+        let score = score_actor_transition(facts, low_food_weight);
+
+        assert!(score.food_benefit >= 3400);
+        assert_eq!(score.food_harm, 0);
     }
 
     #[test]
