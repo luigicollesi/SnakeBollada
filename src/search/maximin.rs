@@ -369,11 +369,7 @@ impl MaximinEvaluator<'_> {
         // pick the most optimistic opponent continuation, which can model a rational
         // opponent as voluntarily taking a losing head-to-head. Collapse them back
         // to the single selfish response before exposing this direction upward.
-        vec![select_selfish_opponent_response(
-            self.graph,
-            node,
-            policies,
-        )]
+        vec![select_selfish_opponent_response(self.graph, node, policies)]
     }
 }
 
