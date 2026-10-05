@@ -17,6 +17,8 @@ const ABSOLUTE_SWITCH_MARGIN: i64 = 150;
 const RELATIVE_SWITCH_MARGIN_PERCENT: i64 = 8;
 const IMMEDIATE_GROWTH_PRESSURE_THRESHOLD_MILLI: u16 = 750;
 const IMMEDIATE_SAFE_FOOD_REGRET: i64 = 1_500;
+const FORCED_CORRIDOR_VALUE_REGRET: i64 = 5_000;
+const FORCED_CORRIDOR_OUR_UTILITY_REGRET: i64 = 1_000;
 
 #[derive(Debug, Clone)]
 pub(crate) struct BeamDecisionOutcome {
@@ -125,6 +127,9 @@ fn select_line_with_continuity<'a>(
     incumbent_direction: Option<Direction>,
 ) -> Option<&'a BeamLine> {
     let best = result.best_line()?;
+    if let Some(safer_line) = avoid_immediate_forced_corridor(graph, result, best) {
+        return Some(safer_line);
+    }
     if let Some(food_claim) = immediate_safe_growth_claim(graph, result, best) {
         return Some(food_claim);
     }
@@ -150,6 +155,63 @@ fn select_line_with_continuity<'a>(
         incumbent,
         root_has_survival_emergency(graph),
     ))
+}
+
+fn avoid_immediate_forced_corridor<'a>(
+    graph: &FutureGraph,
+    result: &'a BeamSearchResult,
+    best: &'a BeamLine,
+) -> Option<&'a BeamLine> {
+    if best.is_confirmed_win() {
+        return None;
+    }
+
+    let root = graph.node(graph.root());
+    let our_actor = root.state.actor_index(&root.state.our_snake_id)?;
+    let root_snapshot = root.active_analysis()?.actor_snapshot(our_actor)?;
+    if root_snapshot.metrics.safe_non_reverse_moves <= 1 {
+        return None;
+    }
+
+    if line_first_child_mobility(graph, best, our_actor)? != 1 {
+        return None;
+    }
+
+    result
+        .checkpoint
+        .lines
+        .iter()
+        .filter(|line| line.is_viable())
+        .filter(|line| line_first_child_mobility(graph, line, our_actor).is_some_and(|moves| moves >= 2))
+        .filter(|line| line.value.saturating_add(FORCED_CORRIDOR_VALUE_REGRET) >= best.value)
+        .filter(|line| {
+            line.our_utility_total
+                .saturating_add(FORCED_CORRIDOR_OUR_UTILITY_REGRET)
+                >= best.our_utility_total
+        })
+        .max_by(|left, right| {
+            left.value
+                .cmp(&right.value)
+                .then_with(|| left.our_utility_total.cmp(&right.our_utility_total))
+                .then_with(|| right.root_direction.rank().cmp(&left.root_direction.rank()))
+        })
+}
+
+fn line_first_child_mobility(
+    graph: &FutureGraph,
+    line: &BeamLine,
+    our_actor: crate::simulation::state::ActorIndex,
+) -> Option<u8> {
+    let step = line.path.first()?;
+    if step.node != graph.root() {
+        return None;
+    }
+
+    graph
+        .node(step.child)
+        .active_analysis()
+        .and_then(|analysis| analysis.actor_snapshot(our_actor))
+        .map(|snapshot| snapshot.metrics.safe_non_reverse_moves)
 }
 
 fn immediate_safe_growth_claim<'a>(
