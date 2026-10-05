@@ -31,6 +31,7 @@ const BORDER_ESCAPE_PRESSURE_STEP: i64 = 1;
 const FOOD_SURVIVAL_PRESSURE_STEP: i64 = 1;
 const HEALTH_PRESSURE_STEP: i64 = 1;
 const HAZARD_DAMAGE_STEP: i64 = 35;
+const NO_SAFE_MOVE_HARM: i64 = 50_000;
 const KILL_BENEFIT: i64 = 1400;
 const TERMINAL_UTILITY: i64 = 1_000_000_000;
 
@@ -51,6 +52,7 @@ struct ActorTransitionFacts {
     territory_control_delta_milli: i16,
     survival_weight_after: u16,
     mobility_delta: i8,
+    no_safe_moves_after: bool,
     border_risk_improvement_milli: i16,
     border_exposure_milli: u16,
     border_pin_risk_milli: u16,
@@ -304,6 +306,8 @@ impl TransitionFacts {
                             .saturating_sub(i16::from(before.metrics.safe_non_reverse_moves)),
                     )
                 }),
+                no_safe_moves_after: alive_after
+                    && after.is_some_and(|snapshot| snapshot.metrics.safe_non_reverse_moves == 0),
                 border_risk_improvement_milli: after.map_or(0, |snapshot| {
                     signed_i16(
                         i32::from(before.metrics.border_structural_risk_milli).saturating_sub(
@@ -485,6 +489,9 @@ fn score_actor_transition(
             i64::from(facts.border_escape_pressure_milli)
                 .saturating_mul(BORDER_ESCAPE_PRESSURE_STEP),
         );
+    if facts.no_safe_moves_after && !facts.died {
+        survival_harm = survival_harm.saturating_add(NO_SAFE_MOVE_HARM);
+    }
 
     let terminal_benefit = if facts.sole_survivor {
         TERMINAL_UTILITY
