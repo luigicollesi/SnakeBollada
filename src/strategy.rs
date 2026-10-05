@@ -167,9 +167,9 @@ pub(crate) fn choose_move_baseline(state: &GameState) -> Decision {
 mod tests {
     use std::collections::HashMap;
 
-    use serde_json::json;
     use crate::search::beam::LineTerminal;
     use crate::search::forecast::ForecastCertainty;
+    use serde_json::json;
 
     use super::*;
     use crate::{Battlesnake, Board, Coord, Game};
