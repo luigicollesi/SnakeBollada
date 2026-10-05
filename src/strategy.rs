@@ -168,6 +168,8 @@ mod tests {
     use std::collections::HashMap;
 
     use serde_json::json;
+    use crate::search::beam::LineTerminal;
+    use crate::search::forecast::ForecastCertainty;
 
     use super::*;
     use crate::{Battlesnake, Board, Coord, Game};
