@@ -367,11 +367,7 @@ impl MaximinEvaluator<'_> {
     }
 }
 
-fn frontier_line(
-    node: &SearchNode,
-    exact: bool,
-    certainty: ForecastCertainty,
-) -> EvaluatedLine {
+fn frontier_line(node: &SearchNode, exact: bool, certainty: ForecastCertainty) -> EvaluatedLine {
     let mut actor_utility_totals = ActorVec::with_capacity(node.state.snakes.len());
     let mut our_utility_total = 0_i64;
     let mut opponent_utility_total = 0_i64;
