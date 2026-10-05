@@ -665,9 +665,9 @@ mod tests {
                         let enemy_health = node.state.snake("enemy").map(|snake| snake.health);
                         (
                             step.joint_action.direction_for(ours_actor),
-                            node.state.actor_index("enemy").and_then(|actor| {
-                                step.joint_action.direction_for(actor)
-                            }),
+                            node.state
+                                .actor_index("enemy")
+                                .and_then(|actor| step.joint_action.direction_for(actor)),
                             our_head,
                             enemy_head,
                             our_health,
@@ -678,10 +678,7 @@ mod tests {
                     .collect::<Vec<_>>();
                 eprintln!(
                     "{label}_PATH dir={:?} terminal={:?} certainty={:?} value={} path={path:?}",
-                    line.root_direction,
-                    line.terminal,
-                    line.certainty,
-                    line.value
+                    line.root_direction, line.terminal, line.certainty, line.value
                 );
             }
 
