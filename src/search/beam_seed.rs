@@ -5,9 +5,8 @@ use std::time::Instant;
 use super::beam::{
     select_seed_beam, BeamCheckpoint, BeamLine, LineTerminal, BEAM_WIDTH, SEED_DEPTH,
 };
-use super::beam_round::append_continuation;
 use super::budget::SearchBudget;
-use super::graph::{FutureGraph, NodeId, SearchError};
+use super::graph::{FutureGraph, SearchError};
 use super::maximin::{evaluate_seed_beam, evaluate_seed_lines};
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
