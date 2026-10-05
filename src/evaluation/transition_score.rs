@@ -15,7 +15,7 @@ const FOOD_ETA_STEP: i64 = 220;
 const SIZE_SECURITY_DELTA_SCALE: i64 = 3;
 const GROWTH_PRESSURE_DELTA_SCALE: i64 = 3;
 const GROWTH_STALL_THRESHOLD_MILLI: u16 = 750;
-const GROWTH_CONSUMPTION_BONUS_SCALE: i64 = 4;
+const GROWTH_CONSUMPTION_BONUS_SCALE: i64 = 2;
 const GROWTH_DETOUR_DIVISOR: i64 = 2;
 const GROWTH_STALL_DIVISOR: i64 = 8;
 const SPACE_CAPACITY_DELTA_SCALE: i64 = 2;
@@ -822,7 +822,7 @@ mod tests {
 
         let score = score_actor_transition(facts, low_food_weight);
 
-        assert!(score.food_benefit >= 3400);
+        assert!(score.food_benefit >= 1700);
         assert_eq!(score.food_harm, 0);
     }
 

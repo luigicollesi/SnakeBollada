@@ -17,6 +17,7 @@ const MAX_VARIANTS_PER_NODE: usize = 3;
 const OPPONENT_RESPONSE_UTILITY_SLACK: i64 = 100;
 const MIN_NEAR_BEST_PLAUSIBILITY_MILLI: u16 = 250;
 const OPPONENT_RESPONSE_PLAUSIBILITY_SLACK_MILLI: u16 = 150;
+const GROWTH_FRONTIER_PRESSURE_SCALE: i64 = 5;
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub(crate) struct MaximinStats {
@@ -220,7 +221,7 @@ impl MaximinEvaluator<'_> {
         self.evaluate_node_variants(node_id, remaining_depth, certainty)
             .into_iter()
             .next()
-            .unwrap_or_else(|| frontier_line(false, certainty))
+            .unwrap_or_else(|| frontier_line(self.graph.node(node_id), false, certainty))
     }
 
     fn evaluate_node_variants(
@@ -247,10 +248,10 @@ impl MaximinEvaluator<'_> {
             vec![terminal]
         } else if remaining_depth == 0 {
             self.stats.exact_nodes = self.stats.exact_nodes.saturating_add(1);
-            vec![frontier_line(true, certainty)]
+            vec![frontier_line(node, true, certainty)]
         } else if !node.expansion_complete() {
             self.stats.bounded_nodes = self.stats.bounded_nodes.saturating_add(1);
-            vec![frontier_line(false, certainty)]
+            vec![frontier_line(node, false, certainty)]
         } else {
             let mut variants = Vec::new();
             for direction in Direction::ALL {
@@ -264,7 +265,7 @@ impl MaximinEvaluator<'_> {
 
             if variants.is_empty() {
                 self.stats.bounded_nodes = self.stats.bounded_nodes.saturating_add(1);
-                vec![frontier_line(false, certainty)]
+                vec![frontier_line(node, false, certainty)]
             } else {
                 variants
             }
@@ -366,20 +367,57 @@ impl MaximinEvaluator<'_> {
     }
 }
 
-fn frontier_line(exact: bool, certainty: ForecastCertainty) -> EvaluatedLine {
+fn frontier_line(
+    node: &SearchNode,
+    exact: bool,
+    certainty: ForecastCertainty,
+) -> EvaluatedLine {
+    let mut actor_utility_totals = ActorVec::with_capacity(node.state.snakes.len());
+    let mut our_utility_total = 0_i64;
+    let mut opponent_utility_total = 0_i64;
+
+    if let Some(analysis) = node.active_analysis() {
+        for (index, snake) in node
+            .state
+            .snakes
+            .iter()
+            .enumerate()
+            .filter(|(_, snake)| snake.alive)
+        {
+            let Some(actor) = ActorIndex::new(index) else {
+                continue;
+            };
+            let pressure = analysis
+                .actor_snapshot(actor)
+                .map(|snapshot| snapshot.metrics.growth_pressure_milli)
+                .unwrap_or(0);
+            let utility = i64::from(pressure)
+                .saturating_mul(GROWTH_FRONTIER_PRESSURE_SCALE)
+                .saturating_neg();
+            actor_utility_totals.insert(actor, utility);
+
+            if snake.id == node.state.our_snake_id {
+                our_utility_total = utility;
+            } else {
+                opponent_utility_total = opponent_utility_total.saturating_add(utility);
+            }
+        }
+    }
+
+    let value = route_value(our_utility_total, opponent_utility_total);
     EvaluatedLine {
-        value: 0,
-        benefit_total: 0,
-        harm_total: 0,
-        our_utility_total: 0,
-        opponent_utility_total: 0,
-        actor_utility_totals: ActorVec::new(),
+        value,
+        benefit_total: value.max(0),
+        harm_total: value.saturating_neg().max(0),
+        our_utility_total,
+        opponent_utility_total,
+        actor_utility_totals,
         terminal: LineTerminal::Running,
         certainty,
         bound: if exact {
-            ValueBound::Exact(0)
+            ValueBound::Exact(value)
         } else {
-            incomplete_bound(0)
+            incomplete_bound(value)
         },
         path: BeamPath::empty(),
     }
@@ -929,6 +967,42 @@ mod tests {
             Some(Direction::Right)
         );
         assert_eq!(chosen.value, exact_best.value);
+    }
+
+    #[test]
+    fn frontier_penalizes_size_disadvantage_once_actor_relatively() {
+        let mut disadvantaged = state();
+        disadvantaged
+            .snakes
+            .iter_mut()
+            .find(|snake| snake.id == "enemy")
+            .unwrap()
+            .body
+            .push(Coord { x: 4, y: 0 });
+
+        let graph = FutureGraph::new(disadvantaged);
+        let line = frontier_line(
+            graph.node(graph.root()),
+            true,
+            ForecastCertainty::Deterministic,
+        );
+
+        assert!(line.our_utility_total < line.opponent_utility_total);
+        assert!(line.value < 0);
+        assert!(line.bound.is_exact());
+    }
+
+    #[test]
+    fn frontier_is_neutral_when_growth_pressure_is_symmetric() {
+        let graph = FutureGraph::new(state());
+        let line = frontier_line(
+            graph.node(graph.root()),
+            true,
+            ForecastCertainty::Deterministic,
+        );
+
+        assert_eq!(line.value, 0);
+        assert_eq!(line.our_utility_total, line.opponent_utility_total);
     }
 
     #[test]
