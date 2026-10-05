@@ -356,8 +356,7 @@ mod tests {
         let policy = crate::search::forecast::FoodForecastPolicy::from_game_state(&state);
         let mut graph =
             crate::search::graph::FutureGraph::new_beam_with_forecast(normalized, policy);
-        let budget =
-            crate::search::budget::SearchBudget::from_state_with_extra_reserve(&state, 0);
+        let budget = crate::search::budget::SearchBudget::from_state_with_extra_reserve(&state, 0);
         let result = crate::search::beam_search::search_beam(&mut graph, &budget)
             .unwrap()
             .expect("diagnostic beam must return candidates");
