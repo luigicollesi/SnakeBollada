@@ -71,18 +71,11 @@ impl EvaluatedLine {
         transition: &TransitionScore,
     ) -> Self {
         for (actor, score) in transition.actors.iter() {
-            let actor_choice = if self.terminal != LineTerminal::Running
-                && self.certainty.is_provisional()
-                && score.actor_terminal != 0
-            {
-                score
-                    .actor_terminal
-                    .signum()
-                    .saturating_mul(PROVISIONAL_TERMINAL_VALUE)
-            } else {
-                score.actor_choice_net
-            };
-            self.actor_utility_totals.add(actor, actor_choice);
+            // Forecast uncertainty belongs to the route value, not to the actor's
+            // willingness to die. Keeping the raw actor terminal here prevents a
+            // long survivable line from looking worse to the opponent than death.
+            self.actor_utility_totals
+                .add(actor, score.actor_choice_net);
         }
 
         if self.terminal == LineTerminal::Running || self.certainty.is_provisional() {
@@ -1099,6 +1092,50 @@ mod tests {
         assert_eq!(line.terminal, LineTerminal::Lost);
         assert_eq!(line.certainty, ForecastCertainty::Deterministic);
         assert_eq!(line.value, -TERMINAL_VALUE);
+    }
+
+    #[test]
+    fn provisional_terminal_keeps_raw_actor_death_for_response_choice() {
+        let enemy = ActorIndex::new(1).unwrap();
+        let mut actor_scores = ActorVec::new();
+        actor_scores.insert(
+            enemy,
+            crate::evaluation::ActorTransitionScore {
+                actor_terminal: -TERMINAL_VALUE,
+                actor_choice_net: -TERMINAL_VALUE,
+                ..crate::evaluation::ActorTransitionScore::default()
+            },
+        );
+        let transition = TransitionScore {
+            actors: actor_scores,
+            ..TransitionScore::default()
+        };
+        let edge = SearchEdge {
+            joint_action: JointAction::new(),
+            transition: transition.clone(),
+            forecast_delta: super::super::forecast::ForecastDelta::FoodUncertainty,
+            child: 0,
+        };
+        let line = EvaluatedLine {
+            value: PROVISIONAL_TERMINAL_VALUE,
+            benefit_total: PROVISIONAL_TERMINAL_VALUE,
+            harm_total: 0,
+            our_utility_total: PROVISIONAL_TERMINAL_VALUE,
+            opponent_utility_total: 0,
+            actor_utility_totals: ActorVec::new(),
+            terminal: LineTerminal::Won,
+            certainty: ForecastCertainty::FoodProvisional,
+            bound: ValueBound::Exact(PROVISIONAL_TERMINAL_VALUE),
+            path: BeamPath::empty(),
+        };
+
+        let shifted = line.shifted_by_edge(0, &edge, &transition);
+
+        assert_eq!(
+            shifted.actor_utility_totals.get(enemy).copied(),
+            Some(-TERMINAL_VALUE)
+        );
+        assert_eq!(shifted.value, PROVISIONAL_TERMINAL_VALUE);
     }
 
     #[test]
