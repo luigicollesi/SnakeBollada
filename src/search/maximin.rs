@@ -521,21 +521,13 @@ fn select_selfish_opponent_response(
     // A kill is only proven when the opponent has no strategically plausible
     // escape. Actor utility is an estimate; it must not turn one preferred
     // response into a forced win when another plausible legal response survives.
-    let plausible_terminal_escapes = if lines
-        .iter()
-        .any(|line| line.terminal == LineTerminal::Won)
+    let plausible_terminal_escapes = if lines.iter().any(|line| line.terminal == LineTerminal::Won)
     {
         lines
             .iter()
             .filter(|candidate| {
                 candidate.terminal != LineTerminal::Won
-                    && is_plausibility_supported_response(
-                        graph,
-                        node,
-                        candidate,
-                        &lines,
-                        &enemies,
-                    )
+                    && is_plausibility_supported_response(graph, node, candidate, &lines, &enemies)
             })
             .cloned()
             .collect::<Vec<_>>()
@@ -646,8 +638,7 @@ fn response_plausibility_supported(
     alternatives: &[&EvaluatedLine],
     enemy_id: ActorIndex,
 ) -> bool {
-    let Some(current_plausibility) =
-        response_plausibility_milli(graph, node, candidate, enemy_id)
+    let Some(current_plausibility) = response_plausibility_milli(graph, node, candidate, enemy_id)
     else {
         return false;
     };
@@ -657,9 +648,7 @@ fn response_plausibility_supported(
 
     let best_plausibility = alternatives
         .iter()
-        .filter_map(|alternative| {
-            response_plausibility_milli(graph, node, alternative, enemy_id)
-        })
+        .filter_map(|alternative| response_plausibility_milli(graph, node, alternative, enemy_id))
         .max()
         .unwrap_or(current_plausibility);
 
@@ -1014,8 +1003,7 @@ mod tests {
         modeled_win.terminal = LineTerminal::Won;
         modeled_win.certainty = ForecastCertainty::FoodProvisional;
 
-        let escape =
-            synthetic_response_line(Direction::Down, Direction::Up, -1_000, 0, 2);
+        let escape = synthetic_response_line(Direction::Down, Direction::Up, -1_000, 0, 2);
 
         let chosen =
             select_selfish_opponent_response(&graph, root, vec![modeled_win, escape.clone()]);
