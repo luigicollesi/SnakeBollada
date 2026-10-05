@@ -767,10 +767,7 @@ mod tests {
                         .after(edge.forecast_delta)
                 };
                 let continuation = crate::search::maximin::evaluate_continuations(
-                    &graph,
-                    edge.child,
-                    2,
-                    certainty,
+                    &graph, edge.child, 2, certainty,
                 )
                 .into_iter()
                 .next();
