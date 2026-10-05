@@ -13,7 +13,9 @@ const BORDER_RISK_DEADBAND: i16 = 20;
 const FOOD_CONSUMED: i64 = 1000;
 const FOOD_ETA_STEP: i64 = 220;
 const SIZE_SECURITY_DELTA_SCALE: i64 = 3;
-const GROWTH_DEBT_DIVISOR: i64 = 2;
+const GROWTH_PRESSURE_DELTA_SCALE: i64 = 3;
+const GROWTH_STALL_THRESHOLD_MILLI: u16 = 750;
+const GROWTH_STALL_DIVISOR: i64 = 8;
 const SPACE_CAPACITY_DELTA_SCALE: i64 = 2;
 const TERRITORY_CONTROL_DELTA_SCALE: i64 = 4;
 const HUNTING_TERRITORY_BUDGET: i64 = 2000;
@@ -41,6 +43,7 @@ struct ActorTransitionFacts {
     claimable_food_eta_after: Option<u16>,
     size_security_before: u16,
     size_security_after: u16,
+    growth_pressure_before: u16,
     growth_pressure_after: u16,
     space_capacity_delta_milli: i16,
     territory_control_delta_milli: i16,
@@ -274,6 +277,7 @@ impl TransitionFacts {
                 size_security_after: after
                     .map(|snapshot| snapshot.metrics.size_security_milli)
                     .unwrap_or(0),
+                growth_pressure_before: before.metrics.growth_pressure_milli,
                 growth_pressure_after: after
                     .map(|snapshot| snapshot.metrics.growth_pressure_milli)
                     .unwrap_or(0),
@@ -371,9 +375,21 @@ fn score_actor_transition(
         &mut food_harm,
     );
     if !facts.died {
-        food_harm = food_harm.saturating_add(
-            i64::from(facts.growth_pressure_after).saturating_div(GROWTH_DEBT_DIVISOR),
+        add_signed_delta(
+            i64::from(facts.growth_pressure_before)
+                .saturating_sub(i64::from(facts.growth_pressure_after))
+                .saturating_mul(GROWTH_PRESSURE_DELTA_SCALE),
+            &mut food_benefit,
+            &mut food_harm,
         );
+
+        if facts.growth_pressure_after >= GROWTH_STALL_THRESHOLD_MILLI
+            && !made_growth_progress(&facts)
+        {
+            food_harm = food_harm.saturating_add(
+                i64::from(facts.growth_pressure_after).saturating_div(GROWTH_STALL_DIVISOR),
+            );
+        }
     }
 
     let raw_hunting_milli = facts
@@ -529,6 +545,29 @@ fn food_potential_delta(before: u16, after: u16) -> (i64, i64) {
     } else {
         (0, 0)
     }
+}
+
+fn made_growth_progress(facts: &ActorTransitionFacts) -> bool {
+    if facts.ate_food || facts.growth_pressure_after < facts.growth_pressure_before {
+        return true;
+    }
+
+    let eta_improved = match (
+        facts.claimable_food_eta_before,
+        facts.claimable_food_eta_after,
+    ) {
+        (Some(before), Some(after)) => after < before,
+        (None, Some(_)) => true,
+        _ => false,
+    };
+    if eta_improved {
+        return true;
+    }
+
+    facts.food_potential_after
+        > facts
+            .food_potential_before
+            .saturating_add(FOOD_POTENTIAL_DEADBAND)
 }
 
 fn food_eta_delta(before: Option<u16>, after: Option<u16>, ate_food: bool) -> (i64, i64) {
@@ -702,6 +741,7 @@ mod tests {
             claimable_food_eta_after: Some(1),
             size_security_before: 0,
             size_security_after: 300,
+            growth_pressure_before: 850,
             growth_pressure_after: 850,
             ..ActorTransitionFacts::default()
         };
@@ -724,6 +764,7 @@ mod tests {
             claimable_food_eta_after: Some(2),
             size_security_before: 0,
             size_security_after: 0,
+            growth_pressure_before: 1000,
             growth_pressure_after: 1000,
             ..ActorTransitionFacts::default()
         };
@@ -737,6 +778,72 @@ mod tests {
 
         assert_eq!(score.food_benefit, 0);
         assert!(score.food_harm >= 500);
+    }
+
+    #[test]
+    fn steady_growth_pressure_is_not_recharged_when_food_eta_improves() {
+        let facts = ActorTransitionFacts {
+            claimable_food_eta_before: Some(3),
+            claimable_food_eta_after: Some(2),
+            growth_pressure_before: 1000,
+            growth_pressure_after: 1000,
+            food_potential_before: 300,
+            food_potential_after: 300,
+            ..ActorTransitionFacts::default()
+        };
+        let weights = StrategicWeights {
+            food: 700,
+            hunting: 50,
+            survival: 250,
+        };
+
+        let score = score_actor_transition(facts, weights);
+
+        assert!(score.food_benefit > 0);
+        assert_eq!(score.food_harm, 0);
+    }
+
+    #[test]
+    fn severe_growth_pressure_penalizes_stalling_without_food_progress() {
+        let facts = ActorTransitionFacts {
+            claimable_food_eta_before: Some(3),
+            claimable_food_eta_after: Some(3),
+            growth_pressure_before: 1000,
+            growth_pressure_after: 1000,
+            food_potential_before: 300,
+            food_potential_after: 300,
+            ..ActorTransitionFacts::default()
+        };
+        let weights = StrategicWeights {
+            food: 700,
+            hunting: 50,
+            survival: 250,
+        };
+
+        let score = score_actor_transition(facts, weights);
+
+        assert_eq!(score.food_benefit, 0);
+        assert!(score.food_harm > 0);
+        assert!(score.food_harm < 200);
+    }
+
+    #[test]
+    fn reducing_growth_pressure_is_rewarded_instead_of_recharged() {
+        let facts = ActorTransitionFacts {
+            growth_pressure_before: 1000,
+            growth_pressure_after: 850,
+            ..ActorTransitionFacts::default()
+        };
+        let weights = StrategicWeights {
+            food: 700,
+            hunting: 50,
+            survival: 250,
+        };
+
+        let score = score_actor_transition(facts, weights);
+
+        assert!(score.food_benefit >= 300);
+        assert_eq!(score.food_harm, 0);
     }
 
     #[test]
