@@ -143,8 +143,7 @@ fn deepen_seed_one_layer(
 
     let additional_depth = target_depth.saturating_sub(1);
     for child in response_children {
-        let expansion =
-            graph.expand_prioritized_subtree(child, additional_depth, budget)?;
+        let expansion = graph.expand_prioritized_subtree(child, additional_depth, budget)?;
         if !expansion.completed {
             return Ok(None);
         }
