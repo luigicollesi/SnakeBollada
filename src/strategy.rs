@@ -805,7 +805,19 @@ mod tests {
 
     #[test]
     fn diagnostic_hobbs_cycle_five_turn_267_and_268_root_scores() {
-        fn diagnose(state: GameState, label: &str) -> Vec<(Direction, i64, i64, i64, u8, LineTerminal, ForecastCertainty, Option<u8>)> {
+        fn diagnose(
+            state: GameState,
+            label: &str,
+        ) -> Vec<(
+            Direction,
+            i64,
+            i64,
+            i64,
+            u8,
+            LineTerminal,
+            ForecastCertainty,
+            Option<u8>,
+        )> {
             let normalized = crate::simulation::state::SimulatedGameState::from(&state);
             let policy = crate::search::forecast::FoodForecastPolicy::from_game_state(&state);
             let mut graph =
@@ -828,8 +840,7 @@ mod tests {
                         .first()
                         .and_then(|step| {
                             graph.node(step.node).children.iter().find(|edge| {
-                                edge.child == step.child
-                                    && edge.joint_action == step.joint_action
+                                edge.child == step.child && edge.joint_action == step.joint_action
                             })
                         })
                         .and_then(|edge| graph.node(edge.child).active_analysis())
