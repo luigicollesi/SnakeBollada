@@ -335,7 +335,7 @@ mod tests {
         let mut graph = FutureGraph::new(state());
         graph.expand_to_depth(1).unwrap();
 
-        let first_evaluation = evaluate_seed_beam(&graph, 1);
+        let first_evaluation = evaluate_seed_lines(&graph, 1);
         let checkpoint =
             BeamCheckpoint::new(first_evaluation.lines).expect("depth-one checkpoint must exist");
         let original = checkpoint.clone();
