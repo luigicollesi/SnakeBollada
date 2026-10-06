@@ -515,19 +515,16 @@ fn select_selfish_opponent_response(
     // For terminal-win validation we therefore bypass plausibility, but still
     // require the surviving response to be near-best by the opponent's own
     // actor utility. Ordinary nonterminal response selection remains unchanged.
-    let rational_terminal_escapes =
-        if lines.iter().any(|line| line.terminal == LineTerminal::Won) {
-            lines
-                .iter()
-                .filter(|candidate| candidate.terminal != LineTerminal::Won)
-                .filter(|candidate| {
-                    is_near_best_response_by_utility(node, candidate, &lines, &enemies)
-                })
-                .cloned()
-                .collect::<Vec<_>>()
-        } else {
-            Vec::new()
-        };
+    let rational_terminal_escapes = if lines.iter().any(|line| line.terminal == LineTerminal::Won) {
+        lines
+            .iter()
+            .filter(|candidate| candidate.terminal != LineTerminal::Won)
+            .filter(|candidate| is_near_best_response_by_utility(node, candidate, &lines, &enemies))
+            .cloned()
+            .collect::<Vec<_>>()
+    } else {
+        Vec::new()
+    };
 
     let response_pool = if rational_terminal_escapes.is_empty() {
         near_best_responses
@@ -617,7 +614,9 @@ fn response_regret_and_alternatives<'a>(
     let current = actor_utility(candidate, enemy_id);
     let alternatives = lines
         .iter()
-        .filter(|alternative| same_joint_context_except_actor(node, candidate, alternative, enemy_id))
+        .filter(|alternative| {
+            same_joint_context_except_actor(node, candidate, alternative, enemy_id)
+        })
         .collect::<Vec<_>>();
     let best = alternatives
         .iter()
