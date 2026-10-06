@@ -656,6 +656,71 @@ mod tests {
     }
 
     #[test]
+    fn hobbs_cycle_ten_turn_81_keeps_full_depth_better_line() {
+        let mut ours = snake(
+            "ours",
+            vec![
+                Coord { x: 3, y: 0 },
+                Coord { x: 2, y: 0 },
+                Coord { x: 1, y: 0 },
+                Coord { x: 1, y: 1 },
+                Coord { x: 2, y: 1 },
+                Coord { x: 2, y: 2 },
+                Coord { x: 3, y: 2 },
+                Coord { x: 3, y: 3 },
+                Coord { x: 2, y: 3 },
+            ],
+        );
+        ours.health = 98;
+
+        let mut enemy = snake(
+            "enemy",
+            vec![
+                Coord { x: 7, y: 6 },
+                Coord { x: 8, y: 6 },
+                Coord { x: 9, y: 6 },
+                Coord { x: 10, y: 6 },
+                Coord { x: 10, y: 5 },
+                Coord { x: 9, y: 5 },
+                Coord { x: 8, y: 5 },
+                Coord { x: 7, y: 5 },
+            ],
+        );
+        enemy.health = 96;
+
+        let mut state = state_on_board(
+            11,
+            11,
+            ours,
+            vec![enemy],
+            vec![
+                Coord { x: 9, y: 10 },
+                Coord { x: 0, y: 1 },
+                Coord { x: 4, y: 10 },
+            ],
+        );
+        state.turn = 81;
+        state.game.timeout = 500;
+        state.game.ruleset.insert(
+            "settings".to_string(),
+            json!({
+                "foodSpawnChance": 15,
+                "minimumFood": 1,
+                "hazardDamagePerTurn": 14
+            }),
+        );
+
+        let decision = choose_move(&state);
+
+        assert_eq!(decision.reason, DecisionReason::BeamUtility);
+        assert_eq!(
+            decision.direction,
+            Direction::Up,
+            "turn 81 must trust the much stronger full-depth line instead of an unconditional immediate-mobility override: {decision:?}"
+        );
+    }
+
+    #[test]
     fn hobbs_cycle_eight_turn_67_preserves_immediate_escape_flexibility() {
         let mut ours = snake(
             "ours",
