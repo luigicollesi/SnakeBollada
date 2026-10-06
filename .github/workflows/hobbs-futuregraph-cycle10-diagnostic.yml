@@ -1,0 +1,382 @@
+name: Hobbs FutureGraph Cycle 10 Diagnostic
+# deterministic victory-opportunity benchmark
+# rerun after diagnostic compile fix
+# rerun with raw seed, root weights, and stop reasons
+# rerun after seed test alignment
+# rerun with explicit decision override tracing
+# final rerun after rustfmt
+
+on:
+  pull_request:
+    branches: [dev]
+    paths:
+      - ".github/workflows/hobbs-futuregraph-cycle10-diagnostic.yml"
+  workflow_dispatch:
+
+jobs:
+  simulate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Checkout SnakeBollada
+        uses: actions/checkout@v4
+
+      - name: Record environment
+        run: |
+          git rev-parse HEAD | tee snakebollada-commit.txt
+          echo "runner_name=${RUNNER_NAME}" | tee runner-info.txt
+          echo "runner_os=${RUNNER_OS}" >> runner-info.txt
+          echo "runner_arch=${RUNNER_ARCH}" >> runner-info.txt
+
+      - name: Build SnakeBollada
+        run: docker build -t snakebollada:simulation .
+
+      - name: Checkout Hovering Hobbs
+        run: |
+          mkdir -p /tmp/battlesnake-rs
+          git -C /tmp/battlesnake-rs init
+          git -C /tmp/battlesnake-rs remote add origin https://github.com/coreyja/battlesnake-rs.git
+          git -C /tmp/battlesnake-rs fetch --depth 1 origin 3775c70676a4add680a19eb810c196d1e4820665
+          git -C /tmp/battlesnake-rs checkout --detach FETCH_HEAD
+          git -C /tmp/battlesnake-rs rev-parse HEAD | tee hobbs-commit.txt
+
+      - name: Build Hovering Hobbs
+        run: docker build -t hovering-hobbs:simulation /tmp/battlesnake-rs
+
+      - name: Start both snakes
+        run: |
+          docker run -d --name snakebollada \
+            -p 8000:8000 \
+            -e RUST_LOG="info,opponent_intent=debug,search_diagnostics=debug" \
+            snakebollada:simulation
+
+          docker run -d --name hovering-hobbs \
+            -p 8001:8000 \
+            hovering-hobbs:simulation
+
+          for i in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:8000/ >/dev/null \
+              && curl -fsS http://127.0.0.1:8001/hovering-hobbs >/dev/null; then
+              exit 0
+            fi
+            sleep 1
+          done
+
+          docker logs snakebollada || true
+          docker logs hovering-hobbs || true
+          exit 1
+
+      - name: Install Battlesnake CLI
+        run: |
+          go install github.com/BattlesnakeOfficial/rules/cli/battlesnake@latest
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+
+      - name: Run deterministic duel
+        run: |
+          set +e
+          battlesnake play \
+            --width 11 \
+            --height 11 \
+            --name "SnakeBollada" \
+            --url http://127.0.0.1:8000 \
+            --name "Hovering Hobbs" \
+            --url http://127.0.0.1:8001/hovering-hobbs \
+            --timeout 500 \
+            --gametype standard \
+            --map standard \
+            --seed 20261002 \
+            --output game.jsonl \
+            --viewmap \
+            2>&1 | tee game-console.log
+          status=${PIPESTATUS[0]}
+          echo "battlesnake_exit_code=${status}" | tee simulation-status.txt
+          exit 0
+
+      - name: Collect logs
+        if: always()
+        run: |
+          docker logs snakebollada > snakebollada.log 2>&1 || true
+          docker logs hovering-hobbs > hovering-hobbs.log 2>&1 || true
+
+      - name: Generate decision trace
+        if: always()
+        run: |
+          python3 - <<'PY'
+          import json, re
+          from pathlib import Path
+
+          move_re = re.compile(
+              r"MOVE (?P<turn>\d+): (?P<move>\w+) .*?"
+              r"depth=(?P<depth>\d+).*?"
+              r"completed_depth=(?P<completed_depth>\d+).*?"
+              r"beam_value=(?P<beam>-?\d+).*?"
+              r"forecast_provisional=(?P<provisional>true|false).*?"
+              r"terminal_confirmed=(?P<terminal_confirmed>true|false).*?"
+              r"ours_food=(?P<food>-?\d+) .*?"
+              r"ours_hunt=(?P<hunt>-?\d+) .*?"
+              r"ours_survival=(?P<survival>-?\d+) .*?"
+              r"ours_terminal=(?P<terminal>-?\d+)"
+          )
+          intent_re = re.compile(
+              r"enemy=(?P<enemy>\S+) observed=(?P<observed>\w+).*?"
+              r"food_bias=(?P<food_bias>\d+).*?"
+              r"hunting_bias=(?P<hunting_bias>\d+).*?"
+              r"trapping_bias=(?P<trapping_bias>\d+).*?"
+              r"head_threat_bias=(?P<head_bias>\d+)"
+          )
+
+          moves = []
+          log = Path("snakebollada.log")
+          if log.exists():
+              for line in log.read_text(errors="replace").splitlines():
+                  m = move_re.search(line)
+                  if m:
+                      row = m.groupdict()
+                      for k in ("turn","depth","completed_depth","beam","food","hunt","survival","terminal"):
+                          row[k] = int(row[k])
+                      row["provisional"] = row["provisional"] == "true"
+                      row["terminal_confirmed"] = row["terminal_confirmed"] == "true"
+                      moves.append(row)
+
+          states = []
+          gp = Path("game.jsonl")
+          if gp.exists():
+              for line in gp.read_text(errors="replace").splitlines():
+                  try:
+                      states.append(json.loads(line))
+                  except Exception:
+                      pass
+
+          def snake_by_name(state, name):
+              return next((s for s in state.get("board",{}).get("snakes",[]) if s.get("name")==name), None)
+
+          state_by_turn = {s.get("turn"): s for s in states if isinstance(s, dict) and "turn" in s}
+          previous_lengths = {}
+          rows = []
+          for mv in moves:
+              t = mv["turn"]
+              st = state_by_turn.get(t)
+              ours = snake_by_name(st, "SnakeBollada") if st else None
+              hobbs = snake_by_name(st, "Hovering Hobbs") if st else None
+              food = st.get("board",{}).get("food",[]) if st else []
+              head = ours.get("head") if ours else None
+              dist = None
+              if head and food:
+                  dist = min(abs(head["x"]-f["x"])+abs(head["y"]-f["y"]) for f in food)
+              row = {
+                  **mv,
+                  "ours_len": ours.get("length") if ours else None,
+                  "hobbs_len": hobbs.get("length") if hobbs else None,
+                  "ours_health": ours.get("health") if ours else None,
+                  "hobbs_health": hobbs.get("health") if hobbs else None,
+                  "head": head,
+                  "nearest_food": dist,
+              }
+              rows.append(row)
+
+          Path("decision-trace.json").write_text(json.dumps(rows, indent=2))
+          with Path("decision-trace.txt").open("w") as out:
+              for r in rows:
+                  out.write(
+                      f"turn={r['turn']:>3} move={r['move']:<5} "
+                      f"len={r['ours_len']}/{r['hobbs_len']} "
+                      f"health={r['ours_health']} food_dist={r['nearest_food']} "
+                      f"depth={r['depth']}/{r['completed_depth']} beam={r['beam']} "
+                      f"provisional={r['provisional']} confirmed={r['terminal_confirmed']} "
+                      f"U(food/hunt/surv/term)={r['food']}/{r['hunt']}/{r['survival']}/{r['terminal']}\n"
+                  )
+
+          intents = []
+          if log.exists():
+              for line in log.read_text(errors="replace").splitlines():
+                  m = intent_re.search(line)
+                  if m:
+                      d=m.groupdict()
+                      for k in ("food_bias","hunting_bias","trapping_bias","head_bias"):
+                          d[k]=int(d[k])
+                      intents.append(d)
+          Path("intent-trace.json").write_text(json.dumps(intents, indent=2))
+
+          # Victory-opportunity analysis: identify moments where surviving was not enough
+          # and the board offered leverage against an aggressive opponent.
+          def body_cells(snake):
+              return {(p["x"], p["y"]) for p in (snake or {}).get("body", [])}
+
+          def legal_moves(state, snake):
+              if not state or not snake:
+                  return []
+              board = state.get("board", {})
+              width, height = board.get("width", 0), board.get("height", 0)
+              head = snake.get("head")
+              body = snake.get("body", [])
+              if not head:
+                  return []
+              blocked = set()
+              for s in board.get("snakes", []):
+                  cells = s.get("body", [])
+                  # Conservative immediate mobility: tails may vacate, so release last cell.
+                  for p in cells[:-1]:
+                      blocked.add((p["x"], p["y"]))
+              out=[]
+              for name,(dx,dy) in {
+                  "up":(0,1),"down":(0,-1),"left":(-1,0),"right":(1,0)
+              }.items():
+                  x,y=head["x"]+dx,head["y"]+dy
+                  if 0 <= x < width and 0 <= y < height and (x,y) not in blocked:
+                      out.append(name)
+              return out
+
+          def edge_distance(state, snake):
+              if not state or not snake or not snake.get("head"):
+                  return None
+              b=state["board"]; h=snake["head"]
+              return min(h["x"], h["y"], b["width"]-1-h["x"], b["height"]-1-h["y"])
+
+          def head_distance(a,b):
+              if not a or not b or not a.get("head") or not b.get("head"):
+                  return None
+              return abs(a["head"]["x"]-b["head"]["x"])+abs(a["head"]["y"]-b["head"]["y"])
+
+          def chosen_reduces_food_distance(state, ours, move):
+              if not state or not ours or not ours.get("head"):
+                  return False
+              foods=state.get("board",{}).get("food",[])
+              if not foods:
+                  return False
+              delta={"up":(0,1),"down":(0,-1),"left":(-1,0),"right":(1,0)}.get(move)
+              if not delta:
+                  return False
+              h=ours["head"]
+              before=min(abs(h["x"]-f["x"])+abs(h["y"]-f["y"]) for f in foods)
+              nx,ny=h["x"]+delta[0],h["y"]+delta[1]
+              after=min(abs(nx-f["x"])+abs(ny-f["y"]) for f in foods)
+              return after < before
+
+          opportunities=[]
+          for r in rows:
+              st=state_by_turn.get(r["turn"])
+              ours=snake_by_name(st,"SnakeBollada") if st else None
+              hobbs=snake_by_name(st,"Hovering Hobbs") if st else None
+              if not ours or not hobbs:
+                  continue
+              ours_len=ours.get("length",0); hobbs_len=hobbs.get("length",0)
+              ours_moves=legal_moves(st,ours); hobbs_moves=legal_moves(st,hobbs)
+              hd=head_distance(ours,hobbs)
+              hed=edge_distance(st,hobbs)
+              size_ratio=(ours_len / hobbs_len) if hobbs_len else None
+              toward_food=chosen_reduces_food_distance(st,ours,r["move"])
+              tags=[]
+
+              if ours_len > hobbs_len and len(hobbs_moves) <= 1:
+                  tags.append("opponent_low_mobility")
+              if ours_len > hobbs_len and hed is not None and hed <= 1 and hd is not None and hd <= 4:
+                  tags.append("edge_hunt_window")
+              if size_ratio is not None and size_ratio >= 1.4:
+                  tags.append("dominant_size")
+                  if toward_food:
+                      tags.append("dominant_but_chasing_food")
+                  if r["food"] > r["hunt"]:
+                      tags.append("food_score_above_hunt_while_dominant")
+              if ours_len > hobbs_len and hd is not None and hd <= 2:
+                  tags.append("head_pressure_window")
+              if len(hobbs_moves) <= 2 and ours_len >= hobbs_len:
+                  tags.append("constriction_window")
+
+              if tags:
+                  opportunities.append({
+                      "turn":r["turn"],
+                      "move":r["move"],
+                      "ours_len":ours_len,
+                      "hobbs_len":hobbs_len,
+                      "size_ratio":round(size_ratio,3) if size_ratio is not None else None,
+                      "ours_mobility":len(ours_moves),
+                      "hobbs_mobility":len(hobbs_moves),
+                      "head_distance":hd,
+                      "hobbs_edge_distance":hed,
+                      "toward_food":toward_food,
+                      "food_score":r["food"],
+                      "hunt_score":r["hunt"],
+                      "survival_score":r["survival"],
+                      "beam":r["beam"],
+                      "tags":tags,
+                  })
+
+          Path("victory-opportunities.json").write_text(json.dumps(opportunities,indent=2))
+          with Path("victory-opportunities.txt").open("w") as out:
+              for o in opportunities:
+                  out.write(
+                      f"turn={o['turn']:>3} move={o['move']:<5} "
+                      f"len={o['ours_len']}/{o['hobbs_len']} ratio={o['size_ratio']} "
+                      f"mobility={o['ours_mobility']}/{o['hobbs_mobility']} "
+                      f"head_dist={o['head_distance']} edge={o['hobbs_edge_distance']} "
+                      f"food/hunt/surv={o['food_score']}/{o['hunt_score']}/{o['survival_score']} "
+                      f"tags={','.join(o['tags'])}\n"
+                  )
+
+          print(f"moves={len(rows)}")
+          print(f"states={len(states)}")
+          if rows:
+              first_growth = next((r["turn"] for r in rows if r["ours_len"] and r["ours_len"] > rows[0]["ours_len"]), None)
+              smaller_turns = sum(1 for r in rows if r["ours_len"] is not None and r["hobbs_len"] is not None and r["ours_len"] < r["hobbs_len"])
+              equal_turns = sum(1 for r in rows if r["ours_len"] is not None and r["hobbs_len"] is not None and r["ours_len"] == r["hobbs_len"])
+              larger_turns = sum(1 for r in rows if r["ours_len"] is not None and r["hobbs_len"] is not None and r["ours_len"] > r["hobbs_len"])
+              print(f"first_growth_turn={first_growth}")
+              print(f"size_relation_turns smaller={smaller_turns} equal={equal_turns} larger={larger_turns}")
+              print(f"max_ours_length={max(r['ours_len'] or 0 for r in rows)}")
+              print(f"max_hobbs_length={max(r['hobbs_len'] or 0 for r in rows)}")
+          PY
+          python3 - <<'PY' > simulation-summary.txt
+          import json
+          from pathlib import Path
+
+          states=[]
+          p=Path("game.jsonl")
+          if p.exists():
+              for line in p.read_text(errors="replace").splitlines():
+                  try: states.append(json.loads(line))
+                  except: pass
+          print(f"states={len(states)}")
+          if states:
+              print(f"first_turn={states[0].get('turn')}")
+              print(f"last_turn={states[-1].get('turn')}")
+              print("last_state_survivors=" + ",".join(s.get("name","?") for s in states[-1].get("board",{}).get("snakes",[])))
+          trace=Path("decision-trace.json")
+          if trace.exists():
+              rows=json.loads(trace.read_text())
+              if rows:
+                  print(f"moves={len(rows)}")
+                  print(f"max_ours_length={max(r.get('ours_len') or 0 for r in rows)}")
+                  print(f"max_hobbs_length={max(r.get('hobbs_len') or 0 for r in rows)}")
+                  print(f"first_growth_turn={next((r['turn'] for r in rows if (r.get('ours_len') or 0)>(rows[0].get('ours_len') or 0)), 'none')}")
+          PY
+          cat simulation-summary.txt
+          echo "--- decision trace ---"
+          cat decision-trace.txt || true
+
+      - name: Extract search diagnostics
+        if: always()
+        run: |
+          grep 'search_diagnostics' snakebollada.log > search-diagnostics.log || true
+
+      - name: Upload simulation evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: hobbs-futuregraph-cycle10-diagnostic-20261005
+          path: |
+            game.jsonl
+            game-console.log
+            snakebollada.log
+            hovering-hobbs.log
+            simulation-summary.txt
+            simulation-status.txt
+            decision-trace.json
+            decision-trace.txt
+            intent-trace.json
+            victory-opportunities.json
+            victory-opportunities.txt
+            snakebollada-commit.txt
+            hobbs-commit.txt
+            runner-info.txt
+            search-diagnostics.log
+          if-no-files-found: warn
