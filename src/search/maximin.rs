@@ -472,8 +472,7 @@ fn frontier_hunting_utility(graph: &FutureGraph, node: &SearchNode, actor: Actor
     if snapshot.metrics.growth_pressure_milli > HUNTING_FRONTIER_MAX_GROWTH_PRESSURE_MILLI
         || snapshot.weights.survival >= HUNTING_FRONTIER_ROOT_MAX_SURVIVAL_WEIGHT
         || snapshot.metrics.safe_non_reverse_moves < HUNTING_FRONTIER_ROOT_MIN_SAFE_MOVES
-        || snapshot.metrics.space_capacity_milli
-            < HUNTING_FRONTIER_ROOT_MIN_SPACE_CAPACITY_MILLI
+        || snapshot.metrics.space_capacity_milli < HUNTING_FRONTIER_ROOT_MIN_SPACE_CAPACITY_MILLI
         || snapshot.metrics.enclosure_risk > 0
         || leaf_border_pressure >= HUNTING_FRONTIER_ROOT_MAX_BORDER_PRESSURE_MILLI
     {
