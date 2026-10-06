@@ -8,7 +8,7 @@ use super::beam::{
 use super::beam_round::append_continuation;
 use super::budget::SearchBudget;
 use super::graph::{FutureGraph, NodeId, SearchError};
-use super::maximin::{evaluate_continuations, evaluate_seed_beam};
+use super::maximin::{evaluate_continuations, evaluate_seed_lines};
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub(crate) struct BeamSeedStats {
@@ -42,18 +42,20 @@ pub(crate) fn build_seed_checkpoint(
         return Ok(None);
     }
 
-    let first_evaluation = evaluate_seed_beam(graph, 1);
+    let first_evaluation = evaluate_seed_lines(graph, 1);
+    let first_selected = select_seed_beam(&first_evaluation.lines);
     log::debug!(
         target: "search_diagnostics",
-        "seed turn={} depth=1 selected={}",
+        "seed turn={} depth=1 raw={} selected={}",
         graph.node(graph.root()).state.turn,
-        format_lines(&first_evaluation.lines)
+        format_lines(&first_evaluation.lines),
+        format_lines(&first_selected)
     );
-    if first_evaluation.lines.is_empty() || first_evaluation.lines.len() > BEAM_WIDTH {
+    if first_selected.is_empty() || first_selected.len() > BEAM_WIDTH {
         return Ok(None);
     }
 
-    let Some(mut checkpoint) = BeamCheckpoint::new(first_evaluation.lines) else {
+    let Some(mut checkpoint) = BeamCheckpoint::new(first_selected) else {
         return Ok(None);
     };
     let mut completed_depth = 1_u8;
