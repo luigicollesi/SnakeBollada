@@ -4,6 +4,7 @@ name: Hobbs FutureGraph Cycle 10 Diagnostic
 # rerun with raw seed, root weights, and stop reasons
 # rerun after seed test alignment
 # rerun with explicit decision override tracing
+# final rerun after rustfmt
 
 on:
   pull_request:
