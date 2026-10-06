@@ -125,9 +125,7 @@ fn select_line_with_continuity<'a>(
     incumbent_direction: Option<Direction>,
 ) -> Option<&'a BeamLine> {
     let best = result.best_line()?;
-    if let Some(surviving_line) =
-        avoid_provisional_terminal_loss(&result.checkpoint.lines, best)
-    {
+    if let Some(surviving_line) = avoid_provisional_terminal_loss(&result.checkpoint.lines, best) {
         return Some(surviving_line);
     }
     if let Some(safer_line) = avoid_immediate_forced_corridor(graph, result, best) {
