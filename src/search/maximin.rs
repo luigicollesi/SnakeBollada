@@ -510,27 +510,29 @@ fn select_selfish_opponent_response(
         .cloned()
         .collect::<Vec<_>>();
 
-    // A kill is only proven when the opponent has no strategically plausible
-    // escape. Actor utility is an estimate; it must not turn one preferred
-    // response into a forced win when another plausible legal response survives.
-    // A terminal win is a proof claim, not a policy guess. If any legal opponent
-    // response survives, the win is not forced even when that response looks
-    // strategically unlikely according to current utility/plausibility estimates.
-    // Learned intent may rank ordinary responses, but it must never certify a kill.
-    let legal_terminal_escapes = if lines.iter().any(|line| line.terminal == LineTerminal::Won) {
-        lines
-            .iter()
-            .filter(|candidate| candidate.terminal != LineTerminal::Won)
-            .cloned()
-            .collect::<Vec<_>>()
-    } else {
-        Vec::new()
-    };
+    // A modeled kill must not become "forced" only because intent/plausibility
+    // filtering suppresses an escape the opponent strongly prefers to dying.
+    // For terminal-win validation we therefore bypass plausibility, but still
+    // require the surviving response to be near-best by the opponent's own
+    // actor utility. Ordinary nonterminal response selection remains unchanged.
+    let rational_terminal_escapes =
+        if lines.iter().any(|line| line.terminal == LineTerminal::Won) {
+            lines
+                .iter()
+                .filter(|candidate| candidate.terminal != LineTerminal::Won)
+                .filter(|candidate| {
+                    is_near_best_response_by_utility(node, candidate, &lines, &enemies)
+                })
+                .cloned()
+                .collect::<Vec<_>>()
+        } else {
+            Vec::new()
+        };
 
-    let response_pool = if legal_terminal_escapes.is_empty() {
+    let response_pool = if rational_terminal_escapes.is_empty() {
         near_best_responses
     } else {
-        legal_terminal_escapes
+        rational_terminal_escapes
     };
 
     let mut chosen = if response_pool.is_empty() {
@@ -580,19 +582,8 @@ fn is_near_best_response(
     enemies: &[ActorIndex],
 ) -> bool {
     enemies.iter().all(|enemy_id| {
-        let current = actor_utility(candidate, *enemy_id);
-        let alternatives = lines
-            .iter()
-            .filter(|alternative| {
-                same_joint_context_except_actor(node, candidate, alternative, *enemy_id)
-            })
-            .collect::<Vec<_>>();
-        let best = alternatives
-            .iter()
-            .map(|alternative| actor_utility(alternative, *enemy_id))
-            .max()
-            .unwrap_or(current);
-        let regret = best.saturating_sub(current);
+        let (regret, alternatives) =
+            response_regret_and_alternatives(node, candidate, lines, *enemy_id);
 
         if regret > OPPONENT_RESPONSE_UTILITY_SLACK {
             return false;
@@ -603,6 +594,38 @@ fn is_near_best_response(
 
         response_plausibility_supported(graph, node, candidate, &alternatives, *enemy_id)
     })
+}
+
+fn is_near_best_response_by_utility(
+    node: &SearchNode,
+    candidate: &EvaluatedLine,
+    lines: &[EvaluatedLine],
+    enemies: &[ActorIndex],
+) -> bool {
+    enemies.iter().all(|enemy_id| {
+        let (regret, _) = response_regret_and_alternatives(node, candidate, lines, *enemy_id);
+        regret <= OPPONENT_RESPONSE_UTILITY_SLACK
+    })
+}
+
+fn response_regret_and_alternatives<'a>(
+    node: &SearchNode,
+    candidate: &EvaluatedLine,
+    lines: &'a [EvaluatedLine],
+    enemy_id: ActorIndex,
+) -> (i64, Vec<&'a EvaluatedLine>) {
+    let current = actor_utility(candidate, enemy_id);
+    let alternatives = lines
+        .iter()
+        .filter(|alternative| same_joint_context_except_actor(node, candidate, alternative, enemy_id))
+        .collect::<Vec<_>>();
+    let best = alternatives
+        .iter()
+        .map(|alternative| actor_utility(alternative, enemy_id))
+        .max()
+        .unwrap_or(current);
+
+    (best.saturating_sub(current), alternatives)
 }
 
 fn is_plausibility_supported_response(
@@ -1013,24 +1036,26 @@ mod tests {
     }
 
     #[test]
-    fn any_legal_escape_invalidates_terminal_win_even_when_policy_marks_it_irrational() {
+    fn survival_preferred_escape_invalidates_terminal_win_without_plausibility_support() {
         let graph = FutureGraph::new(state());
         let root = graph.node(graph.root());
+        let enemy = ActorIndex::new(1).unwrap();
 
         let mut modeled_win =
             synthetic_response_line(Direction::Down, Direction::Right, 10_000, 500, 1);
         modeled_win.terminal = LineTerminal::Won;
         modeled_win.certainty = ForecastCertainty::FoodProvisional;
+        modeled_win
+            .actor_utility_totals
+            .insert(enemy, -TERMINAL_VALUE);
 
-        // This response is intentionally terrible for the enemy according to the
-        // utility model. It is still legal and survives, so the kill is not forced.
-        let unlikely_escape =
+        let unlikely_but_surviving_escape =
             synthetic_response_line(Direction::Down, Direction::Left, -10_000, -870, 2);
 
         let chosen = select_selfish_opponent_response(
             &graph,
             root,
-            vec![modeled_win, unlikely_escape.clone()],
+            vec![modeled_win, unlikely_but_surviving_escape.clone()],
         );
 
         assert_eq!(chosen.terminal, LineTerminal::Running);
@@ -1040,7 +1065,7 @@ mod tests {
                 .first()
                 .unwrap()
                 .joint_action
-                .direction_for(ActorIndex::new(1).unwrap()),
+                .direction_for(enemy),
             Some(Direction::Left)
         );
     }
