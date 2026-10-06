@@ -19,6 +19,15 @@ const MIN_NEAR_BEST_PLAUSIBILITY_MILLI: u16 = 250;
 const OPPONENT_RESPONSE_PLAUSIBILITY_SLACK_MILLI: u16 = 150;
 const GROWTH_FRONTIER_PRESSURE_NUMERATOR: i64 = 3;
 const GROWTH_FRONTIER_PRESSURE_DENOMINATOR: i64 = 2;
+const HUNTING_FRONTIER_TERRITORY_SCALE: i64 = 1;
+const HUNTING_FRONTIER_NEUTRAL_SIZE_SECURITY_MILLI: i64 = 600;
+const HUNTING_FRONTIER_MOBILITY_TWO_MOVES: i64 = 100;
+const HUNTING_FRONTIER_MOBILITY_ONE_MOVE: i64 = 350;
+const HUNTING_FRONTIER_MOBILITY_ZERO_MOVES: i64 = 750;
+const HUNTING_FRONTIER_ENCLOSURE_STEP: i64 = 100;
+const HUNTING_FRONTIER_BORDER_PRESSURE_DIVISOR: i64 = 8;
+const HUNTING_FRONTIER_RAW_CAP: i64 = 1_000;
+const HUNTING_FRONTIER_SURVIVAL_CUTOFF: u16 = 650;
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub(crate) struct MaximinStats {
@@ -381,14 +390,15 @@ fn frontier_line(node: &SearchNode, exact: bool, certainty: ForecastCertainty) -
             let Some(actor) = ActorIndex::new(index) else {
                 continue;
             };
-            let pressure = analysis
-                .actor_snapshot(actor)
-                .map(|snapshot| snapshot.metrics.growth_pressure_milli)
-                .unwrap_or(0);
-            let utility = i64::from(pressure)
+            let Some(snapshot) = analysis.actor_snapshot(actor) else {
+                continue;
+            };
+            let growth_utility = i64::from(snapshot.metrics.growth_pressure_milli)
                 .saturating_mul(GROWTH_FRONTIER_PRESSURE_NUMERATOR)
                 .saturating_div(GROWTH_FRONTIER_PRESSURE_DENOMINATOR)
                 .saturating_neg();
+            let hunting_utility = frontier_hunting_utility(node, actor);
+            let utility = growth_utility.saturating_add(hunting_utility);
             actor_utility_totals.insert(actor, utility);
 
             if snake.id == node.state.our_snake_id {
@@ -416,6 +426,83 @@ fn frontier_line(node: &SearchNode, exact: bool, certainty: ForecastCertainty) -
         },
         path: BeamPath::empty(),
     }
+}
+
+fn frontier_hunting_utility(node: &SearchNode, actor: ActorIndex) -> i64 {
+    let Some(analysis) = node.active_analysis() else {
+        return 0;
+    };
+    let Some(snapshot) = analysis.actor_snapshot(actor) else {
+        return 0;
+    };
+    if snapshot.weights.survival >= HUNTING_FRONTIER_SURVIVAL_CUTOFF
+        || snapshot.metrics.safe_non_reverse_moves <= 1
+    {
+        return 0;
+    }
+
+    let worst_rival_score = node
+        .state
+        .snakes
+        .iter()
+        .enumerate()
+        .filter(|(index, snake)| {
+            snake.alive && ActorIndex::new(*index).is_some_and(|candidate| candidate != actor)
+        })
+        .filter_map(|(index, _)| {
+            let rival = ActorIndex::new(index)?;
+            let rival_snapshot = analysis.actor_snapshot(rival)?;
+            Some(frontier_hunting_pair_raw(
+                &snapshot.metrics,
+                &rival_snapshot.metrics,
+            ))
+        })
+        .min()
+        .unwrap_or(0);
+
+    worst_rival_score
+        .saturating_mul(i64::from(snapshot.weights.hunting))
+        .saturating_div(1000)
+}
+
+fn frontier_hunting_pair_raw(
+    actor: &crate::evaluation::ActorUtilityMetrics,
+    rival: &crate::evaluation::ActorUtilityMetrics,
+) -> i64 {
+    let territory_dominance = i64::from(actor.territory_control_milli)
+        .saturating_sub(i64::from(rival.territory_control_milli))
+        .saturating_mul(HUNTING_FRONTIER_TERRITORY_SCALE);
+    let length_security = i64::from(actor.size_security_milli)
+        .saturating_sub(HUNTING_FRONTIER_NEUTRAL_SIZE_SECURITY_MILLI);
+    let constriction_asymmetry =
+        frontier_constriction_pressure(rival).saturating_sub(frontier_constriction_pressure(actor));
+    let escape_asymmetry =
+        i64::from(actor.space_capacity_milli).saturating_sub(i64::from(rival.space_capacity_milli));
+
+    territory_dominance
+        .saturating_add(length_security)
+        .saturating_add(constriction_asymmetry)
+        .saturating_add(escape_asymmetry)
+        .clamp(0, HUNTING_FRONTIER_RAW_CAP)
+}
+
+fn frontier_constriction_pressure(metrics: &crate::evaluation::ActorUtilityMetrics) -> i64 {
+    let mobility = match metrics.safe_non_reverse_moves {
+        0 => HUNTING_FRONTIER_MOBILITY_ZERO_MOVES,
+        1 => HUNTING_FRONTIER_MOBILITY_ONE_MOVE,
+        2 => HUNTING_FRONTIER_MOBILITY_TWO_MOVES,
+        _ => 0,
+    };
+    let enclosure =
+        i64::from(metrics.enclosure_risk).saturating_mul(HUNTING_FRONTIER_ENCLOSURE_STEP);
+    let border = i64::from(
+        metrics
+            .border_pin_risk_milli
+            .max(metrics.border_escape_pressure_milli),
+    )
+    .saturating_div(HUNTING_FRONTIER_BORDER_PRESSURE_DIVISOR);
+
+    mobility.saturating_add(enclosure).saturating_add(border)
 }
 
 fn terminal_line(node: &SearchNode, certainty: ForecastCertainty) -> Option<EvaluatedLine> {
@@ -1037,6 +1124,65 @@ mod tests {
             Some(Direction::Right)
         );
         assert_eq!(chosen.value, exact_best.value);
+    }
+
+    fn frontier_metrics(
+        moves: u8,
+        enclosure: u8,
+        border_pin: u16,
+        border_escape: u16,
+        space: u16,
+        territory: u16,
+        size_security: u16,
+    ) -> crate::evaluation::ActorUtilityMetrics {
+        crate::evaluation::ActorUtilityMetrics {
+            safe_non_reverse_moves: moves,
+            enclosure_risk: enclosure,
+            border_structural_risk_milli: 0,
+            border_exposure_milli: 0,
+            border_pin_risk_milli: border_pin,
+            border_escape_pressure_milli: border_escape,
+            space_capacity_milli: space,
+            territory_control_milli: territory,
+            food_potential_milli: 0,
+            growth_pressure_milli: 0,
+            size_security_milli: size_security,
+            claimable_food_eta: None,
+            food_survival_pressure_milli: 0,
+            health_pressure_milli: 0,
+        }
+    }
+
+    #[test]
+    fn hunting_frontier_rewards_dominance_over_a_constrained_rival() {
+        let dominant = frontier_metrics(3, 0, 0, 0, 900, 700, 1000);
+        let constrained = frontier_metrics(1, 2, 800, 800, 300, 300, 0);
+
+        let score = frontier_hunting_pair_raw(&dominant, &constrained);
+
+        assert!(score > 0);
+        assert!(score <= HUNTING_FRONTIER_RAW_CAP);
+    }
+
+    #[test]
+    fn hunting_frontier_does_not_double_penalize_the_constrained_side() {
+        let constrained = frontier_metrics(1, 2, 800, 800, 300, 300, 0);
+        let dominant = frontier_metrics(3, 0, 0, 0, 900, 700, 1000);
+
+        assert_eq!(frontier_hunting_pair_raw(&constrained, &dominant), 0);
+    }
+
+    #[test]
+    fn hunting_frontier_values_two_to_one_mobility_reduction_non_linearly() {
+        let actor = frontier_metrics(3, 0, 0, 0, 700, 500, 600);
+        let rival_two_moves = frontier_metrics(2, 0, 0, 0, 700, 500, 600);
+        let rival_one_move = frontier_metrics(1, 0, 0, 0, 700, 500, 600);
+
+        let two_moves = frontier_hunting_pair_raw(&actor, &rival_two_moves);
+        let one_move = frontier_hunting_pair_raw(&actor, &rival_one_move);
+
+        assert!(one_move > two_moves);
+        assert!(one_move.saturating_sub(two_moves) > two_moves);
     }
 
     #[test]
