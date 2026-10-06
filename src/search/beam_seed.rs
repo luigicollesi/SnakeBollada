@@ -43,6 +43,12 @@ pub(crate) fn build_seed_checkpoint(
     }
 
     let first_evaluation = evaluate_seed_beam(graph, 1);
+    log::debug!(
+        target: "search_diagnostics",
+        "seed turn={} depth=1 selected={}",
+        graph.node(graph.root()).state.turn,
+        format_lines(&first_evaluation.lines)
+    );
     if first_evaluation.lines.is_empty() || first_evaluation.lines.len() > BEAM_WIDTH {
         return Ok(None);
     }
@@ -110,9 +116,35 @@ fn deepen_seed_while_affordable(
         };
 
         checkpoint = next_checkpoint;
+        log::debug!(
+            target: "search_diagnostics",
+            "seed turn={} depth={} selected={}",
+            graph.node(graph.root()).state.turn,
+            checkpoint.completed_depth,
+            format_lines(&checkpoint.lines)
+        );
     }
 
     Ok(checkpoint)
+}
+
+fn format_lines(lines: &[BeamLine]) -> String {
+    lines
+        .iter()
+        .map(|line| {
+            format!(
+                "{:?}:v={} ours={} opp={} depth={} term={:?} cert={:?}",
+                line.root_direction,
+                line.value,
+                line.our_utility_total,
+                line.opponent_utility_total,
+                line.depth,
+                line.terminal,
+                line.certainty
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("|")
 }
 
 fn deepen_seed_one_layer(
