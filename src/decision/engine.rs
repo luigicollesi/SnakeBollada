@@ -78,6 +78,30 @@ impl DecisionEngine {
 
         let result = search_beam(graph, &budget).ok().flatten()?;
         let selected = select_line_with_continuity(graph, &result, incumbent_direction)?.clone();
+        log::debug!(
+            target: "search_diagnostics",
+            "decision turn={} completed_depth={} attempted_depth={} lines={} selected={:?}",
+            state.turn,
+            result.completed_depth(),
+            result.deepening.attempted_depth,
+            result
+                .checkpoint
+                .lines
+                .iter()
+                .map(|line| format!(
+                    "{:?}:v={} ours={} opp={} depth={} term={:?} cert={:?}",
+                    line.root_direction,
+                    line.value,
+                    line.our_utility_total,
+                    line.opponent_utility_total,
+                    line.depth,
+                    line.terminal,
+                    line.certainty
+                ))
+                .collect::<Vec<_>>()
+                .join("|"),
+            selected.root_direction
+        );
         let direction = selected.root_direction;
         if !direction_stays_in_bounds(state, direction) {
             return None;
