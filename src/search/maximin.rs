@@ -1253,11 +1253,7 @@ mod tests {
         }
 
         let graph = FutureGraph::new(state);
-        let actor = graph
-            .node(graph.root())
-            .state
-            .actor_index("ours")
-            .unwrap();
+        let actor = graph.node(graph.root()).state.actor_index("ours").unwrap();
         let snapshot = graph
             .node(graph.root())
             .active_analysis()
