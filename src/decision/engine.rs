@@ -179,12 +179,39 @@ fn select_line_with_continuity<'a>(
 ) -> Option<&'a BeamLine> {
     let best = result.best_line()?;
     if let Some(surviving_line) = avoid_provisional_terminal_loss(&result.checkpoint.lines, best) {
+        log::debug!(
+            target: "search_diagnostics",
+            "override turn={} reason=provisional_terminal_loss best={:?}:{} selected={:?}:{}",
+            graph.node(graph.root()).state.turn,
+            best.root_direction,
+            best.value,
+            surviving_line.root_direction,
+            surviving_line.value
+        );
         return Some(surviving_line);
     }
     if let Some(safer_line) = avoid_immediate_forced_corridor(graph, result, best) {
+        log::debug!(
+            target: "search_diagnostics",
+            "override turn={} reason=forced_corridor best={:?}:{} selected={:?}:{}",
+            graph.node(graph.root()).state.turn,
+            best.root_direction,
+            best.value,
+            safer_line.root_direction,
+            safer_line.value
+        );
         return Some(safer_line);
     }
     if let Some(food_claim) = immediate_safe_growth_claim(graph, result, best) {
+        log::debug!(
+            target: "search_diagnostics",
+            "override turn={} reason=safe_growth_claim best={:?}:{} selected={:?}:{}",
+            graph.node(graph.root()).state.turn,
+            best.root_direction,
+            best.value,
+            food_claim.root_direction,
+            food_claim.value
+        );
         return Some(food_claim);
     }
 
@@ -204,11 +231,23 @@ fn select_line_with_continuity<'a>(
         return Some(best);
     }
 
-    Some(select_incumbent_or_challenger(
+    let selected = select_incumbent_or_challenger(
         best,
         incumbent,
         root_has_survival_emergency(graph),
-    ))
+    );
+    if selected.root_direction != best.root_direction {
+        log::debug!(
+            target: "search_diagnostics",
+            "override turn={} reason=continuity best={:?}:{} selected={:?}:{}",
+            graph.node(graph.root()).state.turn,
+            best.root_direction,
+            best.value,
+            selected.root_direction,
+            selected.value
+        );
+    }
+    Some(selected)
 }
 
 fn avoid_provisional_terminal_loss<'a>(
