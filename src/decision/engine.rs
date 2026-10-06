@@ -109,6 +109,68 @@ impl DecisionEngine {
                 }
             }
         }
+        let root_state_for_trace = &graph.node(graph.root()).state;
+        let our_actor_for_trace =
+            root_state_for_trace.actor_index(&root_state_for_trace.our_snake_id);
+        let enemy_actors_for_trace = root_state_for_trace
+            .snakes
+            .iter()
+            .enumerate()
+            .filter(|(_, snake)| snake.alive && snake.id != root_state_for_trace.our_snake_id)
+            .filter_map(|(index, snake)| {
+                crate::simulation::state::ActorIndex::new(index)
+                    .map(|actor| (snake.id.clone(), actor))
+            })
+            .collect::<Vec<_>>();
+        let first_responses = result
+            .checkpoint
+            .lines
+            .iter()
+            .map(|line| {
+                let first = line.path.first();
+                let enemy = enemy_actors_for_trace
+                    .iter()
+                    .map(|(id, actor)| {
+                        format!(
+                            "{}:{:?}",
+                            id,
+                            first.and_then(|step| step.joint_action.direction_for(*actor))
+                        )
+                    })
+                    .collect::<Vec<_>>()
+                    .join(",");
+                format!("{:?}=>{}", line.root_direction, enemy)
+            })
+            .collect::<Vec<_>>()
+            .join("|");
+        let selected_path = selected
+            .path
+            .steps()
+            .iter()
+            .enumerate()
+            .map(|(ply, step)| {
+                let ours = our_actor_for_trace
+                    .and_then(|actor| step.joint_action.direction_for(actor));
+                let enemy = enemy_actors_for_trace
+                    .iter()
+                    .map(|(id, actor)| {
+                        format!("{}:{:?}", id, step.joint_action.direction_for(*actor))
+                    })
+                    .collect::<Vec<_>>()
+                    .join(",");
+                format!("{}:{:?}[{}]", ply + 1, ours, enemy)
+            })
+            .collect::<Vec<_>>()
+            .join(">");
+        log::debug!(
+            target: "search_diagnostics",
+            "responses turn={} first={} selected_terminal={:?} selected_cert={:?} selected_path={}",
+            state.turn,
+            first_responses,
+            selected.terminal,
+            selected.certainty,
+            selected_path
+        );
         log::debug!(
             target: "search_diagnostics",
             "decision turn={} completed_depth={} attempted_depth={} lines={} selected={:?}",
