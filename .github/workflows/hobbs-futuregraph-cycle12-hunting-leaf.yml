@@ -2,6 +2,7 @@ name: Hobbs FutureGraph Cycle 12 Hunting Leaf
 # deterministic A/B benchmark for Hunting Leaf Evaluation
 # rerun after rustfmt
 # rerun with survival-gated hunting leaf
+# rerun after final rustfmt
 # rerun with raw seed, root weights, and stop reasons
 # rerun after seed test alignment
 # rerun with explicit decision override tracing
