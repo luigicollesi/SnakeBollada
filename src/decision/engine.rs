@@ -78,6 +78,35 @@ impl DecisionEngine {
 
         let result = search_beam(graph, &budget).ok().flatten()?;
         let selected = select_line_with_continuity(graph, &result, incumbent_direction)?.clone();
+        if let Some(root_analysis) = graph.node(graph.root()).active_analysis() {
+            if let Some(our_actor) = graph
+                .node(graph.root())
+                .state
+                .actor_index(&graph.node(graph.root()).state.our_snake_id)
+            {
+                if let Some(snapshot) = root_analysis.actor_snapshot(our_actor) {
+                    log::debug!(
+                        target: "search_diagnostics",
+                        "root turn={} weights={}/{}/{} metrics moves={} space={} territory={} growth={} size_security={} enclosure={} border_struct={} border_pin={} border_escape={} starvation={} health={}",
+                        state.turn,
+                        snapshot.weights.food,
+                        snapshot.weights.hunting,
+                        snapshot.weights.survival,
+                        snapshot.metrics.safe_non_reverse_moves,
+                        snapshot.metrics.space_capacity_milli,
+                        snapshot.metrics.territory_control_milli,
+                        snapshot.metrics.growth_pressure_milli,
+                        snapshot.metrics.size_security_milli,
+                        snapshot.metrics.enclosure_risk,
+                        snapshot.metrics.border_structural_risk_milli,
+                        snapshot.metrics.border_pin_risk_milli,
+                        snapshot.metrics.border_escape_pressure_milli,
+                        snapshot.metrics.food_survival_pressure_milli,
+                        snapshot.metrics.health_pressure_milli
+                    );
+                }
+            }
+        }
         log::debug!(
             target: "search_diagnostics",
             "decision turn={} completed_depth={} attempted_depth={} lines={} selected={:?}",
