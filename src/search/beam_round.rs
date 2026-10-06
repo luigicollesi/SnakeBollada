@@ -184,6 +184,14 @@ fn advance_lines_one_layer(
     }
 
     let selected = select_seed_beam(&candidates);
+    log::debug!(
+        target: "search_diagnostics",
+        "round turn={} target_depth={} candidates={} selected={}",
+        graph.node(graph.root()).state.turn,
+        target_depth,
+        format_lines(&candidates),
+        format_lines(&selected)
+    );
     if selected.is_empty() {
         Ok(None)
     } else {
@@ -239,6 +247,25 @@ pub(crate) fn deepen_while_affordable(
         },
         checkpoint,
     })
+}
+
+fn format_lines(lines: &[BeamLine]) -> String {
+    lines
+        .iter()
+        .map(|line| {
+            format!(
+                "{:?}:v={} ours={} opp={} depth={} term={:?} cert={:?}",
+                line.root_direction,
+                line.value,
+                line.our_utility_total,
+                line.opponent_utility_total,
+                line.depth,
+                line.terminal,
+                line.certainty
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("|")
 }
 
 pub(crate) fn append_continuation(
