@@ -50,6 +50,7 @@ pub(crate) struct ContinuationEvaluation {
     pub(crate) our_utility_total: i64,
     pub(crate) opponent_utility_total: i64,
     pub(crate) actor_utility_totals: ActorVec<i64>,
+    pub(crate) frontier_hunting_bonus: i64,
     pub(crate) value: i64,
     pub(crate) terminal: LineTerminal,
     pub(crate) certainty: ForecastCertainty,
@@ -65,6 +66,7 @@ struct EvaluatedLine {
     our_utility_total: i64,
     opponent_utility_total: i64,
     actor_utility_totals: ActorVec<i64>,
+    frontier_hunting_bonus: i64,
     terminal: LineTerminal,
     certainty: ForecastCertainty,
     bound: ValueBound,
@@ -90,7 +92,8 @@ impl EvaluatedLine {
             self.opponent_utility_total = self
                 .opponent_utility_total
                 .saturating_add(transition.opponent_net_total);
-            self.value = route_value(self.our_utility_total, self.opponent_utility_total);
+            self.value = route_value(self.our_utility_total, self.opponent_utility_total)
+                .saturating_add(self.frontier_hunting_bonus);
             self.bound = shift_bound(self.bound, transition.route_delta());
         }
 
@@ -157,6 +160,7 @@ pub(crate) fn evaluate_seed_lines(graph: &FutureGraph, target_depth: u8) -> Seed
                 our_utility_total: line.our_utility_total,
                 opponent_utility_total: line.opponent_utility_total,
                 actor_utility_totals: line.actor_utility_totals,
+                frontier_hunting_bonus: line.frontier_hunting_bonus,
                 value: line.value,
                 terminal: line.terminal,
                 certainty: line.certainty,
@@ -203,6 +207,7 @@ pub(crate) fn evaluate_continuations(
             our_utility_total: line.our_utility_total,
             opponent_utility_total: line.opponent_utility_total,
             actor_utility_totals: line.actor_utility_totals,
+            frontier_hunting_bonus: line.frontier_hunting_bonus,
             value: line.value,
             terminal: line.terminal,
             certainty: line.certainty,
@@ -403,23 +408,22 @@ fn frontier_line(
                 .saturating_mul(GROWTH_FRONTIER_PRESSURE_NUMERATOR)
                 .saturating_div(GROWTH_FRONTIER_PRESSURE_DENOMINATOR)
                 .saturating_neg();
-            let hunting_utility = if snake.id == node.state.our_snake_id {
-                frontier_hunting_utility(graph, node, actor)
-            } else {
-                0
-            };
-            let utility = growth_utility.saturating_add(hunting_utility);
-            actor_utility_totals.insert(actor, utility);
+            actor_utility_totals.insert(actor, growth_utility);
 
             if snake.id == node.state.our_snake_id {
-                our_utility_total = utility;
+                our_utility_total = growth_utility;
             } else {
-                opponent_utility_total = opponent_utility_total.saturating_add(utility);
+                opponent_utility_total = opponent_utility_total.saturating_add(growth_utility);
             }
         }
     }
 
-    let value = route_value(our_utility_total, opponent_utility_total);
+    let frontier_hunting_bonus = node
+        .state
+        .actor_index(&node.state.our_snake_id)
+        .map_or(0, |actor| frontier_hunting_utility(graph, node, actor));
+    let value = route_value(our_utility_total, opponent_utility_total)
+        .saturating_add(frontier_hunting_bonus);
     EvaluatedLine {
         value,
         benefit_total: value.max(0),
@@ -427,6 +431,7 @@ fn frontier_line(
         our_utility_total,
         opponent_utility_total,
         actor_utility_totals,
+        frontier_hunting_bonus,
         terminal: LineTerminal::Running,
         certainty,
         bound: if exact {
@@ -542,6 +547,7 @@ fn terminal_line(node: &SearchNode, certainty: ForecastCertainty) -> Option<Eval
             our_utility_total: value,
             opponent_utility_total: 0,
             actor_utility_totals: ActorVec::new(),
+            frontier_hunting_bonus: 0,
             terminal: LineTerminal::Lost,
             certainty,
             bound: ValueBound::Exact(value),
@@ -971,6 +977,7 @@ mod tests {
                 (ActorIndex::new(1).unwrap(), enemy_a),
                 (ActorIndex::new(2).unwrap(), enemy_b),
             ]),
+            frontier_hunting_bonus: 0,
             terminal: LineTerminal::Running,
             certainty: ForecastCertainty::Deterministic,
             bound: ValueBound::Exact(value),
@@ -995,6 +1002,7 @@ mod tests {
                 (ActorIndex::new(0).unwrap(), ours),
                 (ActorIndex::new(1).unwrap(), opponents),
             ]),
+            frontier_hunting_bonus: 0,
             terminal: LineTerminal::Running,
             certainty: ForecastCertainty::Deterministic,
             bound: ValueBound::Exact(value),
@@ -1025,6 +1033,7 @@ mod tests {
                 (ActorIndex::new(0).unwrap(), ours),
                 (ActorIndex::new(1).unwrap(), enemy),
             ]),
+            frontier_hunting_bonus: 0,
             terminal: LineTerminal::Running,
             certainty: ForecastCertainty::Deterministic,
             bound: ValueBound::Exact(value),
@@ -1287,6 +1296,7 @@ mod tests {
             our_utility_total: PROVISIONAL_TERMINAL_VALUE,
             opponent_utility_total: 0,
             actor_utility_totals: ActorVec::new(),
+            frontier_hunting_bonus: 0,
             terminal: LineTerminal::Won,
             certainty: ForecastCertainty::FoodProvisional,
             bound: ValueBound::Exact(PROVISIONAL_TERMINAL_VALUE),
