@@ -1,5 +1,6 @@
 name: Hobbs FutureGraph Cycle 10 Diagnostic
 # deterministic victory-opportunity benchmark
+# rerun after diagnostic compile fix
 
 on:
   pull_request:
