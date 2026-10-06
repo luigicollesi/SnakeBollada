@@ -1,6 +1,7 @@
 name: Hobbs FutureGraph Cycle 12 Win Divergence
 # deterministic victory-opportunity benchmark
 # diagnostic: compare predicted Hobbs responses with actual moves on provisional wins
+# rerun after response-trace rustfmt
 
 on:
   pull_request:
