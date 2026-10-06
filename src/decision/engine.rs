@@ -231,11 +231,8 @@ fn select_line_with_continuity<'a>(
         return Some(best);
     }
 
-    let selected = select_incumbent_or_challenger(
-        best,
-        incumbent,
-        root_has_survival_emergency(graph),
-    );
+    let selected =
+        select_incumbent_or_challenger(best, incumbent, root_has_survival_emergency(graph));
     if selected.root_direction != best.root_direction {
         log::debug!(
             target: "search_diagnostics",
