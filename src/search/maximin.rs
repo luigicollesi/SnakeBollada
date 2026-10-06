@@ -19,6 +19,14 @@ const MIN_NEAR_BEST_PLAUSIBILITY_MILLI: u16 = 250;
 const OPPONENT_RESPONSE_PLAUSIBILITY_SLACK_MILLI: u16 = 150;
 const GROWTH_FRONTIER_PRESSURE_NUMERATOR: i64 = 3;
 const GROWTH_FRONTIER_PRESSURE_DENOMINATOR: i64 = 2;
+const HUNTING_FRONTIER_TERRITORY_SCALE: i64 = 1;
+const HUNTING_FRONTIER_NEUTRAL_SIZE_SECURITY_MILLI: i64 = 600;
+const HUNTING_FRONTIER_RAW_CAP: i64 = 600;
+const HUNTING_FRONTIER_MAX_GROWTH_PRESSURE_MILLI: u16 = 150;
+const HUNTING_FRONTIER_ROOT_MAX_SURVIVAL_WEIGHT: u16 = 500;
+const HUNTING_FRONTIER_ROOT_MIN_SAFE_MOVES: u8 = 3;
+const HUNTING_FRONTIER_ROOT_MIN_SPACE_CAPACITY_MILLI: u16 = 500;
+const HUNTING_FRONTIER_ROOT_MAX_BORDER_PRESSURE_MILLI: u16 = 600;
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub(crate) struct MaximinStats {
@@ -42,6 +50,7 @@ pub(crate) struct ContinuationEvaluation {
     pub(crate) our_utility_total: i64,
     pub(crate) opponent_utility_total: i64,
     pub(crate) actor_utility_totals: ActorVec<i64>,
+    pub(crate) frontier_hunting_bonus: i64,
     pub(crate) value: i64,
     pub(crate) terminal: LineTerminal,
     pub(crate) certainty: ForecastCertainty,
@@ -57,6 +66,7 @@ struct EvaluatedLine {
     our_utility_total: i64,
     opponent_utility_total: i64,
     actor_utility_totals: ActorVec<i64>,
+    frontier_hunting_bonus: i64,
     terminal: LineTerminal,
     certainty: ForecastCertainty,
     bound: ValueBound,
@@ -82,7 +92,8 @@ impl EvaluatedLine {
             self.opponent_utility_total = self
                 .opponent_utility_total
                 .saturating_add(transition.opponent_net_total);
-            self.value = route_value(self.our_utility_total, self.opponent_utility_total);
+            self.value = route_value(self.our_utility_total, self.opponent_utility_total)
+                .saturating_add(self.frontier_hunting_bonus);
             self.bound = shift_bound(self.bound, transition.route_delta());
         }
 
@@ -149,6 +160,7 @@ pub(crate) fn evaluate_seed_lines(graph: &FutureGraph, target_depth: u8) -> Seed
                 our_utility_total: line.our_utility_total,
                 opponent_utility_total: line.opponent_utility_total,
                 actor_utility_totals: line.actor_utility_totals,
+                frontier_hunting_bonus: line.frontier_hunting_bonus,
                 value: line.value,
                 terminal: line.terminal,
                 certainty: line.certainty,
@@ -195,6 +207,7 @@ pub(crate) fn evaluate_continuations(
             our_utility_total: line.our_utility_total,
             opponent_utility_total: line.opponent_utility_total,
             actor_utility_totals: line.actor_utility_totals,
+            frontier_hunting_bonus: line.frontier_hunting_bonus,
             value: line.value,
             terminal: line.terminal,
             certainty: line.certainty,
@@ -214,7 +227,9 @@ impl MaximinEvaluator<'_> {
         self.evaluate_node_variants(node_id, remaining_depth, certainty)
             .into_iter()
             .next()
-            .unwrap_or_else(|| frontier_line(self.graph.node(node_id), false, certainty))
+            .unwrap_or_else(|| {
+                frontier_line(self.graph, self.graph.node(node_id), false, certainty)
+            })
     }
 
     fn evaluate_node_variants(
@@ -241,10 +256,10 @@ impl MaximinEvaluator<'_> {
             vec![terminal]
         } else if remaining_depth == 0 {
             self.stats.exact_nodes = self.stats.exact_nodes.saturating_add(1);
-            vec![frontier_line(node, true, certainty)]
+            vec![frontier_line(self.graph, node, true, certainty)]
         } else if !node.expansion_complete() {
             self.stats.bounded_nodes = self.stats.bounded_nodes.saturating_add(1);
-            vec![frontier_line(node, false, certainty)]
+            vec![frontier_line(self.graph, node, false, certainty)]
         } else {
             let mut variants = Vec::new();
             for direction in Direction::ALL {
@@ -258,7 +273,7 @@ impl MaximinEvaluator<'_> {
 
             if variants.is_empty() {
                 self.stats.bounded_nodes = self.stats.bounded_nodes.saturating_add(1);
-                vec![frontier_line(node, false, certainty)]
+                vec![frontier_line(self.graph, node, false, certainty)]
             } else {
                 variants
             }
@@ -365,7 +380,12 @@ impl MaximinEvaluator<'_> {
     }
 }
 
-fn frontier_line(node: &SearchNode, exact: bool, certainty: ForecastCertainty) -> EvaluatedLine {
+fn frontier_line(
+    graph: &FutureGraph,
+    node: &SearchNode,
+    exact: bool,
+    certainty: ForecastCertainty,
+) -> EvaluatedLine {
     let mut actor_utility_totals = ActorVec::with_capacity(node.state.snakes.len());
     let mut our_utility_total = 0_i64;
     let mut opponent_utility_total = 0_i64;
@@ -381,25 +401,29 @@ fn frontier_line(node: &SearchNode, exact: bool, certainty: ForecastCertainty) -
             let Some(actor) = ActorIndex::new(index) else {
                 continue;
             };
-            let pressure = analysis
-                .actor_snapshot(actor)
-                .map(|snapshot| snapshot.metrics.growth_pressure_milli)
-                .unwrap_or(0);
-            let utility = i64::from(pressure)
+            let Some(snapshot) = analysis.actor_snapshot(actor) else {
+                continue;
+            };
+            let growth_utility = i64::from(snapshot.metrics.growth_pressure_milli)
                 .saturating_mul(GROWTH_FRONTIER_PRESSURE_NUMERATOR)
                 .saturating_div(GROWTH_FRONTIER_PRESSURE_DENOMINATOR)
                 .saturating_neg();
-            actor_utility_totals.insert(actor, utility);
+            actor_utility_totals.insert(actor, growth_utility);
 
             if snake.id == node.state.our_snake_id {
-                our_utility_total = utility;
+                our_utility_total = growth_utility;
             } else {
-                opponent_utility_total = opponent_utility_total.saturating_add(utility);
+                opponent_utility_total = opponent_utility_total.saturating_add(growth_utility);
             }
         }
     }
 
-    let value = route_value(our_utility_total, opponent_utility_total);
+    let frontier_hunting_bonus = node
+        .state
+        .actor_index(&node.state.our_snake_id)
+        .map_or(0, |actor| frontier_hunting_utility(graph, node, actor));
+    let value = route_value(our_utility_total, opponent_utility_total)
+        .saturating_add(frontier_hunting_bonus);
     EvaluatedLine {
         value,
         benefit_total: value.max(0),
@@ -407,6 +431,7 @@ fn frontier_line(node: &SearchNode, exact: bool, certainty: ForecastCertainty) -
         our_utility_total,
         opponent_utility_total,
         actor_utility_totals,
+        frontier_hunting_bonus,
         terminal: LineTerminal::Running,
         certainty,
         bound: if exact {
@@ -416,6 +441,92 @@ fn frontier_line(node: &SearchNode, exact: bool, certainty: ForecastCertainty) -
         },
         path: BeamPath::empty(),
     }
+}
+
+fn frontier_hunting_utility(graph: &FutureGraph, node: &SearchNode, actor: ActorIndex) -> i64 {
+    let Some(analysis) = node.active_analysis() else {
+        return 0;
+    };
+    let Some(snapshot) = analysis.actor_snapshot(actor) else {
+        return 0;
+    };
+    let Some(root_snapshot) = graph
+        .node(graph.root())
+        .active_analysis()
+        .and_then(|root_analysis| root_analysis.actor_snapshot(actor))
+    else {
+        return 0;
+    };
+    let root_border_pressure = root_snapshot
+        .metrics
+        .border_pin_risk_milli
+        .max(root_snapshot.metrics.border_escape_pressure_milli)
+        .max(root_snapshot.metrics.border_structural_risk_milli);
+    if root_snapshot.metrics.growth_pressure_milli > HUNTING_FRONTIER_MAX_GROWTH_PRESSURE_MILLI
+        || root_snapshot.weights.survival >= HUNTING_FRONTIER_ROOT_MAX_SURVIVAL_WEIGHT
+        || root_snapshot.metrics.safe_non_reverse_moves < HUNTING_FRONTIER_ROOT_MIN_SAFE_MOVES
+        || root_snapshot.metrics.space_capacity_milli
+            < HUNTING_FRONTIER_ROOT_MIN_SPACE_CAPACITY_MILLI
+        || root_snapshot.metrics.enclosure_risk > 0
+        || root_border_pressure >= HUNTING_FRONTIER_ROOT_MAX_BORDER_PRESSURE_MILLI
+    {
+        return 0;
+    }
+
+    let leaf_border_pressure = snapshot
+        .metrics
+        .border_pin_risk_milli
+        .max(snapshot.metrics.border_escape_pressure_milli)
+        .max(snapshot.metrics.border_structural_risk_milli);
+    if snapshot.metrics.growth_pressure_milli > HUNTING_FRONTIER_MAX_GROWTH_PRESSURE_MILLI
+        || snapshot.weights.survival >= HUNTING_FRONTIER_ROOT_MAX_SURVIVAL_WEIGHT
+        || snapshot.metrics.safe_non_reverse_moves < HUNTING_FRONTIER_ROOT_MIN_SAFE_MOVES
+        || snapshot.metrics.space_capacity_milli < HUNTING_FRONTIER_ROOT_MIN_SPACE_CAPACITY_MILLI
+        || snapshot.metrics.enclosure_risk > 0
+        || leaf_border_pressure >= HUNTING_FRONTIER_ROOT_MAX_BORDER_PRESSURE_MILLI
+    {
+        return 0;
+    }
+
+    let worst_rival_score = node
+        .state
+        .snakes
+        .iter()
+        .enumerate()
+        .filter(|(index, snake)| {
+            snake.alive && ActorIndex::new(*index).is_some_and(|candidate| candidate != actor)
+        })
+        .filter_map(|(index, _)| {
+            let rival = ActorIndex::new(index)?;
+            let rival_snapshot = analysis.actor_snapshot(rival)?;
+            Some(frontier_hunting_pair_raw(
+                &snapshot.metrics,
+                &rival_snapshot.metrics,
+            ))
+        })
+        .min()
+        .unwrap_or(0);
+
+    worst_rival_score
+        .saturating_mul(i64::from(snapshot.weights.hunting))
+        .saturating_div(1000)
+}
+
+fn frontier_hunting_pair_raw(
+    actor: &crate::evaluation::ActorUtilityMetrics,
+    rival: &crate::evaluation::ActorUtilityMetrics,
+) -> i64 {
+    let territory_dominance = i64::from(actor.territory_control_milli)
+        .saturating_sub(i64::from(rival.territory_control_milli))
+        .max(0)
+        .saturating_mul(HUNTING_FRONTIER_TERRITORY_SCALE);
+    let length_security = i64::from(actor.size_security_milli)
+        .saturating_sub(HUNTING_FRONTIER_NEUTRAL_SIZE_SECURITY_MILLI)
+        .max(0);
+
+    territory_dominance
+        .saturating_add(length_security)
+        .min(HUNTING_FRONTIER_RAW_CAP)
 }
 
 fn terminal_line(node: &SearchNode, certainty: ForecastCertainty) -> Option<EvaluatedLine> {
@@ -436,6 +547,7 @@ fn terminal_line(node: &SearchNode, certainty: ForecastCertainty) -> Option<Eval
             our_utility_total: value,
             opponent_utility_total: 0,
             actor_utility_totals: ActorVec::new(),
+            frontier_hunting_bonus: 0,
             terminal: LineTerminal::Lost,
             certainty,
             bound: ValueBound::Exact(value),
@@ -865,6 +977,7 @@ mod tests {
                 (ActorIndex::new(1).unwrap(), enemy_a),
                 (ActorIndex::new(2).unwrap(), enemy_b),
             ]),
+            frontier_hunting_bonus: 0,
             terminal: LineTerminal::Running,
             certainty: ForecastCertainty::Deterministic,
             bound: ValueBound::Exact(value),
@@ -889,6 +1002,7 @@ mod tests {
                 (ActorIndex::new(0).unwrap(), ours),
                 (ActorIndex::new(1).unwrap(), opponents),
             ]),
+            frontier_hunting_bonus: 0,
             terminal: LineTerminal::Running,
             certainty: ForecastCertainty::Deterministic,
             bound: ValueBound::Exact(value),
@@ -919,6 +1033,7 @@ mod tests {
                 (ActorIndex::new(0).unwrap(), ours),
                 (ActorIndex::new(1).unwrap(), enemy),
             ]),
+            frontier_hunting_bonus: 0,
             terminal: LineTerminal::Running,
             certainty: ForecastCertainty::Deterministic,
             bound: ValueBound::Exact(value),
@@ -1039,6 +1154,63 @@ mod tests {
         assert_eq!(chosen.value, exact_best.value);
     }
 
+    fn frontier_metrics(
+        moves: u8,
+        enclosure: u8,
+        border_pin: u16,
+        border_escape: u16,
+        space: u16,
+        territory: u16,
+        size_security: u16,
+    ) -> crate::evaluation::ActorUtilityMetrics {
+        crate::evaluation::ActorUtilityMetrics {
+            safe_non_reverse_moves: moves,
+            enclosure_risk: enclosure,
+            border_structural_risk_milli: 0,
+            border_exposure_milli: 0,
+            border_pin_risk_milli: border_pin,
+            border_escape_pressure_milli: border_escape,
+            space_capacity_milli: space,
+            territory_control_milli: territory,
+            food_potential_milli: 0,
+            growth_pressure_milli: 0,
+            size_security_milli: size_security,
+            claimable_food_eta: None,
+            food_survival_pressure_milli: 0,
+            health_pressure_milli: 0,
+        }
+    }
+
+    #[test]
+    fn hunting_frontier_rewards_dominance_over_a_constrained_rival() {
+        let dominant = frontier_metrics(3, 0, 0, 0, 900, 700, 1000);
+        let constrained = frontier_metrics(1, 2, 800, 800, 300, 300, 0);
+
+        let score = frontier_hunting_pair_raw(&dominant, &constrained);
+
+        assert!(score > 0);
+        assert!(score <= HUNTING_FRONTIER_RAW_CAP);
+    }
+
+    #[test]
+    fn hunting_frontier_does_not_double_penalize_the_constrained_side() {
+        let constrained = frontier_metrics(1, 2, 800, 800, 300, 300, 0);
+        let dominant = frontier_metrics(3, 0, 0, 0, 900, 700, 1000);
+
+        assert_eq!(frontier_hunting_pair_raw(&constrained, &dominant), 0);
+    }
+
+    #[test]
+    fn hunting_frontier_rewards_capped_size_security_without_geometry_double_counting() {
+        let actor = frontier_metrics(3, 0, 0, 0, 700, 500, 1000);
+        let rival = frontier_metrics(3, 0, 0, 0, 700, 500, 0);
+
+        let score = frontier_hunting_pair_raw(&actor, &rival);
+
+        assert!(score > 0);
+        assert!(score <= HUNTING_FRONTIER_RAW_CAP);
+    }
+
     #[test]
     fn frontier_penalizes_size_disadvantage_once_actor_relatively() {
         let mut disadvantaged = state();
@@ -1052,6 +1224,7 @@ mod tests {
 
         let graph = FutureGraph::new(disadvantaged);
         let line = frontier_line(
+            &graph,
             graph.node(graph.root()),
             true,
             ForecastCertainty::Deterministic,
@@ -1066,6 +1239,7 @@ mod tests {
     fn frontier_is_neutral_when_growth_pressure_is_symmetric() {
         let graph = FutureGraph::new(state());
         let line = frontier_line(
+            &graph,
             graph.node(graph.root()),
             true,
             ForecastCertainty::Deterministic,
@@ -1122,6 +1296,7 @@ mod tests {
             our_utility_total: PROVISIONAL_TERMINAL_VALUE,
             opponent_utility_total: 0,
             actor_utility_totals: ActorVec::new(),
+            frontier_hunting_bonus: 0,
             terminal: LineTerminal::Won,
             certainty: ForecastCertainty::FoodProvisional,
             bound: ValueBound::Exact(PROVISIONAL_TERMINAL_VALUE),

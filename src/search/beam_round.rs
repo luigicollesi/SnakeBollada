@@ -295,7 +295,8 @@ pub(crate) fn append_continuation(
         (
             ours,
             opponents,
-            ours.saturating_sub(opponents),
+            ours.saturating_sub(opponents)
+                .saturating_add(continuation.frontier_hunting_bonus),
             shift_bound(continuation.bound, prefix_value),
         )
     } else {
@@ -318,6 +319,7 @@ pub(crate) fn append_continuation(
         our_utility_total,
         opponent_utility_total,
         actor_utility_totals,
+        frontier_hunting_bonus: continuation.frontier_hunting_bonus,
         value,
         terminal: continuation.terminal,
         certainty: continuation.certainty,
@@ -523,6 +525,7 @@ mod tests {
                 (crate::simulation::state::ActorIndex::new(0).unwrap(), 900),
                 (crate::simulation::state::ActorIndex::new(1).unwrap(), 300),
             ]),
+            frontier_hunting_bonus: 0,
             value: 600,
             terminal: LineTerminal::Running,
             certainty: crate::search::forecast::ForecastCertainty::Deterministic,
