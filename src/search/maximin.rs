@@ -403,7 +403,11 @@ fn frontier_line(
                 .saturating_mul(GROWTH_FRONTIER_PRESSURE_NUMERATOR)
                 .saturating_div(GROWTH_FRONTIER_PRESSURE_DENOMINATOR)
                 .saturating_neg();
-            let hunting_utility = frontier_hunting_utility(graph, node, actor);
+            let hunting_utility = if snake.id == node.state.our_snake_id {
+                frontier_hunting_utility(graph, node, actor)
+            } else {
+                0
+            };
             let utility = growth_utility.saturating_add(hunting_utility);
             actor_utility_totals.insert(actor, utility);
 
