@@ -22,7 +22,6 @@ const GROWTH_FRONTIER_PRESSURE_DENOMINATOR: i64 = 2;
 const HUNTING_FRONTIER_TERRITORY_SCALE: i64 = 1;
 const HUNTING_FRONTIER_NEUTRAL_SIZE_SECURITY_MILLI: i64 = 600;
 const HUNTING_FRONTIER_RAW_CAP: i64 = 600;
-const HUNTING_FRONTIER_SURVIVAL_CUTOFF: u16 = 650;
 const HUNTING_FRONTIER_MAX_GROWTH_PRESSURE_MILLI: u16 = 150;
 const HUNTING_FRONTIER_ROOT_MAX_SURVIVAL_WEIGHT: u16 = 500;
 const HUNTING_FRONTIER_ROOT_MIN_SAFE_MOVES: u8 = 3;
@@ -461,9 +460,22 @@ fn frontier_hunting_utility(graph: &FutureGraph, node: &SearchNode, actor: Actor
             < HUNTING_FRONTIER_ROOT_MIN_SPACE_CAPACITY_MILLI
         || root_snapshot.metrics.enclosure_risk > 0
         || root_border_pressure >= HUNTING_FRONTIER_ROOT_MAX_BORDER_PRESSURE_MILLI
-        || snapshot.weights.survival >= HUNTING_FRONTIER_SURVIVAL_CUTOFF
-        || snapshot.metrics.safe_non_reverse_moves <= 1
-        || snapshot.metrics.growth_pressure_milli > HUNTING_FRONTIER_MAX_GROWTH_PRESSURE_MILLI
+    {
+        return 0;
+    }
+
+    let leaf_border_pressure = snapshot
+        .metrics
+        .border_pin_risk_milli
+        .max(snapshot.metrics.border_escape_pressure_milli)
+        .max(snapshot.metrics.border_structural_risk_milli);
+    if snapshot.metrics.growth_pressure_milli > HUNTING_FRONTIER_MAX_GROWTH_PRESSURE_MILLI
+        || snapshot.weights.survival >= HUNTING_FRONTIER_ROOT_MAX_SURVIVAL_WEIGHT
+        || snapshot.metrics.safe_non_reverse_moves < HUNTING_FRONTIER_ROOT_MIN_SAFE_MOVES
+        || snapshot.metrics.space_capacity_milli
+            < HUNTING_FRONTIER_ROOT_MIN_SPACE_CAPACITY_MILLI
+        || snapshot.metrics.enclosure_risk > 0
+        || leaf_border_pressure >= HUNTING_FRONTIER_ROOT_MAX_BORDER_PRESSURE_MILLI
     {
         return 0;
     }
