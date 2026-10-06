@@ -149,8 +149,8 @@ impl DecisionEngine {
             .iter()
             .enumerate()
             .map(|(ply, step)| {
-                let ours = our_actor_for_trace
-                    .and_then(|actor| step.joint_action.direction_for(actor));
+                let ours =
+                    our_actor_for_trace.and_then(|actor| step.joint_action.direction_for(actor));
                 let enemy = enemy_actors_for_trace
                     .iter()
                     .map(|(id, actor)| {
