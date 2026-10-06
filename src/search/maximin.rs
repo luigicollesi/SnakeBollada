@@ -468,10 +468,10 @@ fn frontier_hunting_pair_raw(
         .saturating_mul(HUNTING_FRONTIER_TERRITORY_SCALE);
     let length_security = i64::from(actor.size_security_milli)
         .saturating_sub(HUNTING_FRONTIER_NEUTRAL_SIZE_SECURITY_MILLI);
-    let constriction_asymmetry = frontier_constriction_pressure(rival)
-        .saturating_sub(frontier_constriction_pressure(actor));
-    let escape_asymmetry = i64::from(actor.space_capacity_milli)
-        .saturating_sub(i64::from(rival.space_capacity_milli));
+    let constriction_asymmetry =
+        frontier_constriction_pressure(rival).saturating_sub(frontier_constriction_pressure(actor));
+    let escape_asymmetry =
+        i64::from(actor.space_capacity_milli).saturating_sub(i64::from(rival.space_capacity_milli));
 
     territory_dominance
         .saturating_add(length_security)
@@ -490,8 +490,8 @@ fn frontier_constriction_pressure(metrics: &crate::evaluation::ActorUtilityMetri
         2 => HUNTING_FRONTIER_MOBILITY_TWO_MOVES,
         _ => 0,
     };
-    let enclosure = i64::from(metrics.enclosure_risk)
-        .saturating_mul(HUNTING_FRONTIER_ENCLOSURE_STEP);
+    let enclosure =
+        i64::from(metrics.enclosure_risk).saturating_mul(HUNTING_FRONTIER_ENCLOSURE_STEP);
     let border = i64::from(
         metrics
             .border_pin_risk_milli
