@@ -1,7 +1,7 @@
 use std::time::Duration;
 
 use crate::direction::Direction;
-use crate::search::beam::BeamLine;
+use crate::search::beam::{BeamLine, LineTerminal};
 use crate::search::beam_search::{search_beam, BeamSearchResult};
 use crate::search::budget::SearchBudget;
 use crate::search::forecast::{FoodForecastPolicy, ForecastCertainty, PROVISIONAL_TERMINAL_VALUE};
@@ -125,6 +125,11 @@ fn select_line_with_continuity<'a>(
     incumbent_direction: Option<Direction>,
 ) -> Option<&'a BeamLine> {
     let best = result.best_line()?;
+    if let Some(surviving_line) =
+        avoid_provisional_terminal_loss(&result.checkpoint.lines, best)
+    {
+        return Some(surviving_line);
+    }
     if let Some(safer_line) = avoid_immediate_forced_corridor(graph, result, best) {
         return Some(safer_line);
     }
@@ -155,6 +160,25 @@ fn select_line_with_continuity<'a>(
     ))
 }
 
+fn avoid_provisional_terminal_loss<'a>(
+    lines: &'a [BeamLine],
+    best: &'a BeamLine,
+) -> Option<&'a BeamLine> {
+    if best.terminal != LineTerminal::Lost || !best.certainty.is_provisional() {
+        return None;
+    }
+
+    lines
+        .iter()
+        .filter(|line| line.is_viable() && line.terminal != LineTerminal::Lost)
+        .max_by(|left, right| {
+            left.value
+                .cmp(&right.value)
+                .then_with(|| left.our_utility_total.cmp(&right.our_utility_total))
+                .then_with(|| right.root_direction.rank().cmp(&left.root_direction.rank()))
+        })
+}
+
 fn avoid_immediate_forced_corridor<'a>(
     graph: &FutureGraph,
     result: &'a BeamSearchResult,
@@ -167,13 +191,12 @@ fn avoid_immediate_forced_corridor<'a>(
     let root = graph.node(graph.root());
     let our_actor = root.state.actor_index(&root.state.our_snake_id)?;
     let root_snapshot = root.active_analysis()?.actor_snapshot(our_actor)?;
-    if root_snapshot.metrics.safe_non_reverse_moves <= 1 {
-        return None;
-    }
-
-    if line_first_child_mobility(graph, best, our_actor)? != 1 {
-        return None;
-    }
+    let best_mobility = line_first_child_mobility(graph, best, our_actor)?;
+    let required_alternative_mobility = match best_mobility {
+        0 => 1,
+        1 if root_snapshot.metrics.safe_non_reverse_moves > 1 => 2,
+        _ => return None,
+    };
 
     result
         .checkpoint
@@ -181,7 +204,8 @@ fn avoid_immediate_forced_corridor<'a>(
         .iter()
         .filter(|line| line.is_viable())
         .filter(|line| {
-            line_first_child_mobility(graph, line, our_actor).is_some_and(|moves| moves >= 2)
+            line_first_child_mobility(graph, line, our_actor)
+                .is_some_and(|moves| moves >= required_alternative_mobility)
         })
         .max_by(|left, right| {
             left.value
@@ -476,6 +500,21 @@ mod tests {
             value.max(0).saturating_sub(value),
             LineTerminal::Running,
         )
+    }
+
+    #[test]
+    fn provisional_terminal_loss_does_not_beat_running_line() {
+        let mut dying = line(1, Direction::Right, 5_000);
+        dying.terminal = LineTerminal::Lost;
+        dying.certainty = ForecastCertainty::FoodProvisional;
+        let running = line(2, Direction::Up, 1_000);
+        let lines = vec![dying, running];
+
+        let chosen = avoid_provisional_terminal_loss(&lines, &lines[0])
+            .expect("a still-running route must replace a provisional death");
+
+        assert_eq!(chosen.root_direction, Direction::Up);
+        assert_eq!(chosen.terminal, LineTerminal::Running);
     }
 
     #[test]
