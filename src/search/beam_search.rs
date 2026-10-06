@@ -43,6 +43,13 @@ fn search_from_seed(
 
     if has_single_root_direction(&seed.checkpoint) {
         let completed_depth = seed.checkpoint.completed_depth;
+        log::debug!(
+            target: "search_diagnostics",
+            "stop turn={} reason=single_root_after_seed depth={} lines={}",
+            graph.node(graph.root()).state.turn,
+            completed_depth,
+            seed.checkpoint.lines.len()
+        );
         return Ok(BeamSearchResult {
             checkpoint: seed.checkpoint,
             seed: seed_stats,
@@ -56,6 +63,15 @@ fn search_from_seed(
     }
 
     let deepening = deepen_while_affordable(graph, seed.checkpoint, budget)?;
+    log::debug!(
+        target: "search_diagnostics",
+        "stop turn={} reason=deepening_finished completed_depth={} attempted_depth={} rounds={} lines={}",
+        graph.node(graph.root()).state.turn,
+        deepening.stats.completed_depth,
+        deepening.stats.attempted_depth,
+        deepening.stats.rounds_completed,
+        deepening.checkpoint.lines.len()
+    );
 
     Ok(BeamSearchResult {
         checkpoint: deepening.checkpoint,
