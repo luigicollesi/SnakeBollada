@@ -186,9 +186,8 @@ fn advance_lines_one_layer(
     let selected = select_seed_beam(&candidates);
     log::debug!(
         target: "search_diagnostics",
-        "round turn={} target_depth={} candidates={} selected={}",
+        "round turn={} candidates={} selected={}",
         graph.node(graph.root()).state.turn,
-        target_depth,
         format_lines(&candidates),
         format_lines(&selected)
     );
