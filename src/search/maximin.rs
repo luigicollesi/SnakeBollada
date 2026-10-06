@@ -513,24 +513,24 @@ fn select_selfish_opponent_response(
     // A kill is only proven when the opponent has no strategically plausible
     // escape. Actor utility is an estimate; it must not turn one preferred
     // response into a forced win when another plausible legal response survives.
-    let plausible_terminal_escapes = if lines.iter().any(|line| line.terminal == LineTerminal::Won)
-    {
+    // A terminal win is a proof claim, not a policy guess. If any legal opponent
+    // response survives, the win is not forced even when that response looks
+    // strategically unlikely according to current utility/plausibility estimates.
+    // Learned intent may rank ordinary responses, but it must never certify a kill.
+    let legal_terminal_escapes = if lines.iter().any(|line| line.terminal == LineTerminal::Won) {
         lines
             .iter()
-            .filter(|candidate| {
-                candidate.terminal != LineTerminal::Won
-                    && is_plausibility_supported_response(graph, node, candidate, &lines, &enemies)
-            })
+            .filter(|candidate| candidate.terminal != LineTerminal::Won)
             .cloned()
             .collect::<Vec<_>>()
     } else {
         Vec::new()
     };
 
-    let response_pool = if plausible_terminal_escapes.is_empty() {
+    let response_pool = if legal_terminal_escapes.is_empty() {
         near_best_responses
     } else {
-        plausible_terminal_escapes
+        legal_terminal_escapes
     };
 
     let mut chosen = if response_pool.is_empty() {
@@ -1009,6 +1009,39 @@ mod tests {
                 .joint_action
                 .direction_for(ActorIndex::new(1).unwrap()),
             Some(Direction::Up)
+        );
+    }
+
+    #[test]
+    fn any_legal_escape_invalidates_terminal_win_even_when_policy_marks_it_irrational() {
+        let graph = FutureGraph::new(state());
+        let root = graph.node(graph.root());
+
+        let mut modeled_win =
+            synthetic_response_line(Direction::Down, Direction::Right, 10_000, 500, 1);
+        modeled_win.terminal = LineTerminal::Won;
+        modeled_win.certainty = ForecastCertainty::FoodProvisional;
+
+        // This response is intentionally terrible for the enemy according to the
+        // utility model. It is still legal and survives, so the kill is not forced.
+        let unlikely_escape =
+            synthetic_response_line(Direction::Down, Direction::Left, -10_000, -870, 2);
+
+        let chosen = select_selfish_opponent_response(
+            &graph,
+            root,
+            vec![modeled_win, unlikely_escape.clone()],
+        );
+
+        assert_eq!(chosen.terminal, LineTerminal::Running);
+        assert_eq!(
+            chosen
+                .path
+                .first()
+                .unwrap()
+                .joint_action
+                .direction_for(ActorIndex::new(1).unwrap()),
+            Some(Direction::Left)
         );
     }
 
