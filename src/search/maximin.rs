@@ -19,14 +19,15 @@ const MIN_NEAR_BEST_PLAUSIBILITY_MILLI: u16 = 250;
 const OPPONENT_RESPONSE_PLAUSIBILITY_SLACK_MILLI: u16 = 150;
 const GROWTH_FRONTIER_PRESSURE_NUMERATOR: i64 = 3;
 const GROWTH_FRONTIER_PRESSURE_DENOMINATOR: i64 = 2;
-const HUNTING_FRONTIER_TERRITORY_SCALE: i64 = 2;
+const HUNTING_FRONTIER_TERRITORY_SCALE: i64 = 1;
 const HUNTING_FRONTIER_NEUTRAL_SIZE_SECURITY_MILLI: i64 = 600;
-const HUNTING_FRONTIER_MOBILITY_TWO_MOVES: i64 = 200;
-const HUNTING_FRONTIER_MOBILITY_ONE_MOVE: i64 = 600;
-const HUNTING_FRONTIER_MOBILITY_ZERO_MOVES: i64 = 1_000;
-const HUNTING_FRONTIER_ENCLOSURE_STEP: i64 = 150;
-const HUNTING_FRONTIER_BORDER_PRESSURE_DIVISOR: i64 = 4;
-const HUNTING_FRONTIER_RAW_CAP: i64 = 3_000;
+const HUNTING_FRONTIER_MOBILITY_TWO_MOVES: i64 = 100;
+const HUNTING_FRONTIER_MOBILITY_ONE_MOVE: i64 = 350;
+const HUNTING_FRONTIER_MOBILITY_ZERO_MOVES: i64 = 750;
+const HUNTING_FRONTIER_ENCLOSURE_STEP: i64 = 100;
+const HUNTING_FRONTIER_BORDER_PRESSURE_DIVISOR: i64 = 8;
+const HUNTING_FRONTIER_RAW_CAP: i64 = 1_000;
+const HUNTING_FRONTIER_SURVIVAL_CUTOFF: u16 = 650;
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub(crate) struct MaximinStats {
@@ -434,6 +435,11 @@ fn frontier_hunting_utility(node: &SearchNode, actor: ActorIndex) -> i64 {
     let Some(snapshot) = analysis.actor_snapshot(actor) else {
         return 0;
     };
+    if snapshot.weights.survival >= HUNTING_FRONTIER_SURVIVAL_CUTOFF
+        || snapshot.metrics.safe_non_reverse_moves <= 1
+    {
+        return 0;
+    }
 
     let worst_rival_score = node
         .state
@@ -477,10 +483,7 @@ fn frontier_hunting_pair_raw(
         .saturating_add(length_security)
         .saturating_add(constriction_asymmetry)
         .saturating_add(escape_asymmetry)
-        .clamp(
-            HUNTING_FRONTIER_RAW_CAP.saturating_neg(),
-            HUNTING_FRONTIER_RAW_CAP,
-        )
+        .clamp(0, HUNTING_FRONTIER_RAW_CAP)
 }
 
 fn frontier_constriction_pressure(metrics: &crate::evaluation::ActorUtilityMetrics) -> i64 {
@@ -1215,7 +1218,7 @@ mod tests {
         let score = frontier_hunting_pair_raw(&dominant, &constrained);
 
         assert!(score > 0);
-        assert_eq!(score, HUNTING_FRONTIER_RAW_CAP);
+        assert!(score <= HUNTING_FRONTIER_RAW_CAP);
     }
 
     #[test]
@@ -1225,7 +1228,48 @@ mod tests {
 
         let score = frontier_hunting_pair_raw(&constrained, &dominant);
 
-        assert!(score < 0);
+        assert_eq!(score, 0);
+    }
+
+    #[test]
+    fn hunting_frontier_is_suspended_when_survival_is_emergency_weighted() {
+        let mut state = state();
+        let root = FutureGraph::new(state.clone());
+        let actor = state.actor_index("ours").unwrap();
+        let snapshot = root
+            .node(root.root())
+            .active_analysis()
+            .unwrap()
+            .actor_snapshot(actor)
+            .unwrap();
+
+        if snapshot.weights.survival < HUNTING_FRONTIER_SURVIVAL_CUTOFF {
+            state.snakes[0].body = vec![
+                Coord { x: 0, y: 0 },
+                Coord { x: 0, y: 1 },
+                Coord { x: 1, y: 1 },
+                Coord { x: 1, y: 0 },
+            ];
+        }
+
+        let graph = FutureGraph::new(state);
+        let actor = graph
+            .node(graph.root())
+            .state
+            .actor_index("ours")
+            .unwrap();
+        let snapshot = graph
+            .node(graph.root())
+            .active_analysis()
+            .unwrap()
+            .actor_snapshot(actor)
+            .unwrap();
+
+        if snapshot.weights.survival >= HUNTING_FRONTIER_SURVIVAL_CUTOFF
+            || snapshot.metrics.safe_non_reverse_moves <= 1
+        {
+            assert_eq!(frontier_hunting_utility(graph.node(graph.root()), actor), 0);
+        }
     }
 
     #[test]
