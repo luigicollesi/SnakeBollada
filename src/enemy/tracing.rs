@@ -289,9 +289,7 @@ fn hunting_support_by_move(
     let targets = state
         .snakes
         .iter()
-        .filter(|target| {
-            target.alive && target.id != enemy.id && enemy.length() >= target.length()
-        })
+        .filter(|target| target.alive && target.id != enemy.id && enemy.length() >= target.length())
         .collect::<Vec<_>>();
     if targets.is_empty() {
         return support;
@@ -307,9 +305,7 @@ fn hunting_support_by_move(
             };
             let current_distance = manhattan(enemy_head, target_head);
             let next_distance = manhattan(destination, target_head);
-            let target_moves = mobility
-                .deterministic_moves_for(state, &target.id)
-                .len();
+            let target_moves = mobility.deterministic_moves_for(state, &target.id).len();
 
             let mut value = u32::from(trapping_support[usize::from(direction.rank())])
                 .saturating_mul(600)
@@ -324,11 +320,8 @@ fn hunting_support_by_move(
 
             if enemy.length() > target.length() {
                 let length_edge = enemy.length().saturating_sub(target.length()).min(3);
-                value = value.saturating_add(
-                    u32::try_from(length_edge)
-                        .unwrap_or(3)
-                        .saturating_mul(80),
-                );
+                value = value
+                    .saturating_add(u32::try_from(length_edge).unwrap_or(3).saturating_mul(80));
             }
 
             value = value.saturating_add(match target_moves {
