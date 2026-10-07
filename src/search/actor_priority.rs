@@ -2,10 +2,13 @@
 
 use std::collections::HashMap;
 
+use super::beam::{BeamLine, BEAM_WIDTH};
 use super::graph::{FutureGraph, NodeId, SearchEdge, SearchNode};
 use crate::direction::Direction;
 
 const FORCING_SCALE: i64 = 4_000;
+const SEARCH_UTILITY_SLACK: i64 = 1_500;
+const ENEMY_HUNTING_PRIORITY_DIVISOR: i64 = 2;
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub(crate) struct ActorEdgePriority {
@@ -13,6 +16,8 @@ pub(crate) struct ActorEdgePriority {
     pub(crate) our_harm: i64,
     pub(crate) strongest_enemy_opportunity: i64,
     pub(crate) strongest_enemy_harm: i64,
+    pub(crate) our_hunting_priority: i64,
+    pub(crate) strongest_enemy_hunting_priority: i64,
     pub(crate) forcing: i64,
 }
 
@@ -20,6 +25,7 @@ impl ActorEdgePriority {
     pub(crate) fn our_search_score(self) -> i64 {
         self.our_opportunity
             .saturating_add(self.strongest_enemy_harm)
+            .saturating_add(self.our_hunting_priority.max(0))
             .saturating_add(self.forcing.saturating_div(2))
     }
 
@@ -27,6 +33,7 @@ impl ActorEdgePriority {
         self.our_harm
             .saturating_mul(2)
             .saturating_add(self.strongest_enemy_opportunity)
+            .saturating_add(self.strongest_enemy_hunting_priority.max(0))
             .saturating_add(self.forcing)
     }
 }
@@ -53,6 +60,7 @@ pub(crate) fn edge_priority(
 
     let mut strongest_enemy_opportunity = 0_i64;
     let mut strongest_enemy_harm = 0_i64;
+    let mut strongest_enemy_hunting_priority = 0_i64;
 
     for (index, _) in parent
         .state
@@ -69,6 +77,8 @@ pub(crate) fn edge_priority(
         };
         strongest_enemy_opportunity = strongest_enemy_opportunity.max(score.net.max(0));
         strongest_enemy_harm = strongest_enemy_harm.max(score.net.saturating_neg().max(0));
+        strongest_enemy_hunting_priority =
+            strongest_enemy_hunting_priority.max(score.hunting.search_priority);
     }
 
     ActorEdgePriority {
@@ -76,8 +86,115 @@ pub(crate) fn edge_priority(
         our_harm: ours.net.saturating_neg().max(0),
         strongest_enemy_opportunity,
         strongest_enemy_harm,
+        our_hunting_priority: ours.hunting.search_priority,
+        strongest_enemy_hunting_priority,
         forcing: forcing_score(parent, edge),
     }
+}
+
+pub(crate) fn select_hunting_search_beam(
+    graph: &FutureGraph,
+    candidates: &[BeamLine],
+) -> Vec<BeamLine> {
+    let mut viable = candidates
+        .iter()
+        .filter(|line| line.is_viable())
+        .cloned()
+        .collect::<Vec<_>>();
+    if viable.is_empty() {
+        viable = candidates.to_vec();
+    }
+    if viable.is_empty() {
+        return Vec::new();
+    }
+
+    let best_value = viable.iter().map(|line| line.value).max().unwrap_or(i64::MIN);
+    viable.sort_by(|left, right| {
+        let left_near = left.value.saturating_add(SEARCH_UTILITY_SLACK) >= best_value;
+        let right_near = right.value.saturating_add(SEARCH_UTILITY_SLACK) >= best_value;
+        right_near
+            .cmp(&left_near)
+            .then_with(|| {
+                if left_near && right_near {
+                    line_hunting_search_priority(graph, right)
+                        .cmp(&line_hunting_search_priority(graph, left))
+                } else {
+                    right.value.cmp(&left.value)
+                }
+            })
+            .then_with(|| right.value.cmp(&left.value))
+            .then_with(|| left.root_direction.rank().cmp(&right.root_direction.rank()))
+            .then_with(|| left.id.cmp(&right.id))
+    });
+
+    let mut selected = Vec::with_capacity(BEAM_WIDTH);
+    for candidate in viable {
+        if selected
+            .iter()
+            .any(|chosen: &BeamLine| chosen.root_direction == candidate.root_direction)
+        {
+            continue;
+        }
+        selected.push(candidate);
+        if selected.len() == BEAM_WIDTH {
+            break;
+        }
+    }
+    selected
+}
+
+pub(crate) fn line_hunting_search_priority(graph: &FutureGraph, line: &BeamLine) -> i64 {
+    let mut total = 0_i64;
+    let mut positive_streak = 0_i64;
+    let mut previous_positive = false;
+
+    for step in line.path.steps() {
+        let Some(edge) = graph
+            .node(step.node)
+            .children
+            .iter()
+            .find(|edge| edge.child == step.child && edge.joint_action == step.joint_action)
+        else {
+            continue;
+        };
+        let parent = graph.node(step.node);
+        let Some(our_actor) = parent.state.actor_index(&parent.state.our_snake_id) else {
+            continue;
+        };
+        let ours = edge
+            .transition
+            .for_actor(our_actor)
+            .map(|score| score.hunting.search_priority)
+            .unwrap_or(0);
+        let strongest_enemy = edge
+            .transition
+            .actors
+            .iter()
+            .filter(|(actor, _)| *actor != our_actor)
+            .map(|(_, score)| score.hunting.search_priority.max(0))
+            .max()
+            .unwrap_or(0);
+
+        let step_priority = ours.saturating_sub(
+            strongest_enemy.saturating_div(ENEMY_HUNTING_PRIORITY_DIVISOR),
+        );
+        total = total.saturating_add(step_priority);
+
+        if step_priority > 0 {
+            positive_streak = if previous_positive {
+                positive_streak.saturating_add(1)
+            } else {
+                1
+            };
+            total = total.saturating_add(positive_streak.saturating_mul(40));
+            previous_positive = true;
+        } else {
+            positive_streak = 0;
+            previous_positive = false;
+        }
+    }
+
+    total
 }
 
 pub(crate) fn ordered_child_ids_for_search(graph: &FutureGraph, node_id: NodeId) -> Vec<NodeId> {
