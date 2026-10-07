@@ -7,6 +7,7 @@ const LENGTH_SECURITY_DELTA_SCALE: i64 = 1;
 const MOBILITY_PRESSURE_DELTA_SCALE: i64 = 2;
 const ESCAPE_PRESSURE_DELTA_SCALE: i64 = 2;
 const DOMINATION_PROGRESS_DELTA_SCALE: i64 = 2;
+const COUNTER_DOMINATION_DELTA_SCALE: i64 = 1;
 const PHASE_STEP: i64 = 180;
 const SEARCH_DOMINATION_DELTA_SCALE: i64 = 2;
 const SEARCH_PHASE_STEP: i64 = 250;
@@ -14,6 +15,7 @@ const SEARCH_PHASE_STEP: i64 = 250;
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub(crate) struct HuntingTransitionScore {
     pub(crate) target: Option<ActorIndex>,
+    pub(crate) threat: Option<ActorIndex>,
     pub(crate) territory_benefit: i64,
     pub(crate) territory_harm: i64,
     pub(crate) length_benefit: i64,
@@ -24,6 +26,8 @@ pub(crate) struct HuntingTransitionScore {
     pub(crate) escape_harm: i64,
     pub(crate) domination_benefit: i64,
     pub(crate) domination_harm: i64,
+    pub(crate) counter_domination_benefit: i64,
+    pub(crate) counter_domination_harm: i64,
     pub(crate) phase_benefit: i64,
     pub(crate) phase_harm: i64,
     pub(crate) capture_benefit: i64,
@@ -62,6 +66,31 @@ pub(crate) fn evaluate_hunting_transition(
         return finish(score, 0, 0);
     };
     score.target = Some(parent_domination.target);
+
+    if let Some(parent_threat) = DominationAnalysis::strongest_threat_against(
+        &parent.state,
+        &parent_analysis.territory,
+        &parent_analysis.actor_snapshots,
+        actor,
+    ) {
+        score.threat = Some(parent_threat.target);
+        if let Some(child_threat) = DominationAnalysis::against(
+            &child.state,
+            &child_analysis.territory,
+            &child_analysis.actor_snapshots,
+            parent_threat.target,
+            actor,
+        ) {
+            let counter_delta = i64::from(child_threat.progress_milli)
+                .saturating_sub(i64::from(parent_threat.progress_milli))
+                .saturating_mul(COUNTER_DOMINATION_DELTA_SCALE);
+            add_signed_component(
+                counter_delta.saturating_neg(),
+                &mut score.counter_domination_benefit,
+                &mut score.counter_domination_harm,
+            );
+        }
+    }
 
     let Some(child_domination) = DominationAnalysis::against(
         &child.state,
@@ -146,6 +175,7 @@ fn finish(
         .saturating_add(score.mobility_benefit)
         .saturating_add(score.escape_benefit)
         .saturating_add(score.domination_benefit)
+        .saturating_add(score.counter_domination_benefit)
         .saturating_add(score.phase_benefit);
     score.total_harm = score
         .territory_harm
@@ -153,6 +183,7 @@ fn finish(
         .saturating_add(score.mobility_harm)
         .saturating_add(score.escape_harm)
         .saturating_add(score.domination_harm)
+        .saturating_add(score.counter_domination_harm)
         .saturating_add(score.phase_harm);
     score.net = score.total_benefit.saturating_sub(score.total_harm);
     score.search_priority = search_priority
