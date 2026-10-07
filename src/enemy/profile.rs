@@ -126,10 +126,10 @@ impl OpponentProfile {
         );
         self.hunting_bias_milli = update_bias(
             self.hunting_bias_milli,
-            hypothesis.support.hunting,
-            alternatives
-                .clone()
-                .any(|candidate| candidate.support.hunting),
+            hypothesis.support.hunting_milli >= 400 || hypothesis.support.hunting,
+            alternatives.clone().any(|candidate| {
+                candidate.support.hunting_milli >= 400 || candidate.support.hunting
+            }),
             SUPPORTED_REWARD,
         );
         self.head_threat_bias_milli = update_bias(
@@ -166,9 +166,16 @@ impl OpponentProfile {
             weighted_bias = weighted_bias.saturating_add(u32::from(self.food_bias_milli) * 1000);
             support_weight = support_weight.saturating_add(1000);
         }
-        if hypothesis.support.hunting {
-            weighted_bias = weighted_bias.saturating_add(u32::from(self.hunting_bias_milli) * 1000);
-            support_weight = support_weight.saturating_add(1000);
+        if hypothesis.support.hunting_milli > 0 || hypothesis.support.hunting {
+            let hunting_weight = u32::from(
+                hypothesis
+                    .support
+                    .hunting_milli
+                    .max(u16::from(hypothesis.support.hunting) * 1000),
+            );
+            weighted_bias =
+                weighted_bias.saturating_add(u32::from(self.hunting_bias_milli) * hunting_weight);
+            support_weight = support_weight.saturating_add(hunting_weight);
         }
         if hypothesis.support.head_threat {
             weighted_bias =
@@ -247,6 +254,7 @@ mod tests {
                     direction: Direction::Down,
                     support: OpponentPolicySupport {
                         hunting: true,
+                        hunting_milli: 900,
                         head_threat: true,
                         ..OpponentPolicySupport::default()
                     },
