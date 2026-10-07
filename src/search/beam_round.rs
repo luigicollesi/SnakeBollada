@@ -585,20 +585,20 @@ mod tests {
         );
         let continuation = ContinuationEvaluation {
             depth: 2,
-            benefit_total: 900,
-            harm_total: 300,
+            benefit_total: 500,
+            harm_total: 120,
             breakdown: continuation_breakdown,
             actor_breakdowns: ActorVec::new(),
-            our_utility_total: 900,
-            opponent_utility_total: 300,
+            our_utility_total: 500,
+            opponent_utility_total: 120,
             actor_utility_totals: crate::evaluation::ActorVec::from_iter([
-                (crate::simulation::state::ActorIndex::new(0).unwrap(), 900),
-                (crate::simulation::state::ActorIndex::new(1).unwrap(), 300),
+                (crate::simulation::state::ActorIndex::new(0).unwrap(), 500),
+                (crate::simulation::state::ActorIndex::new(1).unwrap(), 120),
             ]),
-            value: 600,
+            value: 380,
             terminal: LineTerminal::Running,
             certainty: crate::search::forecast::ForecastCertainty::Deterministic,
-            bound: ValueBound::Exact(600),
+            bound: ValueBound::Exact(380),
             path: BeamPath::empty(),
         };
 
@@ -608,19 +608,19 @@ mod tests {
             deepened.value,
             line.value
                 .saturating_sub(previous_frontier.value)
-                .saturating_add(600)
+                .saturating_add(380)
         );
         assert_eq!(
             deepened.our_utility_total,
             line.our_utility_total
                 .saturating_sub(previous_frontier.our_utility_total)
-                .saturating_add(900)
+                .saturating_add(500)
         );
         assert_eq!(
             deepened.opponent_utility_total,
             line.opponent_utility_total
                 .saturating_sub(previous_frontier.opponent_utility_total)
-                .saturating_add(300)
+                .saturating_add(120)
         );
         assert_eq!(
             deepened.breakdown,
