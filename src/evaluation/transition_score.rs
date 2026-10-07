@@ -1520,12 +1520,15 @@ mod tests {
 
         let score = score_actor_transition(facts, weights);
 
-        assert_eq!(score.survival_harm, 700 + 15 * HAZARD_DAMAGE_STEP);
+        assert_eq!(
+            score.survival_harm,
+            700 / HEALTH_PRESSURE_DIVISOR + 15 * HAZARD_DAMAGE_STEP
+        );
         assert_eq!(score.net, -score.survival_harm);
     }
 
     #[test]
-    fn border_exposure_cost_repeats_on_every_transition() {
+    fn border_exposure_cost_is_discounted_on_repeated_transitions() {
         let weights = StrategicWeights {
             food: 0,
             hunting: 0,
@@ -1539,14 +1542,14 @@ mod tests {
         let first = score_actor_transition(facts, weights);
         let second = score_actor_transition(facts, weights);
 
-        assert_eq!(first.survival_harm, 700);
-        assert_eq!(second.survival_harm, 700);
-        assert_eq!(first.net, -700);
-        assert_eq!(second.net, -700);
+        assert_eq!(first.survival_harm, 700 / BORDER_EXPOSURE_DIVISOR);
+        assert_eq!(second.survival_harm, 700 / BORDER_EXPOSURE_DIVISOR);
+        assert_eq!(first.net, -first.survival_harm);
+        assert_eq!(second.net, -second.survival_harm);
     }
 
     #[test]
-    fn starvation_pressure_is_a_repeated_survival_harm() {
+    fn starvation_pressure_is_discounted_on_repeated_transitions() {
         let weights = StrategicWeights {
             food: 0,
             hunting: 0,
@@ -1560,14 +1563,20 @@ mod tests {
         let first = score_actor_transition(facts, weights);
         let second = score_actor_transition(facts, weights);
 
-        assert_eq!(first.survival_harm, 600);
-        assert_eq!(second.survival_harm, 600);
-        assert_eq!(first.net, -600);
-        assert_eq!(second.net, -600);
+        assert_eq!(
+            first.survival_harm,
+            600 / FOOD_SURVIVAL_PRESSURE_DIVISOR
+        );
+        assert_eq!(
+            second.survival_harm,
+            600 / FOOD_SURVIVAL_PRESSURE_DIVISOR
+        );
+        assert_eq!(first.net, -first.survival_harm);
+        assert_eq!(second.net, -second.survival_harm);
     }
 
     #[test]
-    fn border_pin_risk_is_a_repeated_survival_harm() {
+    fn border_pin_risk_is_discounted_on_repeated_transitions() {
         let weights = StrategicWeights {
             food: 0,
             hunting: 0,
@@ -1581,10 +1590,10 @@ mod tests {
         let first = score_actor_transition(facts, weights);
         let second = score_actor_transition(facts, weights);
 
-        assert_eq!(first.survival_harm, 650);
-        assert_eq!(second.survival_harm, 650);
-        assert_eq!(first.net, -650);
-        assert_eq!(second.net, -650);
+        assert_eq!(first.survival_harm, 650 / BORDER_PIN_RISK_DIVISOR);
+        assert_eq!(second.survival_harm, 650 / BORDER_PIN_RISK_DIVISOR);
+        assert_eq!(first.net, -first.survival_harm);
+        assert_eq!(second.net, -second.survival_harm);
     }
 
     #[test]
