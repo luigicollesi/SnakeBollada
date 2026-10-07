@@ -91,7 +91,7 @@ async fn handle_move(move_req: Json<GameState>, runtime: &State<GameRuntime>) ->
     let beam = decision.search.beam_shadow;
     let beam_direction = beam.direction.map_or("-", |direction| direction.as_str());
     info!(
-        "MOVE {}: {} ({:?}) depth={} completed_depth={} nodes={} edges={} transpositions={} elapsed_us={} reserve_us={} beam_move={} beam_attempted={} beam_value={} forecast_provisional={} terminal_confirmed={} batches={} parallel_batches={} actions={} new_nodes={} resolve_us={} build_us={} merge_us={} score_us={} ours_food={} ours_hunt={} ours_frontier_hunt={} ours_frontier_territory={} ours_frontier_length={} ours_frontier_constriction={} ours_frontier_escape={} ours_frontier_survival_availability={} ours_survival={} ours_terminal={} enemy_food={} enemy_hunt={} enemy_frontier_hunt={} enemy_frontier_territory={} enemy_frontier_length={} enemy_frontier_constriction={} enemy_frontier_escape={} enemy_survival={} enemy_terminal={}",
+        "MOVE {}: {} ({:?}) depth={} completed_depth={} nodes={} edges={} transpositions={} elapsed_us={} reserve_us={} beam_move={} beam_attempted={} beam_value={} forecast_provisional={} terminal_confirmed={} batches={} parallel_batches={} actions={} new_nodes={} resolve_us={} build_us={} merge_us={} score_us={} dom_root={} dom_target={:?} dom_frontier={} dom_phase={} dom_territory={} dom_length={} dom_mobility={} dom_escape={} ours_food={} ours_hunt={} ours_frontier_hunt={} ours_frontier_territory={} ours_frontier_length={} ours_frontier_constriction={} ours_frontier_escape={} ours_frontier_survival_availability={} ours_survival={} ours_terminal={} enemy_food={} enemy_hunt={} enemy_frontier_hunt={} enemy_frontier_territory={} enemy_frontier_length={} enemy_frontier_constriction={} enemy_frontier_escape={} enemy_survival={} enemy_terminal={}",
         move_req.turn,
         decision.direction.as_str(),
         decision.reason,
@@ -115,6 +115,14 @@ async fn handle_move(move_req: Json<GameState>, runtime: &State<GameRuntime>) ->
         beam.node_build_us,
         beam.merge_us,
         beam.edge_score_us,
+        beam.root_domination_progress_milli,
+        beam.frontier_domination_target,
+        beam.frontier_domination_progress_milli,
+        beam.frontier_domination_phase.as_str(),
+        beam.frontier_domination_territory_milli,
+        beam.frontier_domination_length_milli,
+        beam.frontier_domination_mobility_milli,
+        beam.frontier_domination_escape_milli,
         beam.our_food_utility,
         beam.our_hunting_utility,
         beam.our_frontier_hunting_utility,
