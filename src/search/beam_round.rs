@@ -2,8 +2,9 @@
 
 use std::time::{Duration, Instant};
 
+use super::actor_priority::select_hunting_search_beam;
 use super::beam::{
-    select_seed_beam, BeamCheckpoint, BeamLine, LineId, LineTerminal, MAX_BEAM_DEPTH, ROUND_DEPTH,
+    BeamCheckpoint, BeamLine, LineId, LineTerminal, MAX_BEAM_DEPTH, ROUND_DEPTH,
 };
 use super::bounds::ValueBound;
 use super::budget::SearchBudget;
@@ -184,7 +185,7 @@ fn advance_lines_one_layer(
         return Ok(None);
     }
 
-    let selected = select_seed_beam(&candidates);
+    let selected = select_hunting_search_beam(graph, &candidates);
     log::debug!(
         target: "search_diagnostics",
         "round turn={} candidates={} selected={}",
