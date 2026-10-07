@@ -550,37 +550,42 @@ fn frontier_hunting_pair_breakdown(
 }
 
 fn frontier_survival_availability_milli(survival: u16) -> u16 {
-    match survival {
-        0..=HUNTING_FRONTIER_SURVIVAL_FULL_MILLI => 1000,
-        ..=HUNTING_FRONTIER_SURVIVAL_HIGH_MILLI => interpolate_descending(
+    if survival <= HUNTING_FRONTIER_SURVIVAL_FULL_MILLI {
+        1000
+    } else if survival <= HUNTING_FRONTIER_SURVIVAL_HIGH_MILLI {
+        interpolate_descending(
             survival,
             HUNTING_FRONTIER_SURVIVAL_FULL_MILLI,
             HUNTING_FRONTIER_SURVIVAL_HIGH_MILLI,
             1000,
             750,
-        ),
-        ..=HUNTING_FRONTIER_SURVIVAL_CRITICAL_MILLI => interpolate_descending(
+        )
+    } else if survival <= HUNTING_FRONTIER_SURVIVAL_CRITICAL_MILLI {
+        interpolate_descending(
             survival,
             HUNTING_FRONTIER_SURVIVAL_HIGH_MILLI,
             HUNTING_FRONTIER_SURVIVAL_CRITICAL_MILLI,
             750,
             350,
-        ),
-        ..=HUNTING_FRONTIER_SURVIVAL_EMERGENCY_MILLI => interpolate_descending(
+        )
+    } else if survival <= HUNTING_FRONTIER_SURVIVAL_EMERGENCY_MILLI {
+        interpolate_descending(
             survival,
             HUNTING_FRONTIER_SURVIVAL_CRITICAL_MILLI,
             HUNTING_FRONTIER_SURVIVAL_EMERGENCY_MILLI,
             350,
             50,
-        ),
-        ..=HUNTING_FRONTIER_SURVIVAL_ZERO_MILLI => interpolate_descending(
+        )
+    } else if survival <= HUNTING_FRONTIER_SURVIVAL_ZERO_MILLI {
+        interpolate_descending(
             survival,
             HUNTING_FRONTIER_SURVIVAL_EMERGENCY_MILLI,
             HUNTING_FRONTIER_SURVIVAL_ZERO_MILLI,
             50,
             0,
-        ),
-        _ => 0,
+        )
+    } else {
+        0
     }
 }
 
