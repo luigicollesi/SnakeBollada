@@ -101,14 +101,6 @@ impl NodeAnalysis {
         self.actor_snapshots.get(actor)
     }
 
-    pub(crate) fn domination_against(
-        &self,
-        actor: ActorIndex,
-        target: ActorIndex,
-    ) -> Option<&DominationSnapshot> {
-        self.domination.against(actor, target)
-    }
-
     pub(crate) fn best_domination_target(&self, actor: ActorIndex) -> Option<&DominationSnapshot> {
         self.domination.best_target_for(actor)
     }
@@ -1023,10 +1015,12 @@ mod tests {
         let our_actor = actor(&graph.node(graph.root()).state, "ours");
         let enemy_actor = actor(&graph.node(graph.root()).state, "enemy");
         let ours_vs_enemy = analysis
-            .domination_against(our_actor, enemy_actor)
+            .domination
+            .against(our_actor, enemy_actor)
             .expect("domination analysis must contain living actor pair");
         let enemy_vs_ours = analysis
-            .domination_against(enemy_actor, our_actor)
+            .domination
+            .against(enemy_actor, our_actor)
             .expect("reverse domination pair must exist");
 
         assert_eq!(ours_vs_enemy.target, enemy_actor);
