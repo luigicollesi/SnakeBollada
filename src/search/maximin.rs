@@ -197,20 +197,32 @@ pub(crate) fn evaluate_continuations(
     evaluator
         .evaluate_node_variants(start_node, target_depth, certainty)
         .into_iter()
-        .map(|line| ContinuationEvaluation {
-            depth: line.path.len().try_into().unwrap_or(u8::MAX),
-            benefit_total: line.benefit_total,
-            harm_total: line.harm_total,
-            our_utility_total: line.our_utility_total,
-            opponent_utility_total: line.opponent_utility_total,
-            actor_utility_totals: line.actor_utility_totals,
-            value: line.value,
-            terminal: line.terminal,
-            certainty: line.certainty,
-            bound: line.bound,
-            path: line.path,
-        })
+        .map(continuation_from_line)
         .collect()
+}
+
+pub(crate) fn evaluate_frontier(
+    graph: &FutureGraph,
+    node_id: NodeId,
+    certainty: ForecastCertainty,
+) -> ContinuationEvaluation {
+    continuation_from_line(frontier_line(graph.node(node_id), true, certainty))
+}
+
+fn continuation_from_line(line: EvaluatedLine) -> ContinuationEvaluation {
+    ContinuationEvaluation {
+        depth: line.path.len().try_into().unwrap_or(u8::MAX),
+        benefit_total: line.benefit_total,
+        harm_total: line.harm_total,
+        our_utility_total: line.our_utility_total,
+        opponent_utility_total: line.opponent_utility_total,
+        actor_utility_totals: line.actor_utility_totals,
+        value: line.value,
+        terminal: line.terminal,
+        certainty: line.certainty,
+        bound: line.bound,
+        path: line.path,
+    }
 }
 
 impl MaximinEvaluator<'_> {
