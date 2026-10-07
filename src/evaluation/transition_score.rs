@@ -979,6 +979,47 @@ mod tests {
     }
 
     #[test]
+    fn actor_transition_breakdown_matches_category_fields() {
+        let facts = ActorTransitionFacts {
+            food_potential_before: 200,
+            food_potential_after: 500,
+            mobility_delta: -1,
+            survival_weight_after: 600,
+            hunting: HuntingTransitionScore {
+                capture_benefit: 400,
+                total_benefit: 400,
+                net: 400,
+                ..HuntingTransitionScore::default()
+            },
+            ..ActorTransitionFacts::default()
+        };
+        let weights = StrategicWeights {
+            food: 400,
+            hunting: 350,
+            survival: 250,
+        };
+
+        let score = score_actor_transition(facts, weights);
+
+        assert_eq!(
+            score.breakdown.food,
+            crate::evaluation::CategoryScore::new(score.food_benefit, score.food_harm)
+        );
+        assert_eq!(
+            score.breakdown.hunting,
+            crate::evaluation::CategoryScore::new(score.hunting_benefit, score.hunting_harm)
+        );
+        assert_eq!(
+            score.breakdown.survival,
+            crate::evaluation::CategoryScore::new(score.survival_benefit, score.survival_harm)
+        );
+        assert_eq!(score.breakdown.nonterminal_benefit(), score.benefit_total);
+        assert_eq!(score.breakdown.nonterminal_harm(), score.harm_total);
+        assert_eq!(score.breakdown.nonterminal_net(), score.net);
+        assert_eq!(score.breakdown.choice_net(), score.actor_choice_net);
+    }
+
+    #[test]
     fn raw_hunting_signal_is_independent_from_strategic_weight() {
         let facts = ActorTransitionFacts {
             hunting: HuntingTransitionScore {
