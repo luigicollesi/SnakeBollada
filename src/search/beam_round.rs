@@ -3,9 +3,7 @@
 use std::time::{Duration, Instant};
 
 use super::actor_priority::select_hunting_search_beam;
-use super::beam::{
-    BeamCheckpoint, BeamLine, LineId, LineTerminal, MAX_BEAM_DEPTH, ROUND_DEPTH,
-};
+use super::beam::{BeamCheckpoint, BeamLine, LineId, LineTerminal, MAX_BEAM_DEPTH, ROUND_DEPTH};
 use super::bounds::ValueBound;
 use super::budget::SearchBudget;
 use super::graph::{FutureGraph, NodeId, SearchError};
