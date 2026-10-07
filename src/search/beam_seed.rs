@@ -8,7 +8,7 @@ use super::beam::{
 use super::beam_round::append_continuation;
 use super::budget::SearchBudget;
 use super::graph::{FutureGraph, NodeId, SearchError};
-use super::maximin::{evaluate_continuations, evaluate_seed_lines};
+use super::maximin::{evaluate_continuations, evaluate_frontier, evaluate_seed_lines};
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub(crate) struct BeamSeedStats {
@@ -185,12 +185,13 @@ fn deepen_seed_one_layer(
         let Some(tip) = line.path.last().map(|step| step.child) else {
             return Ok(None);
         };
+        let previous_frontier = evaluate_frontier(graph, tip, line.certainty);
         let continuations = evaluate_continuations(graph, tip, 1, line.certainty);
         for continuation in continuations
             .into_iter()
             .filter(|continuation| continuation.bound.is_exact())
         {
-            let mut candidate = append_continuation(line, continuation);
+            let mut candidate = append_continuation(line, &previous_frontier, continuation);
             candidate.id = LineId(*next_line_id);
             *next_line_id = next_line_id.saturating_add(1);
             candidates.push(candidate);
