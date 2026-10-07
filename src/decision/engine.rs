@@ -534,8 +534,36 @@ fn beam_metadata_for_line(
     metadata.forecast_provisional = selected.certainty.is_provisional();
     metadata.terminal_confirmed = selected.is_confirmed_win() || selected.is_confirmed_loss();
 
+    let root_node = graph.node(graph.root());
+    if let Some(root_actor) = root_node.state.actor_index(&root_node.state.our_snake_id) {
+        if let Some(domination) = root_node
+            .active_analysis()
+            .and_then(|analysis| analysis.best_domination_target(root_actor))
+        {
+            metadata.root_domination_progress_milli = domination.progress_milli;
+        }
+    }
+
     if let Some(tip) = selected.path.last().map(|step| step.child) {
         let tip_node = graph.node(tip);
+        if let Some(our_actor) = tip_node.state.actor_index(&tip_node.state.our_snake_id) {
+            if let Some(domination) = tip_node
+                .active_analysis()
+                .and_then(|analysis| analysis.best_domination_target(our_actor))
+            {
+                metadata.frontier_domination_target =
+                    domination.target.as_usize().try_into().ok();
+                metadata.frontier_domination_progress_milli = domination.progress_milli;
+                metadata.frontier_domination_phase = domination.phase;
+                metadata.frontier_domination_territory_milli =
+                    domination.territory_advantage_milli;
+                metadata.frontier_domination_length_milli = domination.length_security_milli;
+                metadata.frontier_domination_mobility_milli =
+                    domination.mobility_pressure_milli;
+                metadata.frontier_domination_escape_milli = domination.escape_pressure_milli;
+            }
+        }
+
         for (index, snake) in tip_node
             .state
             .snakes
@@ -622,6 +650,36 @@ fn beam_metadata_for_line(
 
         if !graph.node(edge.child).is_terminal() {
             certainty = certainty.after(edge.forecast_delta);
+        }
+    }
+
+    if let Some(root_actor) = graph
+        .node(graph.root())
+        .state
+        .actor_index(&graph.node(graph.root()).state.our_snake_id)
+    {
+        for (step_index, step) in selected.path.steps().into_iter().enumerate() {
+            let node = graph.node(step.child);
+            let Some(domination) = node
+                .active_analysis()
+                .and_then(|analysis| analysis.best_domination_target(root_actor))
+            else {
+                continue;
+            };
+            log::debug!(
+                target: "search_diagnostics",
+                "dom_path turn={} step={} depth={} target={} progress={} phase={} territory={} length={} mobility={} escape={}",
+                graph.node(graph.root()).state.turn,
+                step_index.saturating_add(1),
+                step_index.saturating_add(1),
+                domination.target.as_usize(),
+                domination.progress_milli,
+                domination.phase.as_str(),
+                domination.territory_advantage_milli,
+                domination.length_security_milli,
+                domination.mobility_pressure_milli,
+                domination.escape_pressure_milli
+            );
         }
     }
 
