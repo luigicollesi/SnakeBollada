@@ -8,6 +8,7 @@ use super::bounds::ValueBound;
 use super::budget::SearchBudget;
 use super::graph::{FutureGraph, NodeId, SearchError};
 use super::maximin::{evaluate_continuations, evaluate_frontier, ContinuationEvaluation};
+use crate::evaluation::{ActorVec, RouteUtilityBreakdown};
 
 const FIRST_ROUND_ESTIMATE: Duration = Duration::from_millis(5);
 const FINAL_SELECTION_RESERVE: Duration = Duration::from_millis(2);
@@ -290,6 +291,14 @@ pub(crate) fn append_continuation(
         actor_utility_totals.add(actor_id, *utility);
     }
 
+    let breakdown = line
+        .breakdown
+        .saturating_sub(previous_frontier.breakdown)
+        .saturating_add(continuation.breakdown);
+    let mut actor_breakdowns = line.actor_breakdowns.clone();
+    subtract_actor_breakdowns(&mut actor_breakdowns, &previous_frontier.actor_breakdowns);
+    add_actor_breakdowns(&mut actor_breakdowns, &continuation.actor_breakdowns);
+
     let (our_utility_total, opponent_utility_total, value, bound) = if continuation.terminal
         == LineTerminal::Running
         || continuation.certainty.is_provisional()
@@ -322,6 +331,8 @@ pub(crate) fn append_continuation(
         depth: path.len().try_into().unwrap_or(u8::MAX),
         benefit_total: prefix_benefit.saturating_add(continuation.benefit_total),
         harm_total: prefix_harm.saturating_add(continuation.harm_total),
+        breakdown,
+        actor_breakdowns,
         our_utility_total,
         opponent_utility_total,
         actor_utility_totals,
@@ -330,6 +341,36 @@ pub(crate) fn append_continuation(
         certainty: continuation.certainty,
         bound,
         path,
+    }
+}
+
+
+fn add_actor_breakdowns(
+    target: &mut ActorVec<RouteUtilityBreakdown>,
+    source: &ActorVec<RouteUtilityBreakdown>,
+) {
+    for (actor, delta) in source.iter() {
+        if let Some(current) = target.get_mut(actor) {
+            *current = current.saturating_add(*delta);
+        } else {
+            target.insert(actor, *delta);
+        }
+    }
+}
+
+fn subtract_actor_breakdowns(
+    target: &mut ActorVec<RouteUtilityBreakdown>,
+    source: &ActorVec<RouteUtilityBreakdown>,
+) {
+    for (actor, delta) in source.iter() {
+        if let Some(current) = target.get_mut(actor) {
+            *current = current.saturating_sub(*delta);
+        } else {
+            target.insert(
+                actor,
+                RouteUtilityBreakdown::default().saturating_sub(*delta),
+            );
+        }
     }
 }
 
@@ -526,6 +567,8 @@ mod tests {
             depth: 2,
             benefit_total: 900,
             harm_total: 300,
+            breakdown: RouteUtilityBreakdown::default(),
+            actor_breakdowns: ActorVec::new(),
             our_utility_total: 900,
             opponent_utility_total: 300,
             actor_utility_totals: crate::evaluation::ActorVec::from_iter([
