@@ -1,6 +1,9 @@
 #![allow(dead_code)]
 
-use super::{evaluate_hunting_transition, ActorVec, HuntingTransitionScore, StrategicWeights};
+use super::{
+    evaluate_hunting_transition, ActorVec, CategoryScore, HuntingTransitionScore,
+    RouteUtilityBreakdown, StrategicWeights,
+};
 use crate::search::graph::SearchNode;
 use crate::simulation::resolver::{EliminationAttribution, InstantEvent};
 use crate::simulation::state::ActorIndex;
@@ -86,6 +89,7 @@ pub(crate) struct ActorTransitionScore {
     pub(crate) survival_harm: i64,
     pub(crate) terminal_benefit: i64,
     pub(crate) terminal_harm: i64,
+    pub(crate) breakdown: RouteUtilityBreakdown,
     pub(crate) benefit_total: i64,
     pub(crate) harm_total: i64,
     pub(crate) net: i64,
@@ -103,6 +107,7 @@ pub(crate) struct TransitionScore {
     pub(crate) effective_harm: i64,
     pub(crate) net: i64,
     pub(crate) opponent_net_total: i64,
+    pub(crate) effective_breakdown: RouteUtilityBreakdown,
     pub(crate) actors: ActorVec<ActorTransitionScore>,
     pub(crate) our_elimination_attribution: Option<EliminationAttribution>,
 }
@@ -144,18 +149,37 @@ impl TransitionScore {
             .and_then(|actor| actors.get(actor))
             .copied()
             .unwrap_or_default();
-        let (opponent_benefit_total, opponent_harm_total, opponent_net_total) = actors
+        let (
+            opponent_benefit_total,
+            opponent_harm_total,
+            opponent_net_total,
+            opponent_breakdown,
+        ) = actors
             .iter()
             .filter(|(actor, _)| Some(*actor) != our_index)
-            .fold((0_i64, 0_i64, 0_i64), |(benefit, harm, net), (_, score)| {
-                (
-                    benefit.saturating_add(score.benefit_total),
-                    harm.saturating_add(score.harm_total),
-                    net.saturating_add(score.net),
-                )
-            });
-        let effective_benefit = ours.benefit_total.saturating_add(opponent_harm_total);
-        let effective_harm = ours.harm_total.saturating_add(opponent_benefit_total);
+            .fold(
+                (0_i64, 0_i64, 0_i64, RouteUtilityBreakdown::default()),
+                |(benefit, harm, net, breakdown), (_, score)| {
+                    (
+                        benefit.saturating_add(score.benefit_total),
+                        harm.saturating_add(score.harm_total),
+                        net.saturating_add(score.net),
+                        breakdown.saturating_add(score.breakdown),
+                    )
+                },
+            );
+        let effective_breakdown = ours.breakdown.competitive_against(opponent_breakdown);
+        let effective_benefit = effective_breakdown.nonterminal_benefit();
+        let effective_harm = effective_breakdown.nonterminal_harm();
+
+        debug_assert_eq!(
+            effective_benefit,
+            ours.benefit_total.saturating_add(opponent_harm_total)
+        );
+        debug_assert_eq!(
+            effective_harm,
+            ours.harm_total.saturating_add(opponent_benefit_total)
+        );
 
         Self {
             instant_benefit: ours.benefit_total,
@@ -166,6 +190,7 @@ impl TransitionScore {
             effective_harm,
             net: ours.net,
             opponent_net_total,
+            effective_breakdown,
             actors,
             our_elimination_attribution: facts.our_elimination_attribution,
         }
@@ -499,19 +524,30 @@ fn score_actor_transition(
     };
     let terminal_harm = if facts.died { TERMINAL_UTILITY } else { 0 };
 
-    let benefit_total = food_benefit
-        .saturating_add(hunting_benefit)
-        .saturating_add(survival_benefit);
-    let harm_total = food_harm
-        .saturating_add(hunting_harm)
-        .saturating_add(survival_harm);
-    let net = benefit_total.saturating_sub(harm_total);
-    let actor_terminal = terminal_benefit.saturating_sub(terminal_harm);
-    let actor_choice_net = if actor_terminal != 0 {
-        actor_terminal
-    } else {
-        net
-    };
+    let breakdown = RouteUtilityBreakdown::new(
+        CategoryScore::new(food_benefit, food_harm),
+        CategoryScore::new(hunting_benefit, hunting_harm),
+        CategoryScore::new(survival_benefit, survival_harm),
+        CategoryScore::new(terminal_benefit, terminal_harm),
+    );
+    let benefit_total = breakdown.nonterminal_benefit();
+    let harm_total = breakdown.nonterminal_harm();
+    let net = breakdown.nonterminal_net();
+    let actor_terminal = breakdown.terminal_net();
+    let actor_choice_net = breakdown.choice_net();
+
+    debug_assert_eq!(
+        benefit_total,
+        food_benefit
+            .saturating_add(hunting_benefit)
+            .saturating_add(survival_benefit)
+    );
+    debug_assert_eq!(
+        harm_total,
+        food_harm
+            .saturating_add(hunting_harm)
+            .saturating_add(survival_harm)
+    );
 
     ActorTransitionScore {
         food_benefit,
@@ -525,6 +561,7 @@ fn score_actor_transition(
         survival_harm,
         terminal_benefit,
         terminal_harm,
+        breakdown,
         benefit_total,
         harm_total,
         net,
