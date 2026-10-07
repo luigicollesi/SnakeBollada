@@ -139,8 +139,8 @@ pub(crate) fn evaluate_hunting_transition(
         &mut score.domination_harm,
     );
 
-    let phase_delta = phase_rank(child_domination.phase)
-        .saturating_sub(phase_rank(parent_domination.phase));
+    let phase_delta =
+        phase_rank(child_domination.phase).saturating_sub(phase_rank(parent_domination.phase));
     add_signed_component(
         phase_delta.saturating_mul(PHASE_STEP),
         &mut score.phase_benefit,
@@ -215,12 +215,8 @@ mod tests {
 
     #[test]
     fn phase_progression_is_rewarded_and_regression_is_harm() {
-        assert!(
-            phase_rank(DominationPhase::Closure) > phase_rank(DominationPhase::Dominance)
-        );
-        assert!(
-            phase_rank(DominationPhase::Dominance) > phase_rank(DominationPhase::Pressure)
-        );
+        assert!(phase_rank(DominationPhase::Closure) > phase_rank(DominationPhase::Dominance));
+        assert!(phase_rank(DominationPhase::Dominance) > phase_rank(DominationPhase::Pressure));
     }
 
     #[test]
