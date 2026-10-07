@@ -4,7 +4,10 @@ use std::time::Duration;
 
 use rayon::prelude::*;
 
-use crate::analysis::{BorderFobicAnalysis, EnclosureAnalysis, TerritoryAnalysis};
+use crate::analysis::{
+    BorderFobicAnalysis, DominationAnalysis, DominationSnapshot, EnclosureAnalysis,
+    TerritoryAnalysis,
+};
 use crate::decision::joint_actions::JointActionGenerator;
 use crate::decision::state_key::StateKey;
 use crate::enemy::profile::OpponentProfiles;
@@ -89,12 +92,28 @@ pub(crate) struct NodeAnalysis {
     pub(crate) mobility: Arc<MobilityAnalysis>,
     pub(crate) tracing: Arc<EnemyTracingOutput>,
     pub(crate) territory: Arc<TerritoryAnalysis>,
+    pub(crate) domination: Arc<DominationAnalysis>,
     pub(crate) actor_snapshots: ActorVec<ActorSnapshot>,
 }
 
 impl NodeAnalysis {
     pub(crate) fn actor_snapshot(&self, actor: ActorIndex) -> Option<&ActorSnapshot> {
         self.actor_snapshots.get(actor)
+    }
+
+    pub(crate) fn domination_against(
+        &self,
+        actor: ActorIndex,
+        target: ActorIndex,
+    ) -> Option<&DominationSnapshot> {
+        self.domination.against(actor, target)
+    }
+
+    pub(crate) fn best_domination_target(
+        &self,
+        actor: ActorIndex,
+    ) -> Option<&DominationSnapshot> {
+        self.domination.best_target_for(actor)
     }
 }
 
@@ -920,10 +939,17 @@ fn build_node_with_key(state: SimulatedGameState, key: Arc<StateKey>) -> SearchN
             .into_iter()
             .collect::<ActorVec<_>>();
 
+        let domination = Arc::new(DominationAnalysis::from_parts(
+            &state,
+            &territory,
+            &actor_snapshots,
+        ));
+
         Some(Arc::new(NodeAnalysis {
             mobility,
             tracing,
             territory,
+            domination,
             actor_snapshots,
         }))
     };
