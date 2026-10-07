@@ -543,11 +543,20 @@ fn frontier_survival_score(snapshot: &crate::evaluation::ActorSnapshot) -> Categ
         _ => SURVIVAL_FRONTIER_MOBILITY_THREE_PLUS,
     };
     let structural_delta = space_delta.saturating_add(mobility_delta);
-    let structural = CategoryScore::from_net(
+    let mut structural = CategoryScore::from_net(
         structural_delta
             .saturating_mul(survival_weight)
             .saturating_div(1000),
     );
+    if structural.benefit > 0 {
+        let availability = 1000_i64.saturating_sub(i64::from(
+            snapshot.metrics.growth_pressure_milli,
+        ));
+        structural.benefit = structural
+            .benefit
+            .saturating_mul(availability)
+            .saturating_div(1000);
+    }
 
     let pressure_harm = i64::from(snapshot.metrics.enclosure_risk)
         .saturating_mul(SURVIVAL_FRONTIER_ENCLOSURE_STEP)
