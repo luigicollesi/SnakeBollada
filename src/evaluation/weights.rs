@@ -395,12 +395,12 @@ mod tests {
 
     #[test]
     fn territory_curve_is_moderate_at_normal_four_player_share() {
-        assert_eq!(territory_survival_weight(100), 900);
-        assert_eq!(territory_survival_weight(150), 750);
-        assert_eq!(territory_survival_weight(200), 600);
-        assert_eq!(territory_survival_weight(250), 450);
-        assert_eq!(territory_survival_weight(300), 350);
-        assert_eq!(territory_survival_weight(350), 250);
+        assert_eq!(territory_survival_weight(100), 650);
+        assert_eq!(territory_survival_weight(150), 550);
+        assert_eq!(territory_survival_weight(200), 450);
+        assert_eq!(territory_survival_weight(250), 350);
+        assert_eq!(territory_survival_weight(300), 275);
+        assert_eq!(territory_survival_weight(350), 220);
         assert_eq!(territory_survival_weight(450), 150);
         assert_eq!(territory_survival_weight(700), 150);
     }
@@ -527,6 +527,18 @@ mod tests {
     }
 
     #[test]
+    fn elevated_enclosure_does_not_trigger_survival_emergency() {
+        let state = state(&[("ours", 15), ("enemy", 6)]);
+        let mut current = metrics(900, 700, 2, 0, 0, 0);
+        current.growth_pressure_milli = 500;
+
+        let weights = StrategicWeights::for_actor_metrics(&state, "ours", &current).unwrap();
+
+        assert!(weights.survival <= NORMAL_SURVIVAL_CAP);
+        assert!(weights.hunting > weights.food);
+    }
+
+    #[test]
     fn critical_enclosure_dominates_size_advantage() {
         let state = state(&[("ours", 15), ("enemy", 6)]);
         let current = metrics(1000, 800, 3, 0, 0, 0);
@@ -609,13 +621,13 @@ mod tests {
     }
 
     #[test]
-    fn constrained_territory_keeps_survival_dominant_even_for_largest_snake() {
+    fn constrained_territory_alone_does_not_suppress_hunting_for_dominant_snake() {
         let state = state(&[("ours", 16), ("enemy-a", 7), ("enemy-b", 6)]);
         let weights = StrategicWeights::for_actor(&state, "ours", 1000, 120).unwrap();
 
-        assert!(weights.survival > weights.food);
-        assert!(weights.survival > weights.hunting);
-        assert!(weights.survival > weights.food.saturating_add(weights.hunting));
+        assert!(weights.survival <= MAX_TERRITORY_ONLY_SURVIVAL_WEIGHT);
+        assert!(weights.hunting > weights.survival);
+        assert!(weights.hunting > weights.food);
     }
 
     #[test]
