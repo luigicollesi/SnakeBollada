@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 
+use crate::analysis::DominationPhase;
 use crate::direction::Direction;
 use crate::navigation::{reachable_after_move, NavigationMap};
 use crate::GameState;
@@ -39,6 +40,14 @@ pub(crate) struct BeamShadowMetadata {
     pub(crate) node_build_us: u64,
     pub(crate) merge_us: u64,
     pub(crate) edge_score_us: u64,
+    pub(crate) root_domination_progress_milli: u16,
+    pub(crate) frontier_domination_target: Option<u8>,
+    pub(crate) frontier_domination_progress_milli: u16,
+    pub(crate) frontier_domination_phase: DominationPhase,
+    pub(crate) frontier_domination_territory_milli: i16,
+    pub(crate) frontier_domination_length_milli: i16,
+    pub(crate) frontier_domination_mobility_milli: i16,
+    pub(crate) frontier_domination_escape_milli: i16,
     pub(crate) our_food_utility: i64,
     pub(crate) our_hunting_utility: i64,
     pub(crate) our_frontier_hunting_utility: i64,
