@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 
-use crate::evaluation::{ActorSnapshot, ActorVec};
+use crate::evaluation::ActorSnapshot;
 use crate::simulation::state::{ActorIndex, SimulatedGameState};
 
 use super::TerritoryAnalysis;
@@ -48,78 +48,55 @@ pub(crate) struct DominationSnapshot {
     pub(crate) phase: DominationPhase,
 }
 
-#[derive(Debug, Clone, Default)]
-pub(crate) struct DominationAnalysis {
-    pairs: ActorVec<ActorVec<DominationSnapshot>>,
-}
+#[derive(Debug, Clone, Copy, Default)]
+pub(crate) struct DominationAnalysis;
 
 impl DominationAnalysis {
-    pub(crate) fn from_parts(
+    pub(crate) fn against(
         state: &SimulatedGameState,
         territory: &TerritoryAnalysis,
-        actor_snapshots: &ActorVec<ActorSnapshot>,
-    ) -> Self {
-        let mut pairs = ActorVec::with_capacity(state.snakes.len());
-
-        for (actor_index, actor_snake) in state.snakes.iter().enumerate() {
-            if !actor_snake.alive {
-                continue;
-            }
-            let Some(actor) = ActorIndex::new(actor_index) else {
-                continue;
-            };
-            let Some(actor_snapshot) = actor_snapshots.get(actor) else {
-                continue;
-            };
-            let Some(actor_territory) = territory.for_actor(actor) else {
-                continue;
-            };
-
-            let mut targets = ActorVec::with_capacity(state.snakes.len());
-            for (target_index, target_snake) in state.snakes.iter().enumerate() {
-                if !target_snake.alive || target_index == actor_index {
-                    continue;
-                }
-                let Some(target) = ActorIndex::new(target_index) else {
-                    continue;
-                };
-                let Some(target_snapshot) = actor_snapshots.get(target) else {
-                    continue;
-                };
-                let Some(target_territory) = territory.for_actor(target) else {
-                    continue;
-                };
-
-                let snapshot = pair_snapshot(
-                    target,
-                    actor_snake.length(),
-                    target_snake.length(),
-                    actor_snapshot,
-                    target_snapshot,
-                    actor_territory.escape_frontier,
-                    target_territory.escape_frontier,
-                );
-                targets.insert(target, snapshot);
-            }
-            pairs.insert(actor, targets);
-        }
-
-        Self { pairs }
-    }
-
-    pub(crate) fn against(
-        &self,
+        actor_snapshots: &crate::evaluation::ActorVec<ActorSnapshot>,
         actor: ActorIndex,
         target: ActorIndex,
-    ) -> Option<&DominationSnapshot> {
-        self.pairs.get(actor)?.get(target)
+    ) -> Option<DominationSnapshot> {
+        if actor == target {
+            return None;
+        }
+        let actor_snake = state.snake_at(actor).filter(|snake| snake.alive)?;
+        let target_snake = state.snake_at(target).filter(|snake| snake.alive)?;
+        let actor_snapshot = actor_snapshots.get(actor)?;
+        let target_snapshot = actor_snapshots.get(target)?;
+        let actor_territory = territory.for_actor(actor)?;
+        let target_territory = territory.for_actor(target)?;
+
+        Some(pair_snapshot(
+            target,
+            actor_snake.length(),
+            target_snake.length(),
+            actor_snapshot,
+            target_snapshot,
+            actor_territory.escape_frontier,
+            target_territory.escape_frontier,
+        ))
     }
 
-    pub(crate) fn best_target_for(&self, actor: ActorIndex) -> Option<&DominationSnapshot> {
-        self.pairs
-            .get(actor)?
+    pub(crate) fn best_target_for(
+        state: &SimulatedGameState,
+        territory: &TerritoryAnalysis,
+        actor_snapshots: &crate::evaluation::ActorVec<ActorSnapshot>,
+        actor: ActorIndex,
+    ) -> Option<DominationSnapshot> {
+        state
+            .snakes
             .iter()
-            .map(|(_, snapshot)| snapshot)
+            .enumerate()
+            .filter(|(index, snake)| {
+                snake.alive && ActorIndex::new(*index).is_some_and(|target| target != actor)
+            })
+            .filter_map(|(index, _)| {
+                let target = ActorIndex::new(index)?;
+                Self::against(state, territory, actor_snapshots, actor, target)
+            })
             .max_by_key(|snapshot| {
                 (
                     snapshot.progress_milli,
