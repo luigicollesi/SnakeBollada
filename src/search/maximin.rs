@@ -1839,7 +1839,12 @@ mod tests {
             value: PROVISIONAL_TERMINAL_VALUE,
             benefit_total: PROVISIONAL_TERMINAL_VALUE,
             harm_total: 0,
-            breakdown: RouteUtilityBreakdown::default(),
+            breakdown: RouteUtilityBreakdown::new(
+                CategoryScore::default(),
+                CategoryScore::default(),
+                CategoryScore::default(),
+                CategoryScore::new(PROVISIONAL_TERMINAL_VALUE, 0),
+            ),
             actor_breakdowns: ActorVec::new(),
             our_utility_total: PROVISIONAL_TERMINAL_VALUE,
             opponent_utility_total: 0,
