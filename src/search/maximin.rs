@@ -19,6 +19,20 @@ const MIN_NEAR_BEST_PLAUSIBILITY_MILLI: u16 = 250;
 const OPPONENT_RESPONSE_PLAUSIBILITY_SLACK_MILLI: u16 = 150;
 const GROWTH_FRONTIER_PRESSURE_NUMERATOR: i64 = 3;
 const GROWTH_FRONTIER_PRESSURE_DENOMINATOR: i64 = 2;
+const FOOD_FRONTIER_POTENTIAL_NEUTRAL_MILLI: i64 = 500;
+const FOOD_FRONTIER_POTENTIAL_DIVISOR: i64 = 4;
+const FOOD_FRONTIER_ETA_STEP: i64 = 30;
+const FOOD_FRONTIER_NO_CLAIMABLE_HARM: i64 = 40;
+const SURVIVAL_FRONTIER_SPACE_NEUTRAL_MILLI: i64 = 500;
+const SURVIVAL_FRONTIER_SPACE_DIVISOR: i64 = 3;
+const SURVIVAL_FRONTIER_MOBILITY_THREE_PLUS: i64 = 120;
+const SURVIVAL_FRONTIER_MOBILITY_ONE: i64 = -240;
+const SURVIVAL_FRONTIER_MOBILITY_ZERO: i64 = -700;
+const SURVIVAL_FRONTIER_ENCLOSURE_STEP: i64 = 150;
+const SURVIVAL_FRONTIER_BORDER_DIVISOR: i64 = 4;
+const SURVIVAL_FRONTIER_ESCAPE_DIVISOR: i64 = 3;
+const SURVIVAL_FRONTIER_STARVATION_DIVISOR: i64 = 3;
+const SURVIVAL_FRONTIER_HEALTH_DIVISOR: i64 = 3;
 const HUNTING_FRONTIER_TERRITORY_SCALE: i64 = 1;
 const HUNTING_FRONTIER_NEUTRAL_SIZE_SECURITY_MILLI: i64 = 600;
 const HUNTING_FRONTIER_MOBILITY_TWO_MOVES: i64 = 100;
@@ -451,15 +465,10 @@ fn frontier_line(node: &SearchNode, exact: bool, certainty: ForecastCertainty) -
             let Some(snapshot) = analysis.actor_snapshot(actor) else {
                 continue;
             };
-            let growth_utility = i64::from(snapshot.metrics.growth_pressure_milli)
-                .saturating_mul(GROWTH_FRONTIER_PRESSURE_NUMERATOR)
-                .saturating_div(GROWTH_FRONTIER_PRESSURE_DENOMINATOR)
-                .saturating_neg();
-            let hunting_utility = frontier_hunting_utility(node, actor);
             let actor_breakdown = RouteUtilityBreakdown::new(
-                CategoryScore::from_net(growth_utility),
-                CategoryScore::from_net(hunting_utility),
-                CategoryScore::default(),
+                frontier_food_score(snapshot),
+                CategoryScore::from_net(frontier_hunting_utility(node, actor)),
+                frontier_survival_score(snapshot),
                 CategoryScore::default(),
             );
             let utility = actor_breakdown.nonterminal_net();
@@ -482,8 +491,8 @@ fn frontier_line(node: &SearchNode, exact: bool, certainty: ForecastCertainty) -
 
     EvaluatedLine {
         value,
-        benefit_total: value.max(0),
-        harm_total: value.saturating_neg().max(0),
+        benefit_total: breakdown.nonterminal_benefit(),
+        harm_total: breakdown.nonterminal_harm(),
         breakdown,
         actor_breakdowns,
         our_utility_total,
@@ -498,6 +507,77 @@ fn frontier_line(node: &SearchNode, exact: bool, certainty: ForecastCertainty) -
         },
         path: BeamPath::empty(),
     }
+}
+
+fn frontier_food_score(snapshot: &crate::evaluation::ActorSnapshot) -> CategoryScore {
+    let food_weight = i64::from(snapshot.weights.food);
+    let potential_delta = i64::from(snapshot.metrics.food_potential_milli)
+        .saturating_sub(FOOD_FRONTIER_POTENTIAL_NEUTRAL_MILLI)
+        .saturating_mul(food_weight)
+        .saturating_div(1000)
+        .saturating_div(FOOD_FRONTIER_POTENTIAL_DIVISOR);
+    let eta_delta = match snapshot.metrics.claimable_food_eta {
+        Some(eta) => i64::from(4_u16.saturating_sub(eta.min(4)))
+            .saturating_mul(FOOD_FRONTIER_ETA_STEP)
+            .saturating_mul(food_weight)
+            .saturating_div(1000),
+        None => FOOD_FRONTIER_NO_CLAIMABLE_HARM
+            .saturating_mul(food_weight)
+            .saturating_div(1000)
+            .saturating_neg(),
+    };
+    let growth_harm = i64::from(snapshot.metrics.growth_pressure_milli)
+        .saturating_mul(GROWTH_FRONTIER_PRESSURE_NUMERATOR)
+        .saturating_div(GROWTH_FRONTIER_PRESSURE_DENOMINATOR);
+
+    CategoryScore::from_net(potential_delta.saturating_add(eta_delta))
+        .saturating_add(CategoryScore::new(0, growth_harm))
+}
+
+fn frontier_survival_score(snapshot: &crate::evaluation::ActorSnapshot) -> CategoryScore {
+    let survival_weight = i64::from(snapshot.weights.survival);
+    let space_delta = i64::from(snapshot.metrics.space_capacity_milli)
+        .saturating_sub(SURVIVAL_FRONTIER_SPACE_NEUTRAL_MILLI)
+        .saturating_div(SURVIVAL_FRONTIER_SPACE_DIVISOR);
+    let mobility_delta = match snapshot.metrics.safe_non_reverse_moves {
+        0 => SURVIVAL_FRONTIER_MOBILITY_ZERO,
+        1 => SURVIVAL_FRONTIER_MOBILITY_ONE,
+        2 => 0,
+        _ => SURVIVAL_FRONTIER_MOBILITY_THREE_PLUS,
+    };
+    let structural_delta = space_delta.saturating_add(mobility_delta);
+    let structural = CategoryScore::from_net(
+        structural_delta
+            .saturating_mul(survival_weight)
+            .saturating_div(1000),
+    );
+
+    let pressure_harm = i64::from(snapshot.metrics.enclosure_risk)
+        .saturating_mul(SURVIVAL_FRONTIER_ENCLOSURE_STEP)
+        .saturating_add(
+            i64::from(snapshot.metrics.border_structural_risk_milli)
+                .saturating_div(SURVIVAL_FRONTIER_BORDER_DIVISOR),
+        )
+        .saturating_add(
+            i64::from(snapshot.metrics.border_pin_risk_milli)
+                .saturating_div(SURVIVAL_FRONTIER_BORDER_DIVISOR),
+        )
+        .saturating_add(
+            i64::from(snapshot.metrics.border_escape_pressure_milli)
+                .saturating_div(SURVIVAL_FRONTIER_ESCAPE_DIVISOR),
+        )
+        .saturating_add(
+            i64::from(snapshot.metrics.food_survival_pressure_milli)
+                .saturating_div(SURVIVAL_FRONTIER_STARVATION_DIVISOR),
+        )
+        .saturating_add(
+            i64::from(snapshot.metrics.health_pressure_milli)
+                .saturating_div(SURVIVAL_FRONTIER_HEALTH_DIVISOR),
+        )
+        .saturating_mul(survival_weight)
+        .saturating_div(1000);
+
+    structural.saturating_add(CategoryScore::new(0, pressure_harm))
 }
 
 fn frontier_hunting_utility(node: &SearchNode, actor: ActorIndex) -> i64 {
