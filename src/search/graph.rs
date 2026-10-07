@@ -109,10 +109,7 @@ impl NodeAnalysis {
         self.domination.against(actor, target)
     }
 
-    pub(crate) fn best_domination_target(
-        &self,
-        actor: ActorIndex,
-    ) -> Option<&DominationSnapshot> {
+    pub(crate) fn best_domination_target(&self, actor: ActorIndex) -> Option<&DominationSnapshot> {
         self.domination.best_target_for(actor)
     }
 }
@@ -1035,7 +1032,9 @@ mod tests {
         assert_eq!(ours_vs_enemy.target, enemy_actor);
         assert_eq!(enemy_vs_ours.target, our_actor);
         assert_eq!(
-            analysis.best_domination_target(our_actor).map(|snapshot| snapshot.target),
+            analysis
+                .best_domination_target(our_actor)
+                .map(|snapshot| snapshot.target),
             Some(enemy_actor)
         );
     }
