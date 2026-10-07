@@ -416,7 +416,11 @@ fn score_actor_transition(
         }
     }
 
-    let raw_hunting_milli = facts.hunting.net.clamp(0, 1000).try_into().unwrap_or(1000);
+    let raw_hunting_milli = if facts.attributed_kill {
+        1000
+    } else {
+        facts.hunting.net.clamp(0, 1000).try_into().unwrap_or(1000)
+    };
     let mut hunting_benefit = facts.hunting.total_benefit;
     let mut hunting_harm = facts.hunting.total_harm;
     let (space_benefit, space_harm) = weighted_survival_delta(
