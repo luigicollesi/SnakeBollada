@@ -1022,6 +1022,22 @@ mod tests {
         assert_eq!(ours.weights.total(), 1000);
         assert_eq!(enemy.weights.total(), 1000);
         assert_eq!(analysis.actor_snapshots.len(), 2);
+
+        let our_actor = actor(&graph.node(graph.root()).state, "ours");
+        let enemy_actor = actor(&graph.node(graph.root()).state, "enemy");
+        let ours_vs_enemy = analysis
+            .domination_against(our_actor, enemy_actor)
+            .expect("domination analysis must contain living actor pair");
+        let enemy_vs_ours = analysis
+            .domination_against(enemy_actor, our_actor)
+            .expect("reverse domination pair must exist");
+
+        assert_eq!(ours_vs_enemy.target, enemy_actor);
+        assert_eq!(enemy_vs_ours.target, our_actor);
+        assert_eq!(
+            analysis.best_domination_target(our_actor).map(|snapshot| snapshot.target),
+            Some(enemy_actor)
+        );
     }
 
     #[test]
