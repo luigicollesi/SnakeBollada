@@ -3,7 +3,7 @@
 use std::sync::Arc;
 
 use crate::direction::Direction;
-use crate::evaluation::ActorVec;
+use crate::evaluation::{ActorVec, RouteUtilityBreakdown};
 use crate::simulation::joint_action::JointAction;
 
 use super::bounds::ValueBound;
@@ -137,6 +137,8 @@ pub(crate) struct BeamLine {
     pub(crate) depth: u8,
     pub(crate) benefit_total: i64,
     pub(crate) harm_total: i64,
+    pub(crate) breakdown: RouteUtilityBreakdown,
+    pub(crate) actor_breakdowns: ActorVec<RouteUtilityBreakdown>,
     pub(crate) our_utility_total: i64,
     pub(crate) opponent_utility_total: i64,
     pub(crate) actor_utility_totals: ActorVec<i64>,
@@ -163,6 +165,8 @@ impl BeamLine {
             depth,
             benefit_total,
             harm_total,
+            breakdown: RouteUtilityBreakdown::default(),
+            actor_breakdowns: ActorVec::new(),
             our_utility_total: value,
             opponent_utility_total: 0,
             actor_utility_totals: ActorVec::new(),
