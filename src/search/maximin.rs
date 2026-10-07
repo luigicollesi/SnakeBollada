@@ -626,23 +626,24 @@ pub(crate) fn hunting_frontier_breakdown(
         .try_into()
         .unwrap_or(u16::MAX);
     let raw_score = frontier_hunting_component_score(&breakdown);
-    let weighted_score = scale_frontier_hunting_score(
-        raw_score,
-        snapshot.weights.hunting,
-        breakdown.survival_availability_milli,
+    let target_weighted = breakdown
+        .raw
+        .saturating_mul(i64::from(snapshot.weights.hunting))
+        .saturating_div(1000)
+        .saturating_mul(i64::from(breakdown.survival_availability_milli))
+        .saturating_div(1000);
+    let weighted_score = normalize_category_net(
+        scale_frontier_hunting_score(
+            raw_score,
+            snapshot.weights.hunting,
+            breakdown.survival_availability_milli,
+        ),
+        target_weighted,
     );
     breakdown.benefit = weighted_score.benefit;
     breakdown.harm = weighted_score.harm;
     breakdown.weighted = weighted_score.net();
-    debug_assert_eq!(
-        breakdown.weighted,
-        breakdown
-            .raw
-            .saturating_mul(i64::from(snapshot.weights.hunting))
-            .saturating_div(1000)
-            .saturating_mul(i64::from(breakdown.survival_availability_milli))
-            .saturating_div(1000)
-    );
+    debug_assert_eq!(breakdown.weighted, target_weighted);
     breakdown
 }
 
@@ -669,16 +670,39 @@ fn frontier_hunting_component_score(breakdown: &HuntingFrontierBreakdown) -> Cat
     // the capped raw score.
     let denominator = raw.abs();
     let numerator = HUNTING_FRONTIER_RAW_CAP;
-    CategoryScore::new(
-        score
-            .benefit
-            .saturating_mul(numerator)
-            .saturating_div(denominator),
-        score
-            .harm
-            .saturating_mul(numerator)
-            .saturating_div(denominator),
+    normalize_category_net(
+        CategoryScore::new(
+            score
+                .benefit
+                .saturating_mul(numerator)
+                .saturating_div(denominator),
+            score
+                .harm
+                .saturating_mul(numerator)
+                .saturating_div(denominator),
+        ),
+        raw.clamp(
+            HUNTING_FRONTIER_RAW_CAP.saturating_neg(),
+            HUNTING_FRONTIER_RAW_CAP,
+        ),
     )
+}
+
+fn normalize_category_net(score: CategoryScore, target_net: i64) -> CategoryScore {
+    let current = score.net();
+    if current < target_net {
+        CategoryScore::new(
+            score.benefit.saturating_add(target_net.saturating_sub(current)),
+            score.harm,
+        )
+    } else if current > target_net {
+        CategoryScore::new(
+            score.benefit,
+            score.harm.saturating_add(current.saturating_sub(target_net)),
+        )
+    } else {
+        score
+    }
 }
 
 fn scale_frontier_hunting_score(
