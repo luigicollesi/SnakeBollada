@@ -59,6 +59,8 @@ pub(crate) struct HuntingFrontierBreakdown {
     pub(crate) escape_asymmetry: i64,
     pub(crate) raw: i64,
     pub(crate) survival_availability_milli: u16,
+    pub(crate) benefit: i64,
+    pub(crate) harm: i64,
     pub(crate) weighted: i64,
 }
 
@@ -463,7 +465,7 @@ fn frontier_line(node: &SearchNode, exact: bool, certainty: ForecastCertainty) -
             };
             let actor_breakdown = RouteUtilityBreakdown::new(
                 frontier_food_score(snapshot),
-                CategoryScore::from_net(frontier_hunting_utility(node, actor)),
+                frontier_hunting_score(node, actor),
                 frontier_survival_score(snapshot),
                 CategoryScore::default(),
             );
@@ -573,8 +575,13 @@ fn frontier_survival_score(snapshot: &crate::evaluation::ActorSnapshot) -> Categ
     structural.saturating_add(CategoryScore::new(0, pressure_harm))
 }
 
+fn frontier_hunting_score(node: &SearchNode, actor: ActorIndex) -> CategoryScore {
+    let breakdown = hunting_frontier_breakdown(node, actor);
+    CategoryScore::new(breakdown.benefit, breakdown.harm)
+}
+
 fn frontier_hunting_utility(node: &SearchNode, actor: ActorIndex) -> i64 {
-    hunting_frontier_breakdown(node, actor).weighted
+    frontier_hunting_score(node, actor).net()
 }
 
 pub(crate) fn hunting_frontier_breakdown(
@@ -618,13 +625,75 @@ pub(crate) fn hunting_frontier_breakdown(
         .saturating_div(1000)
         .try_into()
         .unwrap_or(u16::MAX);
-    breakdown.weighted = breakdown
-        .raw
-        .saturating_mul(i64::from(snapshot.weights.hunting))
-        .saturating_div(1000)
-        .saturating_mul(i64::from(breakdown.survival_availability_milli))
-        .saturating_div(1000);
+    let raw_score = frontier_hunting_component_score(&breakdown);
+    let weighted_score = scale_frontier_hunting_score(
+        raw_score,
+        snapshot.weights.hunting,
+        breakdown.survival_availability_milli,
+    );
+    breakdown.benefit = weighted_score.benefit;
+    breakdown.harm = weighted_score.harm;
+    breakdown.weighted = weighted_score.net();
+    debug_assert_eq!(
+        breakdown.weighted,
+        breakdown
+            .raw
+            .saturating_mul(i64::from(snapshot.weights.hunting))
+            .saturating_div(1000)
+            .saturating_mul(i64::from(breakdown.survival_availability_milli))
+            .saturating_div(1000)
+    );
     breakdown
+}
+
+fn frontier_hunting_component_score(breakdown: &HuntingFrontierBreakdown) -> CategoryScore {
+    let components = [
+        breakdown.territory_dominance,
+        breakdown.length_security,
+        breakdown.constriction_asymmetry,
+        breakdown.escape_asymmetry,
+    ];
+    let mut score = CategoryScore::default();
+    for component in components {
+        score = score.saturating_add(CategoryScore::from_net(component));
+    }
+
+    let raw = score.net();
+    if raw.abs() <= HUNTING_FRONTIER_RAW_CAP || raw == 0 {
+        return score;
+    }
+
+    // Preserve the benefit/harm decomposition while applying the same net cap
+    // used by the historical Hunting frontier. Scaling both sides by the same
+    // ratio keeps their relative contribution and makes the final net equal to
+    // the capped raw score.
+    let denominator = raw.abs();
+    let numerator = HUNTING_FRONTIER_RAW_CAP;
+    CategoryScore::new(
+        score
+            .benefit
+            .saturating_mul(numerator)
+            .saturating_div(denominator),
+        score
+            .harm
+            .saturating_mul(numerator)
+            .saturating_div(denominator),
+    )
+}
+
+fn scale_frontier_hunting_score(
+    score: CategoryScore,
+    hunting_weight: u16,
+    availability_milli: u16,
+) -> CategoryScore {
+    let scale = |value: i64| {
+        value
+            .saturating_mul(i64::from(hunting_weight))
+            .saturating_div(1000)
+            .saturating_mul(i64::from(availability_milli))
+            .saturating_div(1000)
+    };
+    CategoryScore::new(scale(score.benefit), scale(score.harm))
 }
 
 fn frontier_hunting_pair_raw(
@@ -663,6 +732,8 @@ fn frontier_hunting_pair_breakdown(
         escape_asymmetry,
         raw,
         survival_availability_milli: 1000,
+        benefit: CategoryScore::from_net(raw).benefit,
+        harm: CategoryScore::from_net(raw).harm,
         weighted: raw,
     }
 }
