@@ -944,7 +944,12 @@ mod tests {
     #[test]
     fn raw_hunting_signal_is_independent_from_strategic_weight() {
         let facts = ActorTransitionFacts {
-            hunting_territory_benefit: 700,
+            hunting: HuntingTransitionScore {
+                capture_benefit: 700,
+                total_benefit: 700,
+                net: 700,
+                ..HuntingTransitionScore::default()
+            },
             ..ActorTransitionFacts::default()
         };
         let low_hunting = StrategicWeights {
