@@ -85,7 +85,7 @@ impl DominationAnalysis {
         territory: &TerritoryAnalysis,
         actor_snapshots: &crate::evaluation::ActorVec<ActorSnapshot>,
         actor: ActorIndex,
-    ) -> Option<DominationSnapshot> {
+    ) -> Option<(ActorIndex, DominationSnapshot)> {
         state
             .snakes
             .iter()
@@ -95,9 +95,10 @@ impl DominationAnalysis {
             })
             .filter_map(|(index, _)| {
                 let threat = ActorIndex::new(index)?;
-                Self::against(state, territory, actor_snapshots, threat, actor)
+                let snapshot = Self::against(state, territory, actor_snapshots, threat, actor)?;
+                Some((threat, snapshot))
             })
-            .max_by_key(|snapshot| {
+            .max_by_key(|(_, snapshot)| {
                 (
                     snapshot.progress_milli,
                     snapshot.mobility_pressure_milli,
