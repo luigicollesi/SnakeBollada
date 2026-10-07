@@ -1974,6 +1974,30 @@ mod tests {
     }
 
     #[test]
+    fn depth_three_running_lines_preserve_category_accounting() {
+        let mut graph = FutureGraph::new(state());
+        graph.expand_to_depth(SEED_DEPTH).unwrap();
+
+        let result = evaluate_seed_lines(&graph, SEED_DEPTH);
+        let running = result
+            .lines
+            .iter()
+            .filter(|line| line.terminal == LineTerminal::Running)
+            .collect::<Vec<_>>();
+
+        assert!(!running.is_empty());
+        for line in running {
+            assert_eq!(
+                line.breakdown.nonterminal_benefit(),
+                line.benefit_total
+            );
+            assert_eq!(line.breakdown.nonterminal_harm(), line.harm_total);
+            assert_eq!(line.breakdown.nonterminal_net(), line.value);
+            assert!(!line.actor_breakdowns.is_empty());
+        }
+    }
+
+    #[test]
     fn depth_three_emits_one_rational_policy_per_root_direction() {
         let mut graph = FutureGraph::new(state());
         graph.expand_to_depth(SEED_DEPTH).unwrap();
