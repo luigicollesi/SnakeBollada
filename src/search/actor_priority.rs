@@ -77,8 +77,9 @@ pub(crate) fn edge_priority(
         };
         strongest_enemy_opportunity = strongest_enemy_opportunity.max(score.net.max(0));
         strongest_enemy_harm = strongest_enemy_harm.max(score.net.saturating_neg().max(0));
-        strongest_enemy_hunting_priority =
-            strongest_enemy_hunting_priority.max(score.hunting.search_priority);
+        strongest_enemy_hunting_priority = strongest_enemy_hunting_priority.max(
+            strategic_hunting_priority(parent, actor, score.hunting.search_priority),
+        );
     }
 
     ActorEdgePriority {
@@ -86,7 +87,9 @@ pub(crate) fn edge_priority(
         our_harm: ours.net.saturating_neg().max(0),
         strongest_enemy_opportunity,
         strongest_enemy_harm,
-        our_hunting_priority: ours.hunting.search_priority,
+        our_hunting_priority: our_index
+            .map(|actor| strategic_hunting_priority(parent, actor, ours.hunting.search_priority))
+            .unwrap_or(0),
         strongest_enemy_hunting_priority,
         forcing: forcing_score(parent, edge),
     }
@@ -168,14 +171,16 @@ pub(crate) fn line_hunting_search_priority(graph: &FutureGraph, line: &BeamLine)
         let ours = edge
             .transition
             .for_actor(our_actor)
-            .map(|score| score.hunting.search_priority)
+            .map(|score| strategic_hunting_priority(parent, our_actor, score.hunting.search_priority))
             .unwrap_or(0);
         let strongest_enemy = edge
             .transition
             .actors
             .iter()
             .filter(|(actor, _)| *actor != our_actor)
-            .map(|(_, score)| score.hunting.search_priority.max(0))
+            .map(|(actor, score)| {
+                strategic_hunting_priority(parent, actor, score.hunting.search_priority).max(0)
+            })
             .max()
             .unwrap_or(0);
 
@@ -250,6 +255,21 @@ pub(crate) fn ordered_child_ids_for_search(graph: &FutureGraph, node_id: NodeId)
     });
 
     ranked.into_iter().map(|edge| edge.child).collect()
+}
+
+fn strategic_hunting_priority(
+    node: &SearchNode,
+    actor: crate::simulation::state::ActorIndex,
+    raw_priority: i64,
+) -> i64 {
+    let hunting_weight = node
+        .active_analysis()
+        .and_then(|analysis| analysis.actor_snapshot(actor))
+        .map(|snapshot| snapshot.weights.hunting)
+        .unwrap_or(0);
+    raw_priority
+        .saturating_mul(i64::from(hunting_weight))
+        .saturating_div(1000)
 }
 
 fn forcing_score(parent: &SearchNode, edge: &SearchEdge) -> i64 {
