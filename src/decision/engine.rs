@@ -6,6 +6,7 @@ use crate::search::beam_search::{search_beam, BeamSearchResult};
 use crate::search::budget::SearchBudget;
 use crate::search::forecast::{FoodForecastPolicy, ForecastCertainty, PROVISIONAL_TERMINAL_VALUE};
 use crate::search::graph::FutureGraph;
+use crate::search::maximin::hunting_frontier_breakdown;
 use crate::simulation::state::{SimulatedGameState, SimulationSupport};
 use crate::strategy::{
     choose_move_baseline, direction_stays_in_bounds, BeamShadowMetadata, Decision, DecisionReason,
@@ -532,6 +533,47 @@ fn beam_metadata_for_line(
     metadata.best_value = selected.value;
     metadata.forecast_provisional = selected.certainty.is_provisional();
     metadata.terminal_confirmed = selected.is_confirmed_win() || selected.is_confirmed_loss();
+
+    if let Some(tip) = selected.path.last().map(|step| step.child) {
+        let tip_node = graph.node(tip);
+        for (index, snake) in tip_node
+            .state
+            .snakes
+            .iter()
+            .enumerate()
+            .filter(|(_, snake)| snake.alive)
+        {
+            let Some(actor) = crate::simulation::state::ActorIndex::new(index) else {
+                continue;
+            };
+            let frontier = hunting_frontier_breakdown(tip_node, actor);
+            if snake.id == tip_node.state.our_snake_id {
+                metadata.our_frontier_hunting_utility = frontier.weighted;
+                metadata.our_frontier_territory = frontier.territory_dominance;
+                metadata.our_frontier_length = frontier.length_security;
+                metadata.our_frontier_constriction = frontier.constriction_asymmetry;
+                metadata.our_frontier_escape = frontier.escape_asymmetry;
+                metadata.our_frontier_survival_availability_milli =
+                    frontier.survival_availability_milli;
+            } else {
+                metadata.opponent_frontier_hunting_utility = metadata
+                    .opponent_frontier_hunting_utility
+                    .saturating_add(frontier.weighted);
+                metadata.opponent_frontier_territory = metadata
+                    .opponent_frontier_territory
+                    .saturating_add(frontier.territory_dominance);
+                metadata.opponent_frontier_length = metadata
+                    .opponent_frontier_length
+                    .saturating_add(frontier.length_security);
+                metadata.opponent_frontier_constriction = metadata
+                    .opponent_frontier_constriction
+                    .saturating_add(frontier.constriction_asymmetry);
+                metadata.opponent_frontier_escape = metadata
+                    .opponent_frontier_escape
+                    .saturating_add(frontier.escape_asymmetry);
+            }
+        }
+    }
 
     let root_state = &graph.node(graph.root()).state;
     let our_index = root_state.actor_index(&root_state.our_snake_id);
