@@ -344,7 +344,6 @@ pub(crate) fn append_continuation(
     }
 }
 
-
 fn add_actor_breakdowns(
     target: &mut ActorVec<RouteUtilityBreakdown>,
     source: &ActorVec<RouteUtilityBreakdown>,
