@@ -768,11 +768,19 @@ fn select_selfish_opponent_response(
         response_pool
             .into_iter()
             .min_by(|left, right| {
-                left.value.cmp(&right.value).then_with(|| {
-                    right
-                        .opponent_utility_total
-                        .cmp(&left.opponent_utility_total)
-                })
+                left.value
+                    .cmp(&right.value)
+                    .then_with(|| {
+                        right
+                            .opponent_utility_total
+                            .cmp(&left.opponent_utility_total)
+                    })
+                    .then_with(|| {
+                        response_profile_plausibility_total(graph, node, right, &enemies)
+                            .cmp(&response_profile_plausibility_total(
+                                graph, node, left, &enemies,
+                            ))
+                    })
             })
             .expect("pure best-response set cannot be empty")
     };
@@ -817,6 +825,19 @@ fn is_near_best_response_by_utility(
         let (regret, _) = response_regret_and_alternatives(node, candidate, lines, *enemy_id);
         regret <= OPPONENT_RESPONSE_UTILITY_SLACK
     })
+}
+
+fn response_profile_plausibility_total(
+    graph: &FutureGraph,
+    node: &SearchNode,
+    line: &EvaluatedLine,
+    enemies: &[ActorIndex],
+) -> u32 {
+    enemies
+        .iter()
+        .filter_map(|enemy| response_plausibility_milli(graph, node, line, *enemy))
+        .map(u32::from)
+        .sum()
 }
 
 fn response_regret_and_alternatives<'a>(
