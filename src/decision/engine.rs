@@ -627,6 +627,33 @@ fn beam_metadata_for_line(
             };
 
             if Some(actor) == our_index {
+                log::debug!(
+                    target: "search_diagnostics",
+                    "hunt_step turn={} depth={} target={:?} threat={:?} raw_net={} weighted_net={} search_priority={} territory={}/{} length={}/{} mobility={}/{} escape={}/{} domination={}/{} counter_domination={}/{} phase={}/{} capture={} kill={}",
+                    graph.node(graph.root()).state.turn,
+                    metadata.selected_depth,
+                    score.hunting.target.map(|target| target.as_usize()),
+                    score.hunting.threat.map(|threat| threat.as_usize()),
+                    score.hunting.net,
+                    hunting,
+                    score.hunting.search_priority,
+                    score.hunting.territory_benefit,
+                    score.hunting.territory_harm,
+                    score.hunting.length_benefit,
+                    score.hunting.length_harm,
+                    score.hunting.mobility_benefit,
+                    score.hunting.mobility_harm,
+                    score.hunting.escape_benefit,
+                    score.hunting.escape_harm,
+                    score.hunting.domination_benefit,
+                    score.hunting.domination_harm,
+                    score.hunting.counter_domination_benefit,
+                    score.hunting.counter_domination_harm,
+                    score.hunting.phase_benefit,
+                    score.hunting.phase_harm,
+                    score.hunting.capture_benefit,
+                    score.hunting.kill_benefit
+                );
                 metadata.our_food_utility = metadata.our_food_utility.saturating_add(food);
                 metadata.our_hunting_utility = metadata.our_hunting_utility.saturating_add(hunting);
                 metadata.our_survival_utility =
