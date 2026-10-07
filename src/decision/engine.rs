@@ -809,12 +809,16 @@ mod tests {
         assert_eq!(chosen.terminal, LineTerminal::Running);
     }
 
+    fn continuity_graph() -> FutureGraph {
+        FutureGraph::new(SimulatedGameState::from(&state("standard")))
+    }
+
     #[test]
     fn marginal_challenger_does_not_replace_incumbent() {
         let incumbent = line(1, Direction::Right, 4_000);
         let challenger = line(2, Direction::Up, 4_100);
 
-        let chosen = select_incumbent_or_challenger(&challenger, &incumbent, false);
+        let chosen = select_incumbent_or_challenger(&continuity_graph(), &challenger, &incumbent, false);
 
         assert_eq!(chosen.root_direction, Direction::Right);
     }
@@ -824,7 +828,7 @@ mod tests {
         let incumbent = line(1, Direction::Right, 4_000);
         let challenger = line(2, Direction::Up, 4_500);
 
-        let chosen = select_incumbent_or_challenger(&challenger, &incumbent, false);
+        let chosen = select_incumbent_or_challenger(&continuity_graph(), &challenger, &incumbent, false);
 
         assert_eq!(chosen.root_direction, Direction::Up);
     }
@@ -834,7 +838,7 @@ mod tests {
         let incumbent = line(1, Direction::Right, 4_000);
         let challenger = line(2, Direction::Up, 4_001);
 
-        let chosen = select_incumbent_or_challenger(&challenger, &incumbent, true);
+        let chosen = select_incumbent_or_challenger(&continuity_graph(), &challenger, &incumbent, true);
 
         assert_eq!(chosen.root_direction, Direction::Up);
     }
