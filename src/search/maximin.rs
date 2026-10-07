@@ -776,10 +776,9 @@ fn select_selfish_opponent_response(
                             .cmp(&left.opponent_utility_total)
                     })
                     .then_with(|| {
-                        response_profile_plausibility_total(graph, node, right, &enemies)
-                            .cmp(&response_profile_plausibility_total(
-                                graph, node, left, &enemies,
-                            ))
+                        response_profile_plausibility_total(graph, node, right, &enemies).cmp(
+                            &response_profile_plausibility_total(graph, node, left, &enemies),
+                        )
                     })
             })
             .expect("pure best-response set cannot be empty")
