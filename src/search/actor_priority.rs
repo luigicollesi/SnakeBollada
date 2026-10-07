@@ -171,7 +171,9 @@ pub(crate) fn line_hunting_search_priority(graph: &FutureGraph, line: &BeamLine)
         let ours = edge
             .transition
             .for_actor(our_actor)
-            .map(|score| strategic_hunting_priority(parent, our_actor, score.hunting.search_priority))
+            .map(|score| {
+                strategic_hunting_priority(parent, our_actor, score.hunting.search_priority)
+            })
             .unwrap_or(0);
         let strongest_enemy = edge
             .transition
