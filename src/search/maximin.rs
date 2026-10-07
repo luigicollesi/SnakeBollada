@@ -549,9 +549,8 @@ fn frontier_survival_score(snapshot: &crate::evaluation::ActorSnapshot) -> Categ
             .saturating_div(1000),
     );
     if structural.benefit > 0 {
-        let availability = 1000_i64.saturating_sub(i64::from(
-            snapshot.metrics.growth_pressure_milli,
-        ));
+        let availability =
+            1000_i64.saturating_sub(i64::from(snapshot.metrics.growth_pressure_milli));
         structural.benefit = structural
             .benefit
             .saturating_mul(availability)
