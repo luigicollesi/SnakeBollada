@@ -1222,10 +1222,14 @@ mod tests {
         let graph = FutureGraph::new(state());
         let root = graph.node(graph.root());
 
+        let enemy = ActorIndex::new(1).unwrap();
         let mut modeled_win =
             synthetic_response_line(Direction::Down, Direction::Right, 10_000, 500, 1);
         modeled_win.terminal = LineTerminal::Won;
         modeled_win.certainty = ForecastCertainty::FoodProvisional;
+        modeled_win
+            .actor_utility_totals
+            .insert(enemy, -TERMINAL_VALUE);
 
         let escape = synthetic_response_line(Direction::Down, Direction::Up, -1_000, 0, 2);
 
