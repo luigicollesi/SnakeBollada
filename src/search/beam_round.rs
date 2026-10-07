@@ -296,8 +296,7 @@ pub(crate) fn append_continuation(
         || continuation.certainty.is_provisional()
     {
         let ours = prefix_our_utility.saturating_add(continuation.our_utility_total);
-        let opponents =
-            prefix_opponent_utility.saturating_add(continuation.opponent_utility_total);
+        let opponents = prefix_opponent_utility.saturating_add(continuation.opponent_utility_total);
         (
             ours,
             opponents,
@@ -316,9 +315,7 @@ pub(crate) fn append_continuation(
     let prefix_benefit = line
         .benefit_total
         .saturating_sub(previous_frontier.benefit_total);
-    let prefix_harm = line
-        .harm_total
-        .saturating_sub(previous_frontier.harm_total);
+    let prefix_harm = line.harm_total.saturating_sub(previous_frontier.harm_total);
 
     BeamLine {
         id: line.id,
