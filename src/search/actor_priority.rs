@@ -154,6 +154,7 @@ pub(crate) fn line_hunting_search_priority(graph: &FutureGraph, line: &BeamLine)
     let mut total = 0_i64;
     let mut positive_streak = 0_i64;
     let mut previous_positive = false;
+    let mut previous_target = None;
 
     for step in line.path.steps() {
         let Some(edge) = graph
@@ -168,13 +169,13 @@ pub(crate) fn line_hunting_search_priority(graph: &FutureGraph, line: &BeamLine)
         let Some(our_actor) = parent.state.actor_index(&parent.state.our_snake_id) else {
             continue;
         };
-        let ours = edge
-            .transition
-            .for_actor(our_actor)
+        let our_score = edge.transition.for_actor(our_actor);
+        let ours = our_score
             .map(|score| {
                 strategic_hunting_priority(parent, our_actor, score.hunting.search_priority)
             })
             .unwrap_or(0);
+        let current_target = our_score.and_then(|score| score.hunting.target);
         let strongest_enemy = edge
             .transition
             .actors
@@ -191,7 +192,8 @@ pub(crate) fn line_hunting_search_priority(graph: &FutureGraph, line: &BeamLine)
         total = total.saturating_add(step_priority);
 
         if step_priority > 0 {
-            positive_streak = if previous_positive {
+            let same_target = current_target.is_some() && current_target == previous_target;
+            positive_streak = if previous_positive && same_target {
                 positive_streak.saturating_add(1)
             } else {
                 1
@@ -202,6 +204,7 @@ pub(crate) fn line_hunting_search_priority(graph: &FutureGraph, line: &BeamLine)
             positive_streak = 0;
             previous_positive = false;
         }
+        previous_target = current_target;
     }
 
     total
