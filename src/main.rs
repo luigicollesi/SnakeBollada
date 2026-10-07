@@ -91,7 +91,7 @@ async fn handle_move(move_req: Json<GameState>, runtime: &State<GameRuntime>) ->
     let beam = decision.search.beam_shadow;
     let beam_direction = beam.direction.map_or("-", |direction| direction.as_str());
     info!(
-        "MOVE {}: {} ({:?}) depth={} completed_depth={} nodes={} edges={} transpositions={} elapsed_us={} reserve_us={} beam_move={} beam_attempted={} beam_value={} forecast_provisional={} terminal_confirmed={} batches={} parallel_batches={} actions={} new_nodes={} resolve_us={} build_us={} merge_us={} score_us={} ours_food={} ours_hunt={} ours_survival={} ours_terminal={} enemy_food={} enemy_hunt={} enemy_survival={} enemy_terminal={}",
+        "MOVE {}: {} ({:?}) depth={} completed_depth={} nodes={} edges={} transpositions={} elapsed_us={} reserve_us={} beam_move={} beam_attempted={} beam_value={} forecast_provisional={} terminal_confirmed={} batches={} parallel_batches={} actions={} new_nodes={} resolve_us={} build_us={} merge_us={} score_us={} ours_food={} ours_hunt={} ours_frontier_hunt={} ours_frontier_territory={} ours_frontier_length={} ours_frontier_constriction={} ours_frontier_escape={} ours_frontier_survival_availability={} ours_survival={} ours_terminal={} enemy_food={} enemy_hunt={} enemy_frontier_hunt={} enemy_frontier_territory={} enemy_frontier_length={} enemy_frontier_constriction={} enemy_frontier_escape={} enemy_survival={} enemy_terminal={}",
         move_req.turn,
         decision.direction.as_str(),
         decision.reason,
@@ -117,10 +117,21 @@ async fn handle_move(move_req: Json<GameState>, runtime: &State<GameRuntime>) ->
         beam.edge_score_us,
         beam.our_food_utility,
         beam.our_hunting_utility,
+        beam.our_frontier_hunting_utility,
+        beam.our_frontier_territory,
+        beam.our_frontier_length,
+        beam.our_frontier_constriction,
+        beam.our_frontier_escape,
+        beam.our_frontier_survival_availability_milli,
         beam.our_survival_utility,
         beam.our_terminal_utility,
         beam.opponent_food_utility,
         beam.opponent_hunting_utility,
+        beam.opponent_frontier_hunting_utility,
+        beam.opponent_frontier_territory,
+        beam.opponent_frontier_length,
+        beam.opponent_frontier_constriction,
+        beam.opponent_frontier_escape,
         beam.opponent_survival_utility,
         beam.opponent_terminal_utility,
     );
