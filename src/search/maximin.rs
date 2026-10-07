@@ -1987,10 +1987,7 @@ mod tests {
 
         assert!(!running.is_empty());
         for line in running {
-            assert_eq!(
-                line.breakdown.nonterminal_benefit(),
-                line.benefit_total
-            );
+            assert_eq!(line.breakdown.nonterminal_benefit(), line.benefit_total);
             assert_eq!(line.breakdown.nonterminal_harm(), line.harm_total);
             assert_eq!(line.breakdown.nonterminal_net(), line.value);
             assert!(!line.actor_breakdowns.is_empty());
