@@ -108,8 +108,7 @@ impl RouteUtilityBreakdown {
     }
 
     pub(crate) fn total_harm(self) -> i64 {
-        self.nonterminal_harm()
-            .saturating_add(self.terminal.harm)
+        self.nonterminal_harm().saturating_add(self.terminal.harm)
     }
 
     pub(crate) fn saturating_add(self, other: Self) -> Self {
@@ -137,28 +136,16 @@ impl RouteUtilityBreakdown {
                 self.food.harm.saturating_add(opponent.food.benefit),
             ),
             hunting: CategoryScore::new(
-                self.hunting
-                    .benefit
-                    .saturating_add(opponent.hunting.harm),
-                self.hunting
-                    .harm
-                    .saturating_add(opponent.hunting.benefit),
+                self.hunting.benefit.saturating_add(opponent.hunting.harm),
+                self.hunting.harm.saturating_add(opponent.hunting.benefit),
             ),
             survival: CategoryScore::new(
-                self.survival
-                    .benefit
-                    .saturating_add(opponent.survival.harm),
-                self.survival
-                    .harm
-                    .saturating_add(opponent.survival.benefit),
+                self.survival.benefit.saturating_add(opponent.survival.harm),
+                self.survival.harm.saturating_add(opponent.survival.benefit),
             ),
             terminal: CategoryScore::new(
-                self.terminal
-                    .benefit
-                    .saturating_add(opponent.terminal.harm),
-                self.terminal
-                    .harm
-                    .saturating_add(opponent.terminal.benefit),
+                self.terminal.benefit.saturating_add(opponent.terminal.harm),
+                self.terminal.harm.saturating_add(opponent.terminal.benefit),
             ),
         }
     }
