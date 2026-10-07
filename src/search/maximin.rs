@@ -22,7 +22,6 @@ const GROWTH_FRONTIER_PRESSURE_DENOMINATOR: i64 = 2;
 const FOOD_FRONTIER_POTENTIAL_NEUTRAL_MILLI: i64 = 500;
 const FOOD_FRONTIER_POTENTIAL_DIVISOR: i64 = 4;
 const FOOD_FRONTIER_ETA_STEP: i64 = 30;
-const FOOD_FRONTIER_NO_CLAIMABLE_HARM: i64 = 40;
 const SURVIVAL_FRONTIER_SPACE_NEUTRAL_MILLI: i64 = 500;
 const SURVIVAL_FRONTIER_SPACE_DIVISOR: i64 = 3;
 const SURVIVAL_FRONTIER_MOBILITY_THREE_PLUS: i64 = 120;
@@ -513,6 +512,7 @@ fn frontier_food_score(snapshot: &crate::evaluation::ActorSnapshot) -> CategoryS
     let food_weight = i64::from(snapshot.weights.food);
     let potential_delta = i64::from(snapshot.metrics.food_potential_milli)
         .saturating_sub(FOOD_FRONTIER_POTENTIAL_NEUTRAL_MILLI)
+        .max(0)
         .saturating_mul(food_weight)
         .saturating_div(1000)
         .saturating_div(FOOD_FRONTIER_POTENTIAL_DIVISOR);
@@ -521,10 +521,7 @@ fn frontier_food_score(snapshot: &crate::evaluation::ActorSnapshot) -> CategoryS
             .saturating_mul(FOOD_FRONTIER_ETA_STEP)
             .saturating_mul(food_weight)
             .saturating_div(1000),
-        None => FOOD_FRONTIER_NO_CLAIMABLE_HARM
-            .saturating_mul(food_weight)
-            .saturating_div(1000)
-            .saturating_neg(),
+        None => 0,
     };
     let growth_harm = i64::from(snapshot.metrics.growth_pressure_milli)
         .saturating_mul(GROWTH_FRONTIER_PRESSURE_NUMERATOR)
