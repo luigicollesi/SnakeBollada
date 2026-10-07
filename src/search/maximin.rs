@@ -1646,8 +1646,10 @@ mod tests {
     }
 
     #[test]
-    fn frontier_is_neutral_when_growth_pressure_is_symmetric() {
-        let graph = FutureGraph::new(state());
+    fn frontier_is_neutral_when_food_and_survival_are_symmetric() {
+        let mut symmetric = state();
+        symmetric.food = vec![Coord { x: 3, y: 3 }];
+        let graph = FutureGraph::new(symmetric);
         let line = frontier_line(
             graph.node(graph.root()),
             true,
