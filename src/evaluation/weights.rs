@@ -6,7 +6,8 @@ const MIN_CATEGORY_WEIGHT: u16 = 100;
 const MAX_CATEGORY_WEIGHT: u16 = 900;
 const MIN_SURVIVAL_WEIGHT: u16 = 150;
 const MAX_SURVIVAL_WEIGHT: u16 = 900;
-const MAX_TERRITORY_ONLY_SURVIVAL_WEIGHT: u16 = 650;
+const NORMAL_SURVIVAL_CAP: u16 = 600;
+const MAX_TERRITORY_ONLY_SURVIVAL_WEIGHT: u16 = 450;
 const SIZE_NEUTRAL_BAND_MILLI: u16 = 120;
 const DOMINANT_SIZE_START_MILLI: u32 = 1200;
 const DOMINANT_SIZE_FULL_MILLI: u32 = 1400;
@@ -101,7 +102,9 @@ fn strategic_weights(
     let survival = if survival_emergency {
         survival
     } else {
-        survival.min(growth_survival_cap(growth_pressure_milli))
+        survival
+            .min(NORMAL_SURVIVAL_CAP)
+            .min(growth_survival_cap(growth_pressure_milli))
     };
     let offensive_budget = STRATEGIC_BUDGET.saturating_sub(survival);
 
@@ -143,20 +146,22 @@ fn growth_food_floor(growth_pressure_milli: u16) -> u16 {
 
 fn growth_survival_cap(growth_pressure_milli: u16) -> u16 {
     match growth_pressure_milli {
-        900..=1000 => 250,
-        750..=899 => 300,
-        600..=749 => 350,
-        400..=599 => 450,
-        200..=399 => 600,
-        _ => MAX_SURVIVAL_WEIGHT,
+        900..=1000 => 200,
+        750..=899 => 250,
+        600..=749 => 300,
+        400..=599 => 375,
+        200..=399 => 500,
+        _ => NORMAL_SURVIVAL_CAP,
     }
 }
 
 fn immediate_survival_emergency(metrics: &ActorUtilityMetrics) -> bool {
     metrics.safe_non_reverse_moves <= 1
-        || metrics.enclosure_risk >= 2
-        || metrics.border_escape_pressure_milli >= 800
-        || metrics.border_pin_risk_milli >= 800
+        || metrics.enclosure_risk >= 3
+        || metrics.border_escape_pressure_milli >= 850
+        || (metrics.border_pin_risk_milli >= 900 && metrics.safe_non_reverse_moves <= 2)
+        || metrics.food_survival_pressure_milli >= 900
+        || metrics.health_pressure_milli >= 900
         || metrics.space_capacity_milli <= 100
 }
 
@@ -172,8 +177,8 @@ fn survival_weight_from_metrics(metrics: &ActorUtilityMetrics) -> u16 {
             .min(MAX_TERRITORY_ONLY_SURVIVAL_WEIGHT),
         match metrics.enclosure_risk {
             0 => MIN_SURVIVAL_WEIGHT,
-            1 => 350,
-            2 => 650,
+            1 => 250,
+            2 => 500,
             _ => MAX_SURVIVAL_WEIGHT,
         },
         pressure_to_survival_weight(border_pressure),
@@ -185,7 +190,7 @@ fn survival_weight_from_metrics(metrics: &ActorUtilityMetrics) -> u16 {
     let primary = pressures[0];
     let secondary_extra = pressures[1]
         .saturating_sub(MIN_SURVIVAL_WEIGHT)
-        .saturating_mul(200)
+        .saturating_mul(100)
         .saturating_div(1000);
 
     primary
@@ -215,25 +220,25 @@ fn space_survival_weight(space_capacity_milli: u16) -> u16 {
     let capacity = space_capacity_milli.min(1000);
     match capacity {
         0..=100 => MAX_SURVIVAL_WEIGHT,
-        101..=250 => interpolate(capacity, 100, 250, 900, 800),
-        251..=400 => interpolate(capacity, 250, 400, 800, 650),
-        401..=550 => interpolate(capacity, 400, 550, 650, 500),
-        551..=700 => interpolate(capacity, 550, 700, 500, 350),
-        701..=850 => interpolate(capacity, 700, 850, 350, 220),
-        _ => interpolate(capacity, 850, 1000, 220, MIN_SURVIVAL_WEIGHT),
+        101..=250 => interpolate(capacity, 100, 250, 900, 650),
+        251..=400 => interpolate(capacity, 250, 400, 650, 500),
+        401..=550 => interpolate(capacity, 400, 550, 500, 375),
+        551..=700 => interpolate(capacity, 550, 700, 375, 275),
+        701..=850 => interpolate(capacity, 700, 850, 275, 200),
+        _ => interpolate(capacity, 850, 1000, 200, MIN_SURVIVAL_WEIGHT),
     }
 }
 
 fn territory_survival_weight(territory_control_milli: u16) -> u16 {
     let territory = territory_control_milli.min(1000);
     match territory {
-        0..=100 => MAX_SURVIVAL_WEIGHT,
-        101..=150 => interpolate(territory, 100, 150, 900, 750),
-        151..=200 => interpolate(territory, 150, 200, 750, 600),
-        201..=250 => interpolate(territory, 200, 250, 600, 450),
-        251..=300 => interpolate(territory, 250, 300, 450, 350),
-        301..=350 => interpolate(territory, 300, 350, 350, 250),
-        351..=450 => interpolate(territory, 350, 450, 250, 150),
+        0..=100 => 650,
+        101..=150 => interpolate(territory, 100, 150, 650, 550),
+        151..=200 => interpolate(territory, 150, 200, 550, 450),
+        201..=250 => interpolate(territory, 200, 250, 450, 350),
+        251..=300 => interpolate(territory, 250, 300, 350, 275),
+        301..=350 => interpolate(territory, 300, 350, 275, 220),
+        351..=450 => interpolate(territory, 350, 450, 220, 150),
         _ => MIN_SURVIVAL_WEIGHT,
     }
 }
