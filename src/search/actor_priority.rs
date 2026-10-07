@@ -108,7 +108,11 @@ pub(crate) fn select_hunting_search_beam(
         return Vec::new();
     }
 
-    let best_value = viable.iter().map(|line| line.value).max().unwrap_or(i64::MIN);
+    let best_value = viable
+        .iter()
+        .map(|line| line.value)
+        .max()
+        .unwrap_or(i64::MIN);
     viable.sort_by(|left, right| {
         let left_near = left.value.saturating_add(SEARCH_UTILITY_SLACK) >= best_value;
         let right_near = right.value.saturating_add(SEARCH_UTILITY_SLACK) >= best_value;
@@ -175,9 +179,8 @@ pub(crate) fn line_hunting_search_priority(graph: &FutureGraph, line: &BeamLine)
             .max()
             .unwrap_or(0);
 
-        let step_priority = ours.saturating_sub(
-            strongest_enemy.saturating_div(ENEMY_HUNTING_PRIORITY_DIVISOR),
-        );
+        let step_priority =
+            ours.saturating_sub(strongest_enemy.saturating_div(ENEMY_HUNTING_PRIORITY_DIVISOR));
         total = total.saturating_add(step_priority);
 
         if step_priority > 0 {
