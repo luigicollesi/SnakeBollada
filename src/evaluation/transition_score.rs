@@ -976,10 +976,7 @@ mod tests {
 
         let score = score_actor_transition(facts, weights);
 
-        assert_eq!(
-            score.survival_harm,
-            900 / BORDER_ESCAPE_PRESSURE_DIVISOR
-        );
+        assert_eq!(score.survival_harm, 900 / BORDER_ESCAPE_PRESSURE_DIVISOR);
     }
 
     #[test]
