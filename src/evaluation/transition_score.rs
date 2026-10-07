@@ -963,7 +963,7 @@ mod tests {
     }
 
     #[test]
-    fn border_escape_pressure_is_direct_harm_even_when_survival_weight_is_low() {
+    fn border_escape_pressure_remains_direct_but_discounted_when_survival_weight_is_low() {
         let facts = ActorTransitionFacts {
             border_escape_pressure_milli: 900,
             ..ActorTransitionFacts::default()
@@ -976,7 +976,10 @@ mod tests {
 
         let score = score_actor_transition(facts, weights);
 
-        assert!(score.survival_harm >= 900);
+        assert_eq!(
+            score.survival_harm,
+            900 / BORDER_ESCAPE_PRESSURE_DIVISOR
+        );
     }
 
     #[test]
