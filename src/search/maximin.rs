@@ -143,8 +143,22 @@ impl EvaluatedLine {
             joint_action: edge.joint_action.clone(),
             child: edge.child,
         });
+        debug_assert_route_accounting(self.breakdown, self.benefit_total, self.harm_total);
         self
     }
+}
+
+fn debug_assert_route_accounting(
+    breakdown: RouteUtilityBreakdown,
+    benefit_total: i64,
+    harm_total: i64,
+) {
+    debug_assert_eq!(benefit_total, breakdown.total_benefit());
+    debug_assert_eq!(harm_total, breakdown.total_harm());
+    debug_assert_eq!(
+        benefit_total.saturating_sub(harm_total),
+        breakdown.total_net()
+    );
 }
 
 fn add_actor_breakdown(
@@ -200,6 +214,7 @@ pub(crate) fn evaluate_seed_lines(graph: &FutureGraph, target_depth: u8) -> Seed
         );
         for line in variants {
             let depth = line.path.len().try_into().unwrap_or(u8::MAX);
+            debug_assert_route_accounting(line.breakdown, line.benefit_total, line.harm_total);
             lines.push(BeamLine {
                 id: LineId(next_id),
                 root_direction: direction,
@@ -263,6 +278,7 @@ pub(crate) fn evaluate_frontier(
 }
 
 fn continuation_from_line(line: EvaluatedLine) -> ContinuationEvaluation {
+    debug_assert_route_accounting(line.breakdown, line.benefit_total, line.harm_total);
     ContinuationEvaluation {
         depth: line.path.len().try_into().unwrap_or(u8::MAX),
         benefit_total: line.benefit_total,
@@ -1659,6 +1675,27 @@ mod tests {
             .actor_index(&graph.node(graph.root()).state.our_snake_id)
             .unwrap();
         assert!(line.actor_breakdowns.get(our_actor).is_some());
+    }
+
+    #[test]
+    fn hunting_frontier_preserves_simultaneous_benefit_and_harm() {
+        let breakdown = HuntingFrontierBreakdown {
+            territory_dominance: 700,
+            length_security: 300,
+            constriction_asymmetry: -250,
+            escape_asymmetry: -150,
+            raw: 600,
+            survival_availability_milli: 1000,
+            benefit: 0,
+            harm: 0,
+            weighted: 0,
+        };
+
+        let score = frontier_hunting_component_score(&breakdown);
+
+        assert!(score.benefit > 0);
+        assert!(score.harm > 0);
+        assert_eq!(score.net(), breakdown.raw);
     }
 
     #[test]
