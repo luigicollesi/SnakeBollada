@@ -1726,10 +1726,11 @@ mod tests {
     #[test]
     fn hunting_frontier_survival_attenuation_is_gradual() {
         assert_eq!(frontier_survival_availability_milli(200), 1000);
-        assert_eq!(frontier_survival_availability_milli(400), 750);
-        assert_eq!(frontier_survival_availability_milli(600), 350);
-        assert_eq!(frontier_survival_availability_milli(800), 50);
-        assert_eq!(frontier_survival_availability_milli(950), 0);
+        assert_eq!(frontier_survival_availability_milli(350), 1000);
+        assert_eq!(frontier_survival_availability_milli(550), 750);
+        assert_eq!(frontier_survival_availability_milli(700), 350);
+        assert_eq!(frontier_survival_availability_milli(850), 50);
+        assert_eq!(frontier_survival_availability_milli(980), 0);
         assert!(
             frontier_survival_availability_milli(500) > frontier_survival_availability_milli(650)
         );
