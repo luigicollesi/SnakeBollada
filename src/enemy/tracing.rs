@@ -31,6 +31,7 @@ impl ThreatClass {
 pub(crate) struct OpponentPolicySupport {
     pub(crate) food: bool,
     pub(crate) hunting: bool,
+    pub(crate) hunting_milli: u16,
     pub(crate) trapping_milli: u16,
     pub(crate) head_threat: bool,
 }
@@ -38,7 +39,7 @@ pub(crate) struct OpponentPolicySupport {
 impl OpponentPolicySupport {
     pub(crate) fn count(self) -> u8 {
         u8::from(self.food)
-            .saturating_add(u8::from(self.hunting))
+            .saturating_add(u8::from(self.hunting_milli >= 400 || self.hunting))
             .saturating_add(u8::from(self.trapping_milli >= 400))
     }
 }
@@ -141,13 +142,14 @@ fn trace_enemy_actor_relative(
 ) -> EnemyMoveSet {
     let legal_moves = mobility.deterministic_moves_for(state, &enemy.id);
     let food_moves = cheap_food_ordering_moves(state, enemy, legal_moves);
-    let hunting_moves = hunting_policy_moves(state, enemy, legal_moves);
     let trapping_support = trapping_support_by_move(state, mobility, enemy, legal_moves);
+    let hunting_support =
+        hunting_support_by_move(state, mobility, enemy, legal_moves, trapping_support);
     let threat_moves = head_threat_moves(state, mobility, enemy, legal_moves);
     let hypotheses = build_hypotheses(
         legal_moves,
         food_moves,
-        hunting_moves,
+        hunting_support,
         trapping_support,
         threat_moves,
     );
@@ -161,16 +163,18 @@ fn trace_enemy_actor_relative(
 fn build_hypotheses(
     legal_moves: MoveMask,
     food_moves: MoveMask,
-    hunting_moves: MoveMask,
+    hunting_support: [u16; 4],
     trapping_support: [u16; 4],
     threat_moves: MoveMask,
 ) -> Vec<OpponentMoveHypothesis> {
     legal_moves
         .iter()
         .map(|direction| {
+            let hunting_milli = hunting_support[usize::from(direction.rank())];
             let support = OpponentPolicySupport {
                 food: food_moves.contains(direction),
-                hunting: hunting_moves.contains(direction),
+                hunting: hunting_milli >= 400,
+                hunting_milli,
                 trapping_milli: trapping_support[usize::from(direction.rank())],
                 head_threat: threat_moves.contains(direction),
             };
@@ -178,7 +182,7 @@ fn build_hypotheses(
                 ThreatClass::None
             } else if legal_moves.len() == 1 {
                 ThreatClass::Forced
-            } else if support.hunting || support.count() >= 2 {
+            } else if support.hunting_milli >= 500 || support.count() >= 2 {
                 ThreatClass::Likely
             } else {
                 ThreatClass::Possible
@@ -191,7 +195,13 @@ fn build_hypotheses(
             };
             let plausibility_milli = 80_u16
                 .saturating_add(u16::from(support.food) * 220)
-                .saturating_add(u16::from(support.hunting) * 300)
+                .saturating_add(
+                    u32::from(support.hunting_milli)
+                        .saturating_mul(300)
+                        .saturating_div(1000)
+                        .try_into()
+                        .unwrap_or(300),
+                )
                 .saturating_add(
                     u32::from(support.trapping_milli)
                         .saturating_mul(260)
@@ -261,30 +271,80 @@ fn cheap_food_ordering_moves(
     }))
 }
 
-fn hunting_policy_moves(
+fn hunting_support_by_move(
     state: &SimulatedGameState,
+    mobility: &MobilityAnalysis,
     enemy: &SimulatedSnake,
     current: MoveMask,
-) -> MoveMask {
+    trapping_support: [u16; 4],
+) -> [u16; 4] {
+    let mut support = [0_u16; 4];
     if current.is_empty() {
-        return current;
+        return support;
     }
+    let Some(enemy_head) = enemy.head() else {
+        return support;
+    };
 
-    // Hunting intent is no longer recomputed through a full actor-perspective
-    // analysis here. The actor-relative search evaluates the actual utility of
-    // each resolved child state. Tracing only keeps hunting-capable structural
-    // moves available so it does not prune them before the utility layer sees
-    // them.
-    let has_size_advantage = state
+    let targets = state
         .snakes
         .iter()
-        .any(|target| target.alive && target.id != enemy.id && enemy.length() > target.length());
-
-    if has_size_advantage {
-        current
-    } else {
-        MoveMask::empty()
+        .filter(|target| {
+            target.alive && target.id != enemy.id && enemy.length() >= target.length()
+        })
+        .collect::<Vec<_>>();
+    if targets.is_empty() {
+        return support;
     }
+
+    for direction in current.iter() {
+        let destination = direction.apply(enemy_head);
+        let mut best = 0_u32;
+
+        for target in &targets {
+            let Some(target_head) = target.head() else {
+                continue;
+            };
+            let current_distance = manhattan(enemy_head, target_head);
+            let next_distance = manhattan(destination, target_head);
+            let target_moves = mobility
+                .deterministic_moves_for(state, &target.id)
+                .len();
+
+            let mut value = u32::from(trapping_support[usize::from(direction.rank())])
+                .saturating_mul(600)
+                .saturating_div(1000)
+                .saturating_add(120);
+
+            if next_distance < current_distance {
+                value = value.saturating_add(220);
+            } else if next_distance > current_distance {
+                value = value.saturating_sub(120);
+            }
+
+            if enemy.length() > target.length() {
+                let length_edge = enemy.length().saturating_sub(target.length()).min(3);
+                value = value.saturating_add(
+                    u32::try_from(length_edge)
+                        .unwrap_or(3)
+                        .saturating_mul(80),
+                );
+            }
+
+            value = value.saturating_add(match target_moves {
+                0 => 300,
+                1 => 220,
+                2 => 100,
+                _ => 0,
+            });
+
+            best = best.max(value.min(1000));
+        }
+
+        support[usize::from(direction.rank())] = best.try_into().unwrap_or(1000);
+    }
+
+    support
 }
 
 fn trapping_support_by_move(
