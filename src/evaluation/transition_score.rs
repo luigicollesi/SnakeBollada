@@ -28,11 +28,11 @@ const HUNTING_DENIAL_NUMERATOR: i64 = 1;
 const HUNTING_DENIAL_DENOMINATOR: i64 = 2;
 const MOBILITY_STEP: i64 = 320;
 const ENCLOSURE_STEP: i64 = 220;
-const BORDER_EXPOSURE_STEP: i64 = 1;
-const BORDER_PIN_RISK_STEP: i64 = 1;
-const BORDER_ESCAPE_PRESSURE_STEP: i64 = 1;
-const FOOD_SURVIVAL_PRESSURE_STEP: i64 = 1;
-const HEALTH_PRESSURE_STEP: i64 = 1;
+const BORDER_EXPOSURE_DIVISOR: i64 = 4;
+const BORDER_PIN_RISK_DIVISOR: i64 = 4;
+const BORDER_ESCAPE_PRESSURE_DIVISOR: i64 = 4;
+const FOOD_SURVIVAL_PRESSURE_DIVISOR: i64 = 4;
+const HEALTH_PRESSURE_DIVISOR: i64 = 4;
 const HAZARD_DAMAGE_STEP: i64 = 35;
 const NO_SAFE_MOVE_HARM: i64 = 50_000;
 const KILL_BENEFIT: i64 = 1400;
@@ -476,16 +476,17 @@ fn score_actor_transition(
         &mut survival_harm,
     );
     survival_harm = survival_harm.saturating_add(
-        i64::from(facts.border_exposure_milli).saturating_mul(BORDER_EXPOSURE_STEP),
+        i64::from(facts.border_exposure_milli).saturating_div(BORDER_EXPOSURE_DIVISOR),
     );
     survival_harm = survival_harm.saturating_add(
-        i64::from(facts.border_pin_risk_milli).saturating_mul(BORDER_PIN_RISK_STEP),
+        i64::from(facts.border_pin_risk_milli).saturating_div(BORDER_PIN_RISK_DIVISOR),
     );
     survival_harm = survival_harm.saturating_add(
-        i64::from(facts.food_survival_pressure_milli).saturating_mul(FOOD_SURVIVAL_PRESSURE_STEP),
+        i64::from(facts.food_survival_pressure_milli)
+            .saturating_div(FOOD_SURVIVAL_PRESSURE_DIVISOR),
     );
     survival_harm = survival_harm.saturating_add(
-        i64::from(facts.health_pressure_milli).saturating_mul(HEALTH_PRESSURE_STEP),
+        i64::from(facts.health_pressure_milli).saturating_div(HEALTH_PRESSURE_DIVISOR),
     );
     survival_harm = survival_harm
         .saturating_add(i64::from(facts.hazard_damage).saturating_mul(HAZARD_DAMAGE_STEP));
@@ -507,7 +508,7 @@ fn score_actor_transition(
         .saturating_add(territory_harm)
         .saturating_add(
             i64::from(facts.border_escape_pressure_milli)
-                .saturating_mul(BORDER_ESCAPE_PRESSURE_STEP),
+                .saturating_div(BORDER_ESCAPE_PRESSURE_DIVISOR),
         );
     if facts.no_safe_moves_after && !facts.died {
         survival_harm = survival_harm.saturating_add(NO_SAFE_MOVE_HARM);
