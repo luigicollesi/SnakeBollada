@@ -13,6 +13,14 @@ impl CategoryScore {
         self.benefit.saturating_sub(self.harm)
     }
 
+    pub(crate) fn from_net(net: i64) -> Self {
+        if net >= 0 {
+            Self::new(net, 0)
+        } else {
+            Self::new(0, net.saturating_neg())
+        }
+    }
+
     pub(crate) fn saturating_add(self, other: Self) -> Self {
         Self {
             benefit: self.benefit.saturating_add(other.benefit),
@@ -72,6 +80,17 @@ impl RouteUtilityBreakdown {
 
     pub(crate) fn terminal_net(self) -> i64 {
         self.terminal.net()
+    }
+
+    pub(crate) fn total_net(self) -> i64 {
+        self.nonterminal_net().saturating_add(self.terminal_net())
+    }
+
+    pub(crate) fn nonterminal_only(self) -> Self {
+        Self {
+            terminal: CategoryScore::default(),
+            ..self
+        }
     }
 
     pub(crate) fn choice_net(self) -> i64 {
