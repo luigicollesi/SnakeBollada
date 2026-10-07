@@ -92,7 +92,6 @@ pub(crate) struct NodeAnalysis {
     pub(crate) mobility: Arc<MobilityAnalysis>,
     pub(crate) tracing: Arc<EnemyTracingOutput>,
     pub(crate) territory: Arc<TerritoryAnalysis>,
-    pub(crate) domination: Arc<DominationAnalysis>,
     pub(crate) actor_snapshots: ActorVec<ActorSnapshot>,
 }
 
@@ -101,8 +100,17 @@ impl NodeAnalysis {
         self.actor_snapshots.get(actor)
     }
 
-    pub(crate) fn best_domination_target(&self, actor: ActorIndex) -> Option<&DominationSnapshot> {
-        self.domination.best_target_for(actor)
+    pub(crate) fn best_domination_target(
+        &self,
+        state: &SimulatedGameState,
+        actor: ActorIndex,
+    ) -> Option<DominationSnapshot> {
+        DominationAnalysis::best_target_for(
+            state,
+            &self.territory,
+            &self.actor_snapshots,
+            actor,
+        )
     }
 }
 
@@ -928,17 +936,10 @@ fn build_node_with_key(state: SimulatedGameState, key: Arc<StateKey>) -> SearchN
             .into_iter()
             .collect::<ActorVec<_>>();
 
-        let domination = Arc::new(DominationAnalysis::from_parts(
-            &state,
-            &territory,
-            &actor_snapshots,
-        ));
-
         Some(Arc::new(NodeAnalysis {
             mobility,
             tracing,
             territory,
-            domination,
             actor_snapshots,
         }))
     };
@@ -1014,20 +1015,29 @@ mod tests {
 
         let our_actor = actor(&graph.node(graph.root()).state, "ours");
         let enemy_actor = actor(&graph.node(graph.root()).state, "enemy");
-        let ours_vs_enemy = analysis
-            .domination
-            .against(our_actor, enemy_actor)
-            .expect("domination analysis must contain living actor pair");
-        let enemy_vs_ours = analysis
-            .domination
-            .against(enemy_actor, our_actor)
-            .expect("reverse domination pair must exist");
+        let root_state = &graph.node(graph.root()).state;
+        let ours_vs_enemy = DominationAnalysis::against(
+            root_state,
+            &analysis.territory,
+            &analysis.actor_snapshots,
+            our_actor,
+            enemy_actor,
+        )
+        .expect("domination analysis must contain living actor pair");
+        let enemy_vs_ours = DominationAnalysis::against(
+            root_state,
+            &analysis.territory,
+            &analysis.actor_snapshots,
+            enemy_actor,
+            our_actor,
+        )
+        .expect("reverse domination pair must exist");
 
         assert_eq!(ours_vs_enemy.target, enemy_actor);
         assert_eq!(enemy_vs_ours.target, our_actor);
         assert_eq!(
             analysis
-                .best_domination_target(our_actor)
+                .best_domination_target(root_state, our_actor)
                 .map(|snapshot| snapshot.target),
             Some(enemy_actor)
         );
