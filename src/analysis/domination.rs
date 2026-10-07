@@ -80,6 +80,32 @@ impl DominationAnalysis {
         ))
     }
 
+    pub(crate) fn strongest_threat_against(
+        state: &SimulatedGameState,
+        territory: &TerritoryAnalysis,
+        actor_snapshots: &crate::evaluation::ActorVec<ActorSnapshot>,
+        actor: ActorIndex,
+    ) -> Option<DominationSnapshot> {
+        state
+            .snakes
+            .iter()
+            .enumerate()
+            .filter(|(index, snake)| {
+                snake.alive && ActorIndex::new(*index).is_some_and(|threat| threat != actor)
+            })
+            .filter_map(|(index, _)| {
+                let threat = ActorIndex::new(index)?;
+                Self::against(state, territory, actor_snapshots, threat, actor)
+            })
+            .max_by_key(|snapshot| {
+                (
+                    snapshot.progress_milli,
+                    snapshot.mobility_pressure_milli,
+                    snapshot.escape_pressure_milli,
+                )
+            })
+    }
+
     pub(crate) fn best_target_for(
         state: &SimulatedGameState,
         territory: &TerritoryAnalysis,
