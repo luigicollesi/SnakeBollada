@@ -333,7 +333,7 @@ pub(crate) fn append_continuation(
         .saturating_sub(previous_frontier.benefit_total);
     let prefix_harm = line.harm_total.saturating_sub(previous_frontier.harm_total);
 
-    BeamLine {
+    let result = BeamLine {
         id: line.id,
         root_direction: line.root_direction,
         depth: path.len().try_into().unwrap_or(u8::MAX),
@@ -349,7 +349,14 @@ pub(crate) fn append_continuation(
         certainty: continuation.certainty,
         bound,
         path,
-    }
+    };
+    debug_assert_eq!(result.benefit_total, result.breakdown.total_benefit());
+    debug_assert_eq!(result.harm_total, result.breakdown.total_harm());
+    debug_assert_eq!(
+        result.benefit_total.saturating_sub(result.harm_total),
+        result.breakdown.total_net()
+    );
+    result
 }
 
 fn add_actor_breakdowns(
