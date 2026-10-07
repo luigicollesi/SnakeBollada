@@ -19,9 +19,6 @@ const MIN_NEAR_BEST_PLAUSIBILITY_MILLI: u16 = 250;
 const OPPONENT_RESPONSE_PLAUSIBILITY_SLACK_MILLI: u16 = 150;
 const GROWTH_FRONTIER_PRESSURE_NUMERATOR: i64 = 3;
 const GROWTH_FRONTIER_PRESSURE_DENOMINATOR: i64 = 2;
-const FOOD_FRONTIER_POTENTIAL_NEUTRAL_MILLI: i64 = 500;
-const FOOD_FRONTIER_POTENTIAL_DIVISOR: i64 = 4;
-const FOOD_FRONTIER_ETA_STEP: i64 = 30;
 const SURVIVAL_FRONTIER_SPACE_NEUTRAL_MILLI: i64 = 500;
 const SURVIVAL_FRONTIER_SPACE_DIVISOR: i64 = 3;
 const SURVIVAL_FRONTIER_MOBILITY_THREE_PLUS: i64 = 120;
@@ -509,26 +506,17 @@ fn frontier_line(node: &SearchNode, exact: bool, certainty: ForecastCertainty) -
 }
 
 fn frontier_food_score(snapshot: &crate::evaluation::ActorSnapshot) -> CategoryScore {
-    let food_weight = i64::from(snapshot.weights.food);
-    let potential_delta = i64::from(snapshot.metrics.food_potential_milli)
-        .saturating_sub(FOOD_FRONTIER_POTENTIAL_NEUTRAL_MILLI)
-        .max(0)
-        .saturating_mul(food_weight)
-        .saturating_div(1000)
-        .saturating_div(FOOD_FRONTIER_POTENTIAL_DIVISOR);
-    let eta_delta = match snapshot.metrics.claimable_food_eta {
-        Some(eta) => i64::from(4_u16.saturating_sub(eta.min(4)))
-            .saturating_mul(FOOD_FRONTIER_ETA_STEP)
-            .saturating_mul(food_weight)
-            .saturating_div(1000),
-        None => 0,
-    };
-    let growth_harm = i64::from(snapshot.metrics.growth_pressure_milli)
-        .saturating_mul(GROWTH_FRONTIER_PRESSURE_NUMERATOR)
-        .saturating_div(GROWTH_FRONTIER_PRESSURE_DENOMINATOR);
-
-    CategoryScore::from_net(potential_delta.saturating_add(eta_delta))
-        .saturating_add(CategoryScore::new(0, growth_harm))
+    // Transition scoring owns positive progress toward food (ETA improvement,
+    // consumption and growth). The frontier must not reward merely keeping a
+    // claimable food on the board, otherwise search can prefer delaying a safe
+    // meal to preserve that future opportunity. At the horizon Food therefore
+    // represents only unresolved growth pressure.
+    CategoryScore::new(
+        0,
+        i64::from(snapshot.metrics.growth_pressure_milli)
+            .saturating_mul(GROWTH_FRONTIER_PRESSURE_NUMERATOR)
+            .saturating_div(GROWTH_FRONTIER_PRESSURE_DENOMINATOR),
+    )
 }
 
 fn frontier_survival_score(snapshot: &crate::evaluation::ActorSnapshot) -> CategoryScore {
@@ -1514,7 +1502,7 @@ mod tests {
     }
 
     #[test]
-    fn frontier_food_records_benefit_and_harm_separately() {
+    fn frontier_food_records_only_unresolved_growth_pressure() {
         let mut metrics = frontier_metrics(3, 0, 0, 0, 800, 500, 700);
         metrics.food_potential_milli = 900;
         metrics.growth_pressure_milli = 600;
@@ -1530,8 +1518,13 @@ mod tests {
 
         let score = frontier_food_score(&snapshot);
 
-        assert!(score.benefit > 0);
-        assert!(score.harm > 0);
+        assert_eq!(score.benefit, 0);
+        assert_eq!(
+            score.harm,
+            i64::from(600)
+                .saturating_mul(GROWTH_FRONTIER_PRESSURE_NUMERATOR)
+                .saturating_div(GROWTH_FRONTIER_PRESSURE_DENOMINATOR)
+        );
     }
 
     #[test]
