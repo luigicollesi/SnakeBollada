@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 
-use super::{ActorVec, StrategicWeights};
+use super::{evaluate_hunting_transition, ActorVec, HuntingTransitionScore, StrategicWeights};
 use crate::search::graph::SearchNode;
 use crate::simulation::resolver::{EliminationAttribution, InstantEvent};
 use crate::simulation::state::ActorIndex;
@@ -61,8 +61,7 @@ struct ActorTransitionFacts {
     health_pressure_milli: u16,
     hazard_damage: u16,
     enclosure_improvement: i8,
-    hunting_territory_benefit: i64,
-    kill_benefit: i64,
+    hunting: HuntingTransitionScore,
     attributed_kill: bool,
     died: bool,
     sole_survivor: bool,
@@ -81,6 +80,7 @@ pub(crate) struct ActorTransitionScore {
     pub(crate) hunting_benefit: i64,
     pub(crate) hunting_harm: i64,
     pub(crate) raw_hunting_milli: u16,
+    pub(crate) hunting: HuntingTransitionScore,
     pub(crate) attributed_kill: bool,
     pub(crate) survival_benefit: i64,
     pub(crate) survival_harm: i64,
@@ -243,6 +243,13 @@ impl TransitionFacts {
                 child_actor.map_or(0, |snake| extra_hazard_damage(actor.health, snake.health))
             };
             let kill_benefit = kill_benefits.get(actor_index).copied().unwrap_or(0);
+            let hunting = evaluate_hunting_transition(
+                parent,
+                child,
+                actor_index,
+                hunting_transfers.get(actor_index).copied().unwrap_or(0),
+                kill_benefit,
+            );
             let attributed_kill = kill_benefit > 0
                 || matches!(
                     our_elimination_attribution,
@@ -335,8 +342,7 @@ impl TransitionFacts {
                             .saturating_sub(i16::from(snapshot.metrics.enclosure_risk)),
                     )
                 }),
-                hunting_territory_benefit: hunting_transfers.get(actor_index).copied().unwrap_or(0),
-                kill_benefit,
+                hunting,
                 attributed_kill,
                 died: !alive_after,
                 sole_survivor: alive_after && living_after == 1,
@@ -411,19 +417,13 @@ fn score_actor_transition(
     }
 
     let raw_hunting_milli = facts
-        .hunting_territory_benefit
-        .saturating_add(if facts.attributed_kill {
-            KILL_BENEFIT
-        } else {
-            0
-        })
+        .hunting
+        .net
         .clamp(0, 1000)
         .try_into()
         .unwrap_or(1000);
-    let mut hunting_benefit = facts
-        .hunting_territory_benefit
-        .saturating_add(facts.kill_benefit);
-    let mut hunting_harm = 0_i64;
+    let mut hunting_benefit = facts.hunting.total_benefit;
+    let mut hunting_harm = facts.hunting.total_harm;
     let (space_benefit, space_harm) = weighted_survival_delta(
         deadband_i16(facts.space_capacity_delta_milli, SPACE_CAPACITY_DEADBAND),
         SPACE_CAPACITY_DELTA_SCALE,
@@ -520,6 +520,7 @@ fn score_actor_transition(
         hunting_benefit,
         hunting_harm,
         raw_hunting_milli,
+        hunting: facts.hunting,
         attributed_kill: facts.attributed_kill,
         survival_benefit,
         survival_harm,
