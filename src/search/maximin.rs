@@ -1509,6 +1509,66 @@ mod tests {
     }
 
     #[test]
+    fn frontier_food_records_benefit_and_harm_separately() {
+        let mut metrics = frontier_metrics(3, 0, 0, 0, 800, 500, 700);
+        metrics.food_potential_milli = 900;
+        metrics.growth_pressure_milli = 600;
+        metrics.claimable_food_eta = Some(1);
+        let snapshot = crate::evaluation::ActorSnapshot::new(
+            metrics,
+            crate::evaluation::StrategicWeights {
+                food: 600,
+                hunting: 250,
+                survival: 150,
+            },
+        );
+
+        let score = frontier_food_score(&snapshot);
+
+        assert!(score.benefit > 0);
+        assert!(score.harm > 0);
+    }
+
+    #[test]
+    fn frontier_survival_records_safe_space_and_pressure_separately() {
+        let mut metrics = frontier_metrics(3, 2, 600, 700, 850, 500, 700);
+        metrics.border_structural_risk_milli = 500;
+        metrics.food_survival_pressure_milli = 600;
+        metrics.health_pressure_milli = 400;
+        let snapshot = crate::evaluation::ActorSnapshot::new(
+            metrics,
+            crate::evaluation::StrategicWeights {
+                food: 100,
+                hunting: 200,
+                survival: 700,
+            },
+        );
+
+        let score = frontier_survival_score(&snapshot);
+
+        assert!(score.benefit > 0);
+        assert!(score.harm > 0);
+    }
+
+    #[test]
+    fn frontier_route_breakdown_net_matches_route_value() {
+        let graph = FutureGraph::new(state());
+        let line = frontier_line(
+            graph.node(graph.root()),
+            true,
+            ForecastCertainty::Deterministic,
+        );
+
+        assert_eq!(line.breakdown.nonterminal_net(), line.value);
+        let our_actor = graph
+            .node(graph.root())
+            .state
+            .actor_index(&graph.node(graph.root()).state.our_snake_id)
+            .unwrap();
+        assert!(line.actor_breakdowns.get(our_actor).is_some());
+    }
+
+    #[test]
     fn hunting_frontier_rewards_dominance_over_a_constrained_rival() {
         let dominant = frontier_metrics(3, 0, 0, 0, 900, 700, 1000);
         let constrained = frontier_metrics(1, 2, 800, 800, 300, 300, 0);
