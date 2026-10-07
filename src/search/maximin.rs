@@ -27,7 +27,11 @@ const HUNTING_FRONTIER_MOBILITY_ZERO_MOVES: i64 = 750;
 const HUNTING_FRONTIER_ENCLOSURE_STEP: i64 = 100;
 const HUNTING_FRONTIER_BORDER_PRESSURE_DIVISOR: i64 = 8;
 const HUNTING_FRONTIER_RAW_CAP: i64 = 1_000;
-const HUNTING_FRONTIER_SURVIVAL_CUTOFF: u16 = 650;
+const HUNTING_FRONTIER_SURVIVAL_FULL_MILLI: u16 = 200;
+const HUNTING_FRONTIER_SURVIVAL_HIGH_MILLI: u16 = 400;
+const HUNTING_FRONTIER_SURVIVAL_CRITICAL_MILLI: u16 = 600;
+const HUNTING_FRONTIER_SURVIVAL_EMERGENCY_MILLI: u16 = 800;
+const HUNTING_FRONTIER_SURVIVAL_ZERO_MILLI: u16 = 950;
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub(crate) struct MaximinStats {
@@ -35,6 +39,17 @@ pub(crate) struct MaximinStats {
     pub(crate) memo_hits: u32,
     pub(crate) exact_nodes: u32,
     pub(crate) bounded_nodes: u32,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) struct HuntingFrontierBreakdown {
+    pub(crate) territory_dominance: i64,
+    pub(crate) length_security: i64,
+    pub(crate) constriction_asymmetry: i64,
+    pub(crate) escape_asymmetry: i64,
+    pub(crate) raw: i64,
+    pub(crate) survival_availability_milli: u16,
+    pub(crate) weighted: i64,
 }
 
 #[derive(Debug, Clone)]
@@ -441,19 +456,24 @@ fn frontier_line(node: &SearchNode, exact: bool, certainty: ForecastCertainty) -
 }
 
 fn frontier_hunting_utility(node: &SearchNode, actor: ActorIndex) -> i64 {
+    hunting_frontier_breakdown(node, actor).weighted
+}
+
+pub(crate) fn hunting_frontier_breakdown(
+    node: &SearchNode,
+    actor: ActorIndex,
+) -> HuntingFrontierBreakdown {
     let Some(analysis) = node.active_analysis() else {
-        return 0;
+        return HuntingFrontierBreakdown::default();
     };
     let Some(snapshot) = analysis.actor_snapshot(actor) else {
-        return 0;
+        return HuntingFrontierBreakdown::default();
     };
-    if snapshot.weights.survival >= HUNTING_FRONTIER_SURVIVAL_CUTOFF
-        || snapshot.metrics.safe_non_reverse_moves <= 1
-    {
-        return 0;
-    }
 
-    let worst_rival_score = node
+    // These are derived opponent-control signals. They intentionally reuse primitive
+    // territory/mobility metrics, but compare actor vs rival instead of re-scoring the
+    // actor's local survival state.
+    let mut breakdown = node
         .state
         .snakes
         .iter()
@@ -464,23 +484,43 @@ fn frontier_hunting_utility(node: &SearchNode, actor: ActorIndex) -> i64 {
         .filter_map(|(index, _)| {
             let rival = ActorIndex::new(index)?;
             let rival_snapshot = analysis.actor_snapshot(rival)?;
-            Some(frontier_hunting_pair_raw(
+            Some(frontier_hunting_pair_breakdown(
                 &snapshot.metrics,
                 &rival_snapshot.metrics,
             ))
         })
-        .min()
-        .unwrap_or(0);
+        .min_by_key(|candidate| candidate.raw)
+        .unwrap_or_default();
 
-    worst_rival_score
+    let survival_availability =
+        frontier_survival_availability_milli(snapshot.weights.survival);
+    let mobility_availability =
+        frontier_mobility_availability_milli(snapshot.metrics.safe_non_reverse_moves);
+    breakdown.survival_availability_milli = u32::from(survival_availability)
+        .saturating_mul(u32::from(mobility_availability))
+        .saturating_div(1000)
+        .try_into()
+        .unwrap_or(u16::MAX);
+    breakdown.weighted = breakdown
+        .raw
         .saturating_mul(i64::from(snapshot.weights.hunting))
         .saturating_div(1000)
+        .saturating_mul(i64::from(breakdown.survival_availability_milli))
+        .saturating_div(1000);
+    breakdown
 }
 
 fn frontier_hunting_pair_raw(
     actor: &crate::evaluation::ActorUtilityMetrics,
     rival: &crate::evaluation::ActorUtilityMetrics,
 ) -> i64 {
+    frontier_hunting_pair_breakdown(actor, rival).raw
+}
+
+fn frontier_hunting_pair_breakdown(
+    actor: &crate::evaluation::ActorUtilityMetrics,
+    rival: &crate::evaluation::ActorUtilityMetrics,
+) -> HuntingFrontierBreakdown {
     let territory_dominance = i64::from(actor.territory_control_milli)
         .saturating_sub(i64::from(rival.territory_control_milli))
         .saturating_mul(HUNTING_FRONTIER_TERRITORY_SCALE);
@@ -490,12 +530,83 @@ fn frontier_hunting_pair_raw(
         frontier_constriction_pressure(rival).saturating_sub(frontier_constriction_pressure(actor));
     let escape_asymmetry =
         i64::from(actor.space_capacity_milli).saturating_sub(i64::from(rival.space_capacity_milli));
-
-    territory_dominance
+    let raw = territory_dominance
         .saturating_add(length_security)
         .saturating_add(constriction_asymmetry)
         .saturating_add(escape_asymmetry)
-        .clamp(0, HUNTING_FRONTIER_RAW_CAP)
+        .clamp(
+            HUNTING_FRONTIER_RAW_CAP.saturating_neg(),
+            HUNTING_FRONTIER_RAW_CAP,
+        );
+
+    HuntingFrontierBreakdown {
+        territory_dominance,
+        length_security,
+        constriction_asymmetry,
+        escape_asymmetry,
+        raw,
+        survival_availability_milli: 1000,
+        weighted: raw,
+    }
+}
+
+fn frontier_survival_availability_milli(survival: u16) -> u16 {
+    match survival {
+        0..=HUNTING_FRONTIER_SURVIVAL_FULL_MILLI => 1000,
+        ..=HUNTING_FRONTIER_SURVIVAL_HIGH_MILLI => interpolate_descending(
+            survival,
+            HUNTING_FRONTIER_SURVIVAL_FULL_MILLI,
+            HUNTING_FRONTIER_SURVIVAL_HIGH_MILLI,
+            1000,
+            750,
+        ),
+        ..=HUNTING_FRONTIER_SURVIVAL_CRITICAL_MILLI => interpolate_descending(
+            survival,
+            HUNTING_FRONTIER_SURVIVAL_HIGH_MILLI,
+            HUNTING_FRONTIER_SURVIVAL_CRITICAL_MILLI,
+            750,
+            350,
+        ),
+        ..=HUNTING_FRONTIER_SURVIVAL_EMERGENCY_MILLI => interpolate_descending(
+            survival,
+            HUNTING_FRONTIER_SURVIVAL_CRITICAL_MILLI,
+            HUNTING_FRONTIER_SURVIVAL_EMERGENCY_MILLI,
+            350,
+            50,
+        ),
+        ..=HUNTING_FRONTIER_SURVIVAL_ZERO_MILLI => interpolate_descending(
+            survival,
+            HUNTING_FRONTIER_SURVIVAL_EMERGENCY_MILLI,
+            HUNTING_FRONTIER_SURVIVAL_ZERO_MILLI,
+            50,
+            0,
+        ),
+        _ => 0,
+    }
+}
+
+fn frontier_mobility_availability_milli(moves: u8) -> u16 {
+    match moves {
+        0 => 0,
+        1 => 250,
+        2 => 800,
+        _ => 1000,
+    }
+}
+
+fn interpolate_descending(
+    value: u16,
+    start: u16,
+    end: u16,
+    start_score: u16,
+    end_score: u16,
+) -> u16 {
+    let span = u32::from(end.saturating_sub(start)).max(1);
+    let progress = u32::from(value.saturating_sub(start).min(end.saturating_sub(start)));
+    let drop = u32::from(start_score.saturating_sub(end_score))
+        .saturating_mul(progress)
+        .saturating_div(span);
+    start_score.saturating_sub(drop.try_into().unwrap_or(u16::MAX))
 }
 
 fn frontier_constriction_pressure(metrics: &crate::evaluation::ActorUtilityMetrics) -> i64 {
@@ -1240,44 +1351,28 @@ mod tests {
 
         let score = frontier_hunting_pair_raw(&constrained, &dominant);
 
-        assert_eq!(score, 0);
+        assert!(score < 0);
     }
 
     #[test]
-    fn hunting_frontier_is_suspended_when_survival_is_emergency_weighted() {
-        let mut state = state();
-        let root = FutureGraph::new(state.clone());
-        let actor = state.actor_index("ours").unwrap();
-        let snapshot = root
-            .node(root.root())
-            .active_analysis()
-            .unwrap()
-            .actor_snapshot(actor)
-            .unwrap();
+    fn hunting_frontier_survival_attenuation_is_gradual() {
+        assert_eq!(frontier_survival_availability_milli(200), 1000);
+        assert_eq!(frontier_survival_availability_milli(400), 750);
+        assert_eq!(frontier_survival_availability_milli(600), 350);
+        assert_eq!(frontier_survival_availability_milli(800), 50);
+        assert_eq!(frontier_survival_availability_milli(950), 0);
+        assert!(
+            frontier_survival_availability_milli(500)
+                > frontier_survival_availability_milli(650)
+        );
+    }
 
-        if snapshot.weights.survival < HUNTING_FRONTIER_SURVIVAL_CUTOFF {
-            state.snakes[0].body = vec![
-                Coord { x: 0, y: 0 },
-                Coord { x: 0, y: 1 },
-                Coord { x: 1, y: 1 },
-                Coord { x: 1, y: 0 },
-            ];
-        }
-
-        let graph = FutureGraph::new(state);
-        let actor = graph.node(graph.root()).state.actor_index("ours").unwrap();
-        let snapshot = graph
-            .node(graph.root())
-            .active_analysis()
-            .unwrap()
-            .actor_snapshot(actor)
-            .unwrap();
-
-        if snapshot.weights.survival >= HUNTING_FRONTIER_SURVIVAL_CUTOFF
-            || snapshot.metrics.safe_non_reverse_moves <= 1
-        {
-            assert_eq!(frontier_hunting_utility(graph.node(graph.root()), actor), 0);
-        }
+    #[test]
+    fn one_escape_lane_attenuates_hunting_without_erasing_it() {
+        assert_eq!(frontier_mobility_availability_milli(0), 0);
+        assert_eq!(frontier_mobility_availability_milli(1), 250);
+        assert_eq!(frontier_mobility_availability_milli(2), 800);
+        assert_eq!(frontier_mobility_availability_milli(3), 1000);
     }
 
     #[test]
