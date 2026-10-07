@@ -9,6 +9,8 @@ const ESCAPE_PRESSURE_DELTA_SCALE: i64 = 2;
 const DOMINATION_PROGRESS_DELTA_SCALE: i64 = 2;
 const COUNTER_DOMINATION_DELTA_SCALE: i64 = 1;
 const PHASE_STEP: i64 = 180;
+const POSITIONAL_BENEFIT_CAP: i64 = 1_200;
+const POSITIONAL_HARM_CAP: i64 = 1_200;
 const SEARCH_DOMINATION_DELTA_SCALE: i64 = 2;
 const SEARCH_PHASE_STEP: i64 = 250;
 
@@ -167,24 +169,31 @@ fn finish(
     search_priority: i64,
     _domination_delta: i64,
 ) -> HuntingTransitionScore {
-    score.total_benefit = score
-        .capture_benefit
-        .saturating_add(score.kill_benefit)
-        .saturating_add(score.territory_benefit)
+    // DominationDelta is intentionally a search signal and diagnostic aggregate.
+    // Territory, length, mobility and escape are its primitive components, so adding
+    // domination again to route utility would double-count the same positional change.
+    let positional_benefit = score
+        .territory_benefit
         .saturating_add(score.length_benefit)
         .saturating_add(score.mobility_benefit)
         .saturating_add(score.escape_benefit)
-        .saturating_add(score.domination_benefit)
         .saturating_add(score.counter_domination_benefit)
-        .saturating_add(score.phase_benefit);
-    score.total_harm = score
+        .saturating_add(score.phase_benefit)
+        .min(POSITIONAL_BENEFIT_CAP);
+    let positional_harm = score
         .territory_harm
         .saturating_add(score.length_harm)
         .saturating_add(score.mobility_harm)
         .saturating_add(score.escape_harm)
-        .saturating_add(score.domination_harm)
         .saturating_add(score.counter_domination_harm)
-        .saturating_add(score.phase_harm);
+        .saturating_add(score.phase_harm)
+        .min(POSITIONAL_HARM_CAP);
+
+    score.total_benefit = score
+        .capture_benefit
+        .saturating_add(score.kill_benefit)
+        .saturating_add(positional_benefit);
+    score.total_harm = positional_harm;
     score.net = score.total_benefit.saturating_sub(score.total_harm);
     score.search_priority = search_priority
         .saturating_add(score.capture_benefit.saturating_div(2))
