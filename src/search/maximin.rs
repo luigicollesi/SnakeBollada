@@ -708,13 +708,17 @@ fn normalize_category_net(score: CategoryScore, target_net: i64) -> CategoryScor
     let current = score.net();
     if current < target_net {
         CategoryScore::new(
-            score.benefit.saturating_add(target_net.saturating_sub(current)),
+            score
+                .benefit
+                .saturating_add(target_net.saturating_sub(current)),
             score.harm,
         )
     } else if current > target_net {
         CategoryScore::new(
             score.benefit,
-            score.harm.saturating_add(current.saturating_sub(target_net)),
+            score
+                .harm
+                .saturating_add(current.saturating_sub(target_net)),
         )
     } else {
         score
