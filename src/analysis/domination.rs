@@ -145,10 +145,12 @@ fn pair_snapshot(
     );
     let length_security_milli = capped_length_security(actor_length, target_length);
     let mobility_pressure_milli = signed_component(
-        i32::from(mobility_constriction(target_snapshot.metrics.safe_non_reverse_moves))
-            .saturating_sub(i32::from(mobility_constriction(
-                actor.metrics.safe_non_reverse_moves,
-            ))),
+        i32::from(mobility_constriction(
+            target_snapshot.metrics.safe_non_reverse_moves,
+        ))
+        .saturating_sub(i32::from(mobility_constriction(
+            actor.metrics.safe_non_reverse_moves,
+        ))),
     );
     let escape_pressure_milli = signed_component(
         i32::from(escape_constriction(target_escape_frontier))
@@ -162,10 +164,7 @@ fn pair_snapshot(
         .saturating_add(i64::from(escape_pressure_milli).saturating_mul(ESCAPE_WEIGHT))
         .saturating_div(COMPONENT_BUDGET);
 
-    let progress_milli = signed_progress
-        .clamp(0, 1000)
-        .try_into()
-        .unwrap_or(1000);
+    let progress_milli = signed_progress.clamp(0, 1000).try_into().unwrap_or(1000);
     let closure_supported = target_snapshot.metrics.safe_non_reverse_moves
         <= CLOSURE_MAX_SAFE_MOVES
         || target_escape_frontier <= CLOSURE_MAX_ESCAPE_FRONTIER;
@@ -246,10 +245,7 @@ mod tests {
 
     use super::*;
 
-    fn actor_snapshot(
-        moves: u8,
-        territory: u16,
-    ) -> ActorSnapshot {
+    fn actor_snapshot(moves: u8, territory: u16) -> ActorSnapshot {
         ActorSnapshot::new(
             ActorUtilityMetrics {
                 safe_non_reverse_moves: moves,
