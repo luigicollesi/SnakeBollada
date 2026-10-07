@@ -492,8 +492,7 @@ pub(crate) fn hunting_frontier_breakdown(
         .min_by_key(|candidate| candidate.raw)
         .unwrap_or_default();
 
-    let survival_availability =
-        frontier_survival_availability_milli(snapshot.weights.survival);
+    let survival_availability = frontier_survival_availability_milli(snapshot.weights.survival);
     let mobility_availability =
         frontier_mobility_availability_milli(snapshot.metrics.safe_non_reverse_moves);
     breakdown.survival_availability_milli = u32::from(survival_availability)
@@ -1366,8 +1365,7 @@ mod tests {
         assert_eq!(frontier_survival_availability_milli(800), 50);
         assert_eq!(frontier_survival_availability_milli(950), 0);
         assert!(
-            frontier_survival_availability_milli(500)
-                > frontier_survival_availability_milli(650)
+            frontier_survival_availability_milli(500) > frontier_survival_availability_milli(650)
         );
     }
 
