@@ -570,11 +570,17 @@ mod tests {
         let line = checkpoint.lines.first().unwrap().clone();
         let tip = line_tip(&line).unwrap();
         let previous_frontier = evaluate_frontier(&graph, tip, line.certainty);
+        let continuation_breakdown = RouteUtilityBreakdown::new(
+            crate::evaluation::CategoryScore::new(120, 20),
+            crate::evaluation::CategoryScore::new(300, 40),
+            crate::evaluation::CategoryScore::new(80, 60),
+            crate::evaluation::CategoryScore::default(),
+        );
         let continuation = ContinuationEvaluation {
             depth: 2,
             benefit_total: 900,
             harm_total: 300,
-            breakdown: RouteUtilityBreakdown::default(),
+            breakdown: continuation_breakdown,
             actor_breakdowns: ActorVec::new(),
             our_utility_total: 900,
             opponent_utility_total: 300,
@@ -608,6 +614,12 @@ mod tests {
             line.opponent_utility_total
                 .saturating_sub(previous_frontier.opponent_utility_total)
                 .saturating_add(300)
+        );
+        assert_eq!(
+            deepened.breakdown,
+            line.breakdown
+                .saturating_sub(previous_frontier.breakdown)
+                .saturating_add(continuation_breakdown)
         );
     }
 }
