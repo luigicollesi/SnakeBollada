@@ -551,15 +551,12 @@ fn beam_metadata_for_line(
                 .active_analysis()
                 .and_then(|analysis| analysis.best_domination_target(our_actor))
             {
-                metadata.frontier_domination_target =
-                    domination.target.as_usize().try_into().ok();
+                metadata.frontier_domination_target = domination.target.as_usize().try_into().ok();
                 metadata.frontier_domination_progress_milli = domination.progress_milli;
                 metadata.frontier_domination_phase = domination.phase;
-                metadata.frontier_domination_territory_milli =
-                    domination.territory_advantage_milli;
+                metadata.frontier_domination_territory_milli = domination.territory_advantage_milli;
                 metadata.frontier_domination_length_milli = domination.length_security_milli;
-                metadata.frontier_domination_mobility_milli =
-                    domination.mobility_pressure_milli;
+                metadata.frontier_domination_mobility_milli = domination.mobility_pressure_milli;
                 metadata.frontier_domination_escape_milli = domination.escape_pressure_milli;
             }
         }
