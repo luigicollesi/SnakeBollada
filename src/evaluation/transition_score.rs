@@ -1563,14 +1563,8 @@ mod tests {
         let first = score_actor_transition(facts, weights);
         let second = score_actor_transition(facts, weights);
 
-        assert_eq!(
-            first.survival_harm,
-            600 / FOOD_SURVIVAL_PRESSURE_DIVISOR
-        );
-        assert_eq!(
-            second.survival_harm,
-            600 / FOOD_SURVIVAL_PRESSURE_DIVISOR
-        );
+        assert_eq!(first.survival_harm, 600 / FOOD_SURVIVAL_PRESSURE_DIVISOR);
+        assert_eq!(second.survival_harm, 600 / FOOD_SURVIVAL_PRESSURE_DIVISOR);
         assert_eq!(first.net, -first.survival_harm);
         assert_eq!(second.net, -second.survival_harm);
     }
