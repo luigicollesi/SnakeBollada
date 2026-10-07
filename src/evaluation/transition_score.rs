@@ -149,25 +149,21 @@ impl TransitionScore {
             .and_then(|actor| actors.get(actor))
             .copied()
             .unwrap_or_default();
-        let (
-            opponent_benefit_total,
-            opponent_harm_total,
-            opponent_net_total,
-            opponent_breakdown,
-        ) = actors
-            .iter()
-            .filter(|(actor, _)| Some(*actor) != our_index)
-            .fold(
-                (0_i64, 0_i64, 0_i64, RouteUtilityBreakdown::default()),
-                |(benefit, harm, net, breakdown), (_, score)| {
-                    (
-                        benefit.saturating_add(score.benefit_total),
-                        harm.saturating_add(score.harm_total),
-                        net.saturating_add(score.net),
-                        breakdown.saturating_add(score.breakdown),
-                    )
-                },
-            );
+        let (opponent_benefit_total, opponent_harm_total, opponent_net_total, opponent_breakdown) =
+            actors
+                .iter()
+                .filter(|(actor, _)| Some(*actor) != our_index)
+                .fold(
+                    (0_i64, 0_i64, 0_i64, RouteUtilityBreakdown::default()),
+                    |(benefit, harm, net, breakdown), (_, score)| {
+                        (
+                            benefit.saturating_add(score.benefit_total),
+                            harm.saturating_add(score.harm_total),
+                            net.saturating_add(score.net),
+                            breakdown.saturating_add(score.breakdown),
+                        )
+                    },
+                );
         let effective_breakdown = ours.breakdown.competitive_against(opponent_breakdown);
         let effective_benefit = effective_breakdown.nonterminal_benefit();
         let effective_harm = effective_breakdown.nonterminal_harm();
