@@ -2,9 +2,8 @@
 
 use std::time::Instant;
 
-use super::beam::{
-    select_seed_beam, BeamCheckpoint, BeamLine, LineId, LineTerminal, BEAM_WIDTH, SEED_DEPTH,
-};
+use super::actor_priority::select_hunting_search_beam;
+use super::beam::{BeamCheckpoint, BeamLine, LineId, LineTerminal, BEAM_WIDTH, SEED_DEPTH};
 use super::beam_round::append_continuation;
 use super::budget::SearchBudget;
 use super::graph::{FutureGraph, NodeId, SearchError};
@@ -43,7 +42,7 @@ pub(crate) fn build_seed_checkpoint(
     }
 
     let first_evaluation = evaluate_seed_lines(graph, 1);
-    let first_selected = select_seed_beam(&first_evaluation.lines);
+    let first_selected = select_hunting_search_beam(graph, &first_evaluation.lines);
     log::debug!(
         target: "search_diagnostics",
         "seed turn={} depth=1 raw={} selected={}",
@@ -202,7 +201,7 @@ fn deepen_seed_one_layer(
         return Ok(None);
     }
 
-    let selected = select_seed_beam(&candidates);
+    let selected = select_hunting_search_beam(graph, &candidates);
     if selected.is_empty() || selected.len() > BEAM_WIDTH {
         return Ok(None);
     }
