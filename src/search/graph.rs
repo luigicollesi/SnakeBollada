@@ -105,12 +105,7 @@ impl NodeAnalysis {
         state: &SimulatedGameState,
         actor: ActorIndex,
     ) -> Option<DominationSnapshot> {
-        DominationAnalysis::best_target_for(
-            state,
-            &self.territory,
-            &self.actor_snapshots,
-            actor,
-        )
+        DominationAnalysis::best_target_for(state, &self.territory, &self.actor_snapshots, actor)
     }
 }
 
