@@ -6,6 +6,7 @@ use crate::search::beam_search::{search_beam, BeamSearchResult};
 use crate::search::budget::SearchBudget;
 use crate::search::forecast::{FoodForecastPolicy, ForecastCertainty, PROVISIONAL_TERMINAL_VALUE};
 use crate::search::graph::FutureGraph;
+use crate::search::actor_priority::line_hunting_search_priority;
 use crate::search::maximin::hunting_frontier_breakdown;
 use crate::simulation::state::{SimulatedGameState, SimulationSupport};
 use crate::strategy::{
@@ -20,6 +21,7 @@ const IMMEDIATE_GROWTH_PRESSURE_THRESHOLD_MILLI: u16 = 750;
 const IMMEDIATE_SAFE_FOOD_REGRET: i64 = 1_500;
 const FORCED_CORRIDOR_VALUE_REGRET: i64 = 5_000;
 const FORCED_CORRIDOR_OUR_UTILITY_REGRET: i64 = 1_000;
+const HUNTING_CONTINUITY_PRIORITY_MARGIN: i64 = 300;
 
 #[derive(Debug, Clone)]
 pub(crate) struct BeamDecisionOutcome {
@@ -296,8 +298,12 @@ fn select_line_with_continuity<'a>(
         return Some(best);
     }
 
-    let selected =
-        select_incumbent_or_challenger(best, incumbent, root_has_survival_emergency(graph));
+    let selected = select_incumbent_or_challenger(
+        graph,
+        best,
+        incumbent,
+        root_has_survival_emergency(graph),
+    );
     if selected.root_direction != best.root_direction {
         log::debug!(
             target: "search_diagnostics",
@@ -459,6 +465,7 @@ fn line_immediately_claims_safe_food(
 }
 
 fn select_incumbent_or_challenger<'a>(
+    graph: &FutureGraph,
     challenger: &'a BeamLine,
     incumbent: &'a BeamLine,
     emergency: bool,
@@ -466,6 +473,14 @@ fn select_incumbent_or_challenger<'a>(
     if emergency
         || incumbent.is_confirmed_loss()
         || (challenger.is_confirmed_win() && !incumbent.is_confirmed_win())
+    {
+        return challenger;
+    }
+
+    let challenger_hunting = line_hunting_search_priority(graph, challenger);
+    let incumbent_hunting = line_hunting_search_priority(graph, incumbent);
+    if challenger_hunting
+        > incumbent_hunting.saturating_add(HUNTING_CONTINUITY_PRIORITY_MARGIN)
     {
         return challenger;
     }
