@@ -535,9 +535,7 @@ mod tests {
         let weights = StrategicWeights::for_actor_metrics(&state, "ours", &current).unwrap();
 
         assert!(weights.survival <= growth_survival_cap(current.growth_pressure_milli));
-        assert!(
-            weights.food.saturating_add(weights.hunting) > weights.survival
-        );
+        assert!(weights.food.saturating_add(weights.hunting) > weights.survival);
     }
 
     #[test]
