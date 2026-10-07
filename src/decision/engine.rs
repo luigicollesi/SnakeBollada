@@ -185,11 +185,19 @@ impl DecisionEngine {
                 .lines
                 .iter()
                 .map(|line| format!(
-                    "{:?}:v={} ours={} opp={} depth={} term={:?} cert={:?}",
+                    "{:?}:v={} ours={} opp={} F={}/{} H={}/{} S={}/{} T={}/{} depth={} term={:?} cert={:?}",
                     line.root_direction,
                     line.value,
                     line.our_utility_total,
                     line.opponent_utility_total,
+                    line.breakdown.food.benefit,
+                    line.breakdown.food.harm,
+                    line.breakdown.hunting.benefit,
+                    line.breakdown.hunting.harm,
+                    line.breakdown.survival.benefit,
+                    line.breakdown.survival.harm,
+                    line.breakdown.terminal.benefit,
+                    line.breakdown.terminal.harm,
                     line.depth,
                     line.terminal,
                     line.certainty
