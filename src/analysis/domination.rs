@@ -315,7 +315,8 @@ mod tests {
 
         let snapshot = pair_snapshot(target(), 8, 5, &ours, &enemy, 5, 5);
 
-        assert!(snapshot.progress_milli >= CLOSURE_START_MILLI);
+        assert!(snapshot.progress_milli >= DOMINANCE_START_MILLI);
+        assert!(snapshot.progress_milli < CLOSURE_START_MILLI);
         assert_eq!(snapshot.phase, DominationPhase::Dominance);
     }
 
