@@ -8,7 +8,7 @@ use super::beam::{
 use super::bounds::ValueBound;
 use super::budget::SearchBudget;
 use super::graph::{FutureGraph, NodeId, SearchError};
-use super::maximin::{evaluate_continuations, ContinuationEvaluation};
+use super::maximin::{evaluate_continuations, evaluate_frontier, ContinuationEvaluation};
 
 const FIRST_ROUND_ESTIMATE: Duration = Duration::from_millis(5);
 const FINAL_SELECTION_RESERVE: Duration = Duration::from_millis(2);
@@ -167,12 +167,13 @@ fn advance_lines_one_layer(
             return Ok(None);
         };
 
+        let previous_frontier = evaluate_frontier(graph, tip, line.certainty);
         let continuations = evaluate_continuations(graph, tip, 1, line.certainty);
         for continuation in continuations
             .into_iter()
             .filter(|continuation| continuation.bound.is_exact())
         {
-            let mut candidate = append_continuation(line, continuation);
+            let mut candidate = append_continuation(line, &previous_frontier, continuation);
             candidate.id = LineId(*next_line_id);
             *next_line_id = next_line_id.saturating_add(1);
             candidates.push(candidate);
@@ -269,15 +270,23 @@ fn format_lines(lines: &[BeamLine]) -> String {
 
 pub(crate) fn append_continuation(
     line: &BeamLine,
+    previous_frontier: &ContinuationEvaluation,
     continuation: ContinuationEvaluation,
 ) -> BeamLine {
-    let prefix_value = line
+    let prefix_our_utility = line
         .our_utility_total
-        .saturating_sub(line.opponent_utility_total);
+        .saturating_sub(previous_frontier.our_utility_total);
+    let prefix_opponent_utility = line
+        .opponent_utility_total
+        .saturating_sub(previous_frontier.opponent_utility_total);
+    let prefix_value = prefix_our_utility.saturating_sub(prefix_opponent_utility);
 
     let path = line.path.concat(&continuation.path);
 
     let mut actor_utility_totals = line.actor_utility_totals.clone();
+    for (actor_id, utility) in previous_frontier.actor_utility_totals.iter() {
+        actor_utility_totals.add(actor_id, utility.saturating_neg());
+    }
     for (actor_id, utility) in continuation.actor_utility_totals.iter() {
         actor_utility_totals.add(actor_id, *utility);
     }
@@ -286,12 +295,9 @@ pub(crate) fn append_continuation(
         == LineTerminal::Running
         || continuation.certainty.is_provisional()
     {
-        let ours = line
-            .our_utility_total
-            .saturating_add(continuation.our_utility_total);
-        let opponents = line
-            .opponent_utility_total
-            .saturating_add(continuation.opponent_utility_total);
+        let ours = prefix_our_utility.saturating_add(continuation.our_utility_total);
+        let opponents =
+            prefix_opponent_utility.saturating_add(continuation.opponent_utility_total);
         (
             ours,
             opponents,
@@ -307,14 +313,19 @@ pub(crate) fn append_continuation(
         )
     };
 
+    let prefix_benefit = line
+        .benefit_total
+        .saturating_sub(previous_frontier.benefit_total);
+    let prefix_harm = line
+        .harm_total
+        .saturating_sub(previous_frontier.harm_total);
+
     BeamLine {
         id: line.id,
         root_direction: line.root_direction,
         depth: path.len().try_into().unwrap_or(u8::MAX),
-        benefit_total: line
-            .benefit_total
-            .saturating_add(continuation.benefit_total),
-        harm_total: line.harm_total.saturating_add(continuation.harm_total),
+        benefit_total: prefix_benefit.saturating_add(continuation.benefit_total),
+        harm_total: prefix_harm.saturating_add(continuation.harm_total),
         our_utility_total,
         opponent_utility_total,
         actor_utility_totals,
@@ -511,8 +522,10 @@ mod tests {
 
     #[test]
     fn append_replaces_old_leaf_value_instead_of_double_counting_it() {
-        let (_, checkpoint) = seeded();
+        let (graph, checkpoint) = seeded();
         let line = checkpoint.lines.first().unwrap().clone();
+        let tip = line_tip(&line).unwrap();
+        let previous_frontier = evaluate_frontier(&graph, tip, line.certainty);
         let continuation = ContinuationEvaluation {
             depth: 2,
             benefit_total: 900,
@@ -530,18 +543,25 @@ mod tests {
             path: BeamPath::empty(),
         };
 
-        let deepened = append_continuation(&line, continuation);
+        let deepened = append_continuation(&line, &previous_frontier, continuation);
 
-        assert_eq!(deepened.value, line.value.saturating_add(600));
-        assert_eq!(deepened.benefit_total, line.benefit_total + 900);
-        assert_eq!(deepened.harm_total, line.harm_total + 300);
+        assert_eq!(
+            deepened.value,
+            line.value
+                .saturating_sub(previous_frontier.value)
+                .saturating_add(600)
+        );
         assert_eq!(
             deepened.our_utility_total,
-            line.our_utility_total.saturating_add(900)
+            line.our_utility_total
+                .saturating_sub(previous_frontier.our_utility_total)
+                .saturating_add(900)
         );
         assert_eq!(
             deepened.opponent_utility_total,
-            line.opponent_utility_total.saturating_add(300)
+            line.opponent_utility_total
+                .saturating_sub(previous_frontier.opponent_utility_total)
+                .saturating_add(300)
         );
     }
 }
