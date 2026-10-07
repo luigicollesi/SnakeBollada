@@ -67,18 +67,18 @@ pub(crate) fn evaluate_hunting_transition(
     };
     score.target = Some(parent_domination.target);
 
-    if let Some(parent_threat) = DominationAnalysis::strongest_threat_against(
+    if let Some((threat_actor, parent_threat)) = DominationAnalysis::strongest_threat_against(
         &parent.state,
         &parent_analysis.territory,
         &parent_analysis.actor_snapshots,
         actor,
     ) {
-        score.threat = Some(parent_threat.target);
+        score.threat = Some(threat_actor);
         if let Some(child_threat) = DominationAnalysis::against(
             &child.state,
             &child_analysis.territory,
             &child_analysis.actor_snapshots,
-            parent_threat.target,
+            threat_actor,
             actor,
         ) {
             let counter_delta = i64::from(child_threat.progress_milli)
