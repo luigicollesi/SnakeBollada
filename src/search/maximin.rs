@@ -3,7 +3,7 @@
 use std::collections::HashMap;
 
 use crate::direction::Direction;
-use crate::evaluation::{ActorVec, TransitionScore};
+use crate::evaluation::{ActorVec, CategoryScore, RouteUtilityBreakdown, TransitionScore};
 use crate::simulation::state::ActorIndex;
 
 use super::beam::{select_seed_beam, BeamLine, BeamPath, BeamStep, LineId, LineTerminal};
@@ -63,6 +63,8 @@ pub(crate) struct ContinuationEvaluation {
     pub(crate) depth: u8,
     pub(crate) benefit_total: i64,
     pub(crate) harm_total: i64,
+    pub(crate) breakdown: RouteUtilityBreakdown,
+    pub(crate) actor_breakdowns: ActorVec<RouteUtilityBreakdown>,
     pub(crate) our_utility_total: i64,
     pub(crate) opponent_utility_total: i64,
     pub(crate) actor_utility_totals: ActorVec<i64>,
@@ -78,6 +80,8 @@ struct EvaluatedLine {
     value: i64,
     benefit_total: i64,
     harm_total: i64,
+    breakdown: RouteUtilityBreakdown,
+    actor_breakdowns: ActorVec<RouteUtilityBreakdown>,
     our_utility_total: i64,
     opponent_utility_total: i64,
     actor_utility_totals: ActorVec<i64>,
@@ -99,7 +103,15 @@ impl EvaluatedLine {
             // willingness to die. Keeping the raw actor terminal here prevents a
             // long survivable line from looking worse to the opponent than death.
             self.actor_utility_totals.add(actor, score.actor_choice_net);
+            add_actor_breakdown(
+                &mut self.actor_breakdowns,
+                actor,
+                score.breakdown.nonterminal_only(),
+            );
         }
+        self.breakdown = self
+            .breakdown
+            .saturating_add(transition.effective_breakdown.nonterminal_only());
 
         if self.terminal == LineTerminal::Running || self.certainty.is_provisional() {
             self.our_utility_total = self.our_utility_total.saturating_add(transition.net);
@@ -120,6 +132,18 @@ impl EvaluatedLine {
             child: edge.child,
         });
         self
+    }
+}
+
+fn add_actor_breakdown(
+    breakdowns: &mut ActorVec<RouteUtilityBreakdown>,
+    actor: ActorIndex,
+    delta: RouteUtilityBreakdown,
+) {
+    if let Some(current) = breakdowns.get_mut(actor) {
+        *current = current.saturating_add(delta);
+    } else {
+        breakdowns.insert(actor, delta);
     }
 }
 
@@ -170,6 +194,8 @@ pub(crate) fn evaluate_seed_lines(graph: &FutureGraph, target_depth: u8) -> Seed
                 depth,
                 benefit_total: line.benefit_total,
                 harm_total: line.harm_total,
+                breakdown: line.breakdown,
+                actor_breakdowns: line.actor_breakdowns,
                 our_utility_total: line.our_utility_total,
                 opponent_utility_total: line.opponent_utility_total,
                 actor_utility_totals: line.actor_utility_totals,
@@ -229,6 +255,8 @@ fn continuation_from_line(line: EvaluatedLine) -> ContinuationEvaluation {
         depth: line.path.len().try_into().unwrap_or(u8::MAX),
         benefit_total: line.benefit_total,
         harm_total: line.harm_total,
+        breakdown: line.breakdown,
+        actor_breakdowns: line.actor_breakdowns,
         our_utility_total: line.our_utility_total,
         opponent_utility_total: line.opponent_utility_total,
         actor_utility_totals: line.actor_utility_totals,
@@ -403,8 +431,11 @@ impl MaximinEvaluator<'_> {
 
 fn frontier_line(node: &SearchNode, exact: bool, certainty: ForecastCertainty) -> EvaluatedLine {
     let mut actor_utility_totals = ActorVec::with_capacity(node.state.snakes.len());
+    let mut actor_breakdowns = ActorVec::with_capacity(node.state.snakes.len());
     let mut our_utility_total = 0_i64;
     let mut opponent_utility_total = 0_i64;
+    let mut our_breakdown = RouteUtilityBreakdown::default();
+    let mut opponent_breakdown = RouteUtilityBreakdown::default();
 
     if let Some(analysis) = node.active_analysis() {
         for (index, snake) in node
@@ -425,22 +456,36 @@ fn frontier_line(node: &SearchNode, exact: bool, certainty: ForecastCertainty) -
                 .saturating_div(GROWTH_FRONTIER_PRESSURE_DENOMINATOR)
                 .saturating_neg();
             let hunting_utility = frontier_hunting_utility(node, actor);
-            let utility = growth_utility.saturating_add(hunting_utility);
+            let actor_breakdown = RouteUtilityBreakdown::new(
+                CategoryScore::from_net(growth_utility),
+                CategoryScore::from_net(hunting_utility),
+                CategoryScore::default(),
+                CategoryScore::default(),
+            );
+            let utility = actor_breakdown.nonterminal_net();
             actor_utility_totals.insert(actor, utility);
+            actor_breakdowns.insert(actor, actor_breakdown);
 
             if snake.id == node.state.our_snake_id {
                 our_utility_total = utility;
+                our_breakdown = actor_breakdown;
             } else {
                 opponent_utility_total = opponent_utility_total.saturating_add(utility);
+                opponent_breakdown = opponent_breakdown.saturating_add(actor_breakdown);
             }
         }
     }
 
     let value = route_value(our_utility_total, opponent_utility_total);
+    let breakdown = our_breakdown.competitive_against(opponent_breakdown);
+    debug_assert_eq!(value, breakdown.nonterminal_net());
+
     EvaluatedLine {
         value,
         benefit_total: value.max(0),
         harm_total: value.saturating_neg().max(0),
+        breakdown,
+        actor_breakdowns,
         our_utility_total,
         opponent_utility_total,
         actor_utility_totals,
@@ -643,10 +688,18 @@ fn terminal_line(node: &SearchNode, certainty: ForecastCertainty) -> Option<Eval
         } else {
             -TERMINAL_VALUE
         };
+        let breakdown = RouteUtilityBreakdown::new(
+            CategoryScore::default(),
+            CategoryScore::default(),
+            CategoryScore::default(),
+            CategoryScore::new(0, value.saturating_abs()),
+        );
         return Some(EvaluatedLine {
             value,
             benefit_total: 0,
             harm_total: value.saturating_abs(),
+            breakdown,
+            actor_breakdowns: ActorVec::new(),
             our_utility_total: value,
             opponent_utility_total: 0,
             actor_utility_totals: ActorVec::new(),
@@ -671,10 +724,18 @@ fn terminal_line(node: &SearchNode, certainty: ForecastCertainty) -> Option<Eval
     } else {
         TERMINAL_VALUE
     };
+    let breakdown = RouteUtilityBreakdown::new(
+        CategoryScore::default(),
+        CategoryScore::default(),
+        CategoryScore::default(),
+        CategoryScore::new(value, 0),
+    );
     Some(EvaluatedLine {
         value,
         benefit_total: value,
         harm_total: 0,
+        breakdown,
+        actor_breakdowns: ActorVec::new(),
         our_utility_total: value,
         opponent_utility_total: 0,
         actor_utility_totals: ActorVec::new(),
@@ -1114,6 +1175,8 @@ mod tests {
             value,
             benefit_total: ours.max(0),
             harm_total: ours.max(0).saturating_sub(ours),
+            breakdown: RouteUtilityBreakdown::default(),
+            actor_breakdowns: ActorVec::new(),
             our_utility_total: ours,
             opponent_utility_total: opponents,
             actor_utility_totals: ActorVec::from_iter([
@@ -1139,6 +1202,8 @@ mod tests {
             value,
             benefit_total: ours.max(0),
             harm_total: ours.max(0).saturating_sub(ours),
+            breakdown: RouteUtilityBreakdown::default(),
+            actor_breakdowns: ActorVec::new(),
             our_utility_total: ours,
             opponent_utility_total: opponents,
             actor_utility_totals: ActorVec::from_iter([
@@ -1169,6 +1234,8 @@ mod tests {
             value,
             benefit_total: ours.max(0),
             harm_total: ours.max(0).saturating_sub(ours),
+            breakdown: RouteUtilityBreakdown::default(),
+            actor_breakdowns: ActorVec::new(),
             our_utility_total: ours,
             opponent_utility_total: enemy,
             actor_utility_totals: ActorVec::from_iter([
@@ -1495,6 +1562,8 @@ mod tests {
             value: PROVISIONAL_TERMINAL_VALUE,
             benefit_total: PROVISIONAL_TERMINAL_VALUE,
             harm_total: 0,
+            breakdown: RouteUtilityBreakdown::default(),
+            actor_breakdowns: ActorVec::new(),
             our_utility_total: PROVISIONAL_TERMINAL_VALUE,
             opponent_utility_total: 0,
             actor_utility_totals: ActorVec::new(),
