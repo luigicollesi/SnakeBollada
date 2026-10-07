@@ -538,7 +538,7 @@ fn beam_metadata_for_line(
     if let Some(root_actor) = root_node.state.actor_index(&root_node.state.our_snake_id) {
         if let Some(domination) = root_node
             .active_analysis()
-            .and_then(|analysis| analysis.best_domination_target(root_actor))
+            .and_then(|analysis| analysis.best_domination_target(&root_node.state, root_actor))
         {
             metadata.root_domination_progress_milli = domination.progress_milli;
         }
@@ -549,7 +549,7 @@ fn beam_metadata_for_line(
         if let Some(our_actor) = tip_node.state.actor_index(&tip_node.state.our_snake_id) {
             if let Some(domination) = tip_node
                 .active_analysis()
-                .and_then(|analysis| analysis.best_domination_target(our_actor))
+                .and_then(|analysis| analysis.best_domination_target(&tip_node.state, our_actor))
             {
                 metadata.frontier_domination_target = domination.target.as_usize().try_into().ok();
                 metadata.frontier_domination_progress_milli = domination.progress_milli;
@@ -659,7 +659,7 @@ fn beam_metadata_for_line(
             let node = graph.node(step.child);
             let Some(domination) = node
                 .active_analysis()
-                .and_then(|analysis| analysis.best_domination_target(root_actor))
+                .and_then(|analysis| analysis.best_domination_target(&node.state, root_actor))
             else {
                 continue;
             };
