@@ -1,6 +1,7 @@
 name: Hobbs FutureGraph Cycle 14 Domination Analysis
 # observational benchmark for Domination Analysis V1
 # rerun after rustfmt
+# rerun after clippy cleanup
 # rerun with raw seed, root weights, and stop reasons
 # rerun after seed test alignment
 # rerun with explicit decision override tracing
