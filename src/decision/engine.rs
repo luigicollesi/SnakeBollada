@@ -515,9 +515,9 @@ fn root_has_survival_emergency(graph: &FutureGraph) -> bool {
 
     snapshot.metrics.space_capacity_milli <= 100
         || snapshot.metrics.enclosure_risk >= 3
-        || snapshot.metrics.border_escape_pressure_milli >= 800
-        || snapshot.metrics.food_survival_pressure_milli >= 800
-        || snapshot.metrics.health_pressure_milli >= 800
+        || snapshot.metrics.border_escape_pressure_milli >= 850
+        || snapshot.metrics.food_survival_pressure_milli >= 900
+        || snapshot.metrics.health_pressure_milli >= 900
 }
 
 fn beam_metadata_for_line(
