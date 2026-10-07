@@ -253,28 +253,6 @@ fn select_line_with_continuity<'a>(
     incumbent_direction: Option<Direction>,
 ) -> Option<&'a BeamLine> {
     let best = result.best_line()?;
-    #[cfg(test)]
-    eprintln!(
-        "TEST_BEAM turn={} lines={}",
-        graph.node(graph.root()).state.turn,
-        result
-            .checkpoint
-            .lines
-            .iter()
-            .map(|line| format!(
-                "{:?}:v={} F={}/{} H={}/{} S={}/{}",
-                line.root_direction,
-                line.value,
-                line.breakdown.food.benefit,
-                line.breakdown.food.harm,
-                line.breakdown.hunting.benefit,
-                line.breakdown.hunting.harm,
-                line.breakdown.survival.benefit,
-                line.breakdown.survival.harm,
-            ))
-            .collect::<Vec<_>>()
-            .join("|")
-    );
     if let Some(surviving_line) = avoid_provisional_terminal_loss(&result.checkpoint.lines, best) {
         log::debug!(
             target: "search_diagnostics",
