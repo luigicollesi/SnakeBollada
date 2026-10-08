@@ -4,15 +4,13 @@ use crate::simulation::state::ActorIndex;
 
 const TERRITORY_ADVANTAGE_DELTA_SCALE: i64 = 1;
 const LENGTH_SECURITY_DELTA_SCALE: i64 = 1;
-const MOBILITY_PRESSURE_DELTA_SCALE: i64 = 2;
-const ESCAPE_PRESSURE_DELTA_SCALE: i64 = 2;
+const MOBILITY_PRESSURE_DELTA_SCALE: i64 = 3;
+const ESCAPE_PRESSURE_DELTA_SCALE: i64 = 3;
 const DOMINATION_PROGRESS_DELTA_SCALE: i64 = 2;
 const COUNTER_DOMINATION_DELTA_SCALE: i64 = 1;
-const PHASE_STEP: i64 = 180;
-const POSITIONAL_BENEFIT_CAP: i64 = 1_200;
-const POSITIONAL_HARM_CAP: i64 = 1_200;
+const POSITIONAL_BENEFIT_CAP: i64 = 1_800;
+const POSITIONAL_HARM_CAP: i64 = 1_800;
 const SEARCH_DOMINATION_DELTA_SCALE: i64 = 2;
-const SEARCH_PHASE_STEP: i64 = 250;
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub(crate) struct HuntingTransitionScore {
@@ -144,14 +142,17 @@ pub(crate) fn evaluate_hunting_transition(
     let phase_delta =
         phase_rank(child_domination.phase).saturating_sub(phase_rank(parent_domination.phase));
     add_signed_component(
-        phase_delta.saturating_mul(PHASE_STEP),
+        phase_transition_utility(parent_domination.phase, child_domination.phase),
         &mut score.phase_benefit,
         &mut score.phase_harm,
     );
 
     let search_priority = domination_delta
         .saturating_mul(SEARCH_DOMINATION_DELTA_SCALE)
-        .saturating_add(phase_delta.saturating_mul(SEARCH_PHASE_STEP))
+        .saturating_add(phase_transition_search_priority(
+            parent_domination.phase,
+            child_domination.phase,
+        ))
         .saturating_add(
             i64::from(child_domination.mobility_pressure_milli)
                 .saturating_sub(i64::from(parent_domination.mobility_pressure_milli)),
@@ -201,6 +202,39 @@ fn finish(
     score
 }
 
+fn phase_transition_utility(from: DominationPhase, to: DominationPhase) -> i64 {
+    phase_transition_score(from, to, [180, 360, 700])
+}
+
+fn phase_transition_search_priority(from: DominationPhase, to: DominationPhase) -> i64 {
+    phase_transition_score(from, to, [250, 500, 900])
+}
+
+fn phase_transition_score(
+    from: DominationPhase,
+    to: DominationPhase,
+    step_scores: [i64; 3],
+) -> i64 {
+    let from_rank = phase_rank(from);
+    let to_rank = phase_rank(to);
+    if from_rank == to_rank {
+        return 0;
+    }
+
+    let (low, high, sign) = if from_rank < to_rank {
+        (from_rank, to_rank, 1_i64)
+    } else {
+        (to_rank, from_rank, -1_i64)
+    };
+
+    let mut total = 0_i64;
+    for rank in low..high {
+        let index = usize::try_from(rank).unwrap_or(0).min(step_scores.len() - 1);
+        total = total.saturating_add(step_scores[index]);
+    }
+    total.saturating_mul(sign)
+}
+
 fn add_signed_component(value: i64, benefit: &mut i64, harm: &mut i64) {
     if value > 0 {
         *benefit = benefit.saturating_add(value);
@@ -224,8 +258,31 @@ mod tests {
 
     #[test]
     fn phase_progression_is_rewarded_and_regression_is_harm() {
-        assert!(phase_rank(DominationPhase::Closure) > phase_rank(DominationPhase::Dominance));
-        assert!(phase_rank(DominationPhase::Dominance) > phase_rank(DominationPhase::Pressure));
+        assert_eq!(
+            phase_transition_utility(DominationPhase::Neutral, DominationPhase::Pressure),
+            180
+        );
+        assert_eq!(
+            phase_transition_utility(DominationPhase::Pressure, DominationPhase::Dominance),
+            360
+        );
+        assert_eq!(
+            phase_transition_utility(DominationPhase::Dominance, DominationPhase::Closure),
+            700
+        );
+        assert_eq!(
+            phase_transition_utility(DominationPhase::Closure, DominationPhase::Pressure),
+            -(360 + 700)
+        );
+        assert!(
+            phase_transition_search_priority(
+                DominationPhase::Dominance,
+                DominationPhase::Closure
+            ) > phase_transition_search_priority(
+                DominationPhase::Pressure,
+                DominationPhase::Dominance
+            )
+        );
     }
 
     #[test]
