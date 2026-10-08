@@ -790,7 +790,7 @@ mod tests {
     }
 
     #[test]
-    fn food_eta_progress_and_size_security_reward_growth() {
+    fn food_eta_progress_rewards_without_size_double_count() {
         let facts = ActorTransitionFacts {
             claimable_food_eta_before: Some(2),
             claimable_food_eta_after: Some(1),
@@ -809,7 +809,8 @@ mod tests {
         let score = score_actor_transition(facts, weights);
 
         assert!(score.food_benefit > score.food_harm);
-        assert!(score.food_benefit >= 700);
+        assert!(score.food_benefit > 0);
+        assert!(score.food_benefit < 200);
     }
 
     #[test]
@@ -832,11 +833,11 @@ mod tests {
         let score = score_actor_transition(facts, weights);
 
         assert_eq!(score.food_benefit, 0);
-        assert!(score.food_harm >= 500);
+        assert!(score.food_harm >= 400);
     }
 
     #[test]
-    fn growth_consumption_urgency_is_not_erased_by_low_food_weight() {
+    fn growth_consumption_urgency_respects_low_food_weight() {
         let facts = ActorTransitionFacts {
             ate_food: true,
             food_consumption_factor_milli: 1000,
@@ -852,7 +853,8 @@ mod tests {
 
         let score = score_actor_transition(facts, low_food_weight);
 
-        assert!(score.food_benefit >= 1700);
+        assert!(score.food_benefit > 0);
+        assert!(score.food_benefit < 500);
         assert_eq!(score.food_harm, 0);
     }
 
@@ -933,7 +935,7 @@ mod tests {
     }
 
     #[test]
-    fn reducing_growth_pressure_is_rewarded_instead_of_recharged() {
+    fn reducing_growth_pressure_is_not_credited_as_food_by_itself() {
         let facts = ActorTransitionFacts {
             growth_pressure_before: 1000,
             growth_pressure_after: 850,
@@ -947,7 +949,7 @@ mod tests {
 
         let score = score_actor_transition(facts, weights);
 
-        assert!(score.food_benefit >= 300);
+        assert_eq!(score.food_benefit, 0);
         assert_eq!(score.food_harm, 0);
     }
 
