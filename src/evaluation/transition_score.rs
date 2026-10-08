@@ -15,8 +15,6 @@ const TERRITORY_CONTROL_DEADBAND: i16 = 15;
 const BORDER_RISK_DEADBAND: i16 = 20;
 const FOOD_CONSUMED: i64 = 1800;
 const FOOD_ETA_STEP: i64 = 180;
-const FOOD_SIZE_SECURITY_DELTA_SCALE: i64 = 1;
-const FOOD_SIZE_SECURITY_PRESSURE_THRESHOLD_MILLI: u16 = 600;
 const GROWTH_STALL_THRESHOLD_MILLI: u16 = 750;
 const GROWTH_CONSUMPTION_BONUS_SCALE: i64 = 1;
 const GROWTH_DETOUR_DIVISOR: i64 = 2;
@@ -408,20 +406,8 @@ fn score_actor_transition(
     food_benefit = food_benefit.saturating_add(eta_benefit);
     food_harm = food_harm.saturating_add(eta_harm);
 
-    // Size security is a small shaping signal only while growth is strategically
-    // required. This preserves the incentive to gain head-to-head safety at equal
-    // size or while undersized without inflating Food after we already lead.
-    if !facts.died && facts.growth_pressure_before >= FOOD_SIZE_SECURITY_PRESSURE_THRESHOLD_MILLI {
-        add_signed_delta(
-            i64::from(facts.size_security_after)
-                .saturating_sub(i64::from(facts.size_security_before))
-                .saturating_mul(FOOD_SIZE_SECURITY_DELTA_SCALE),
-            &mut food_benefit,
-            &mut food_harm,
-        );
-    }
-
-    // Growth pressure itself remains a relevance input rather than another reward.
+    // Relative size and growth pressure remain relevance inputs rather than
+    // independent rewards; realized food consumption owns the actual growth credit.
     if !facts.died
         && facts.growth_pressure_after >= GROWTH_STALL_THRESHOLD_MILLI
         && !made_growth_progress(&facts)
