@@ -8,17 +8,15 @@ use crate::search::graph::SearchNode;
 use crate::simulation::resolver::{EliminationAttribution, InstantEvent};
 use crate::simulation::state::ActorIndex;
 
-const FOOD_POTENTIAL_DELTA_SCALE: i64 = 3;
+const FOOD_POTENTIAL_DELTA_SCALE: i64 = 1;
 const FOOD_POTENTIAL_DEADBAND: u16 = 20;
 const SPACE_CAPACITY_DEADBAND: i16 = 20;
 const TERRITORY_CONTROL_DEADBAND: i16 = 15;
 const BORDER_RISK_DEADBAND: i16 = 20;
-const FOOD_CONSUMED: i64 = 1000;
-const FOOD_ETA_STEP: i64 = 220;
-const SIZE_SECURITY_DELTA_SCALE: i64 = 3;
-const GROWTH_PRESSURE_DELTA_SCALE: i64 = 3;
+const FOOD_CONSUMED: i64 = 1200;
+const FOOD_ETA_STEP: i64 = 120;
 const GROWTH_STALL_THRESHOLD_MILLI: u16 = 750;
-const GROWTH_CONSUMPTION_BONUS_SCALE: i64 = 2;
+const GROWTH_CONSUMPTION_BONUS_SCALE: i64 = 1;
 const GROWTH_DETOUR_DIVISOR: i64 = 2;
 const GROWTH_STALL_DIVISOR: i64 = 8;
 const SPACE_CAPACITY_DELTA_SCALE: i64 = 2;
@@ -408,22 +406,10 @@ fn score_actor_transition(
     food_benefit = food_benefit.saturating_add(eta_benefit);
     food_harm = food_harm.saturating_add(eta_harm);
 
-    add_signed_delta(
-        i64::from(facts.size_security_after)
-            .saturating_sub(i64::from(facts.size_security_before))
-            .saturating_mul(SIZE_SECURITY_DELTA_SCALE),
-        &mut food_benefit,
-        &mut food_harm,
-    );
+    // Relative size security and growth pressure are inputs to Food relevance,
+    // not independent rewards. Crediting their deltas here double-counts the
+    // same growth already represented by an actual food consumption event.
     if !facts.died {
-        add_signed_delta(
-            i64::from(facts.growth_pressure_before)
-                .saturating_sub(i64::from(facts.growth_pressure_after))
-                .saturating_mul(GROWTH_PRESSURE_DELTA_SCALE),
-            &mut food_benefit,
-            &mut food_harm,
-        );
-
         if facts.growth_pressure_after >= GROWTH_STALL_THRESHOLD_MILLI
             && !made_growth_progress(&facts)
         {
@@ -496,7 +482,10 @@ fn score_actor_transition(
         &mut survival_harm,
     );
 
-    food_benefit = weighted(food_benefit, weights.food).saturating_add(growth_consumption_urgency);
+    food_benefit = weighted(
+        food_benefit.saturating_add(growth_consumption_urgency),
+        weights.food,
+    );
     food_harm = weighted(food_harm, weights.food);
     hunting_benefit = weighted(hunting_benefit, weights.hunting);
     hunting_harm = weighted(hunting_harm, weights.hunting);
