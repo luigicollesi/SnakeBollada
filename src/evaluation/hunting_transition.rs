@@ -229,7 +229,9 @@ fn phase_transition_score(
 
     let mut total = 0_i64;
     for rank in low..high {
-        let index = usize::try_from(rank).unwrap_or(0).min(step_scores.len() - 1);
+        let index = usize::try_from(rank)
+            .unwrap_or(0)
+            .min(step_scores.len() - 1);
         total = total.saturating_add(step_scores[index]);
     }
     total.saturating_mul(sign)
@@ -275,13 +277,11 @@ mod tests {
             -(360 + 700)
         );
         assert!(
-            phase_transition_search_priority(
-                DominationPhase::Dominance,
-                DominationPhase::Closure
-            ) > phase_transition_search_priority(
-                DominationPhase::Pressure,
-                DominationPhase::Dominance
-            )
+            phase_transition_search_priority(DominationPhase::Dominance, DominationPhase::Closure)
+                > phase_transition_search_priority(
+                    DominationPhase::Pressure,
+                    DominationPhase::Dominance
+                )
         );
     }
 
