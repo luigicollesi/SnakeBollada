@@ -4,12 +4,16 @@ use crate::simulation::state::ActorIndex;
 
 const TERRITORY_ADVANTAGE_DELTA_SCALE: i64 = 1;
 const LENGTH_SECURITY_DELTA_SCALE: i64 = 1;
-const MOBILITY_PRESSURE_DELTA_SCALE: i64 = 3;
-const ESCAPE_PRESSURE_DELTA_SCALE: i64 = 3;
+const MOBILITY_PRESSURE_DELTA_SCALE: i64 = 2;
+const ESCAPE_PRESSURE_DELTA_SCALE: i64 = 2;
+const PRESSURE_MOBILITY_DELTA_SCALE: i64 = 3;
+const PRESSURE_ESCAPE_DELTA_SCALE: i64 = 3;
 const DOMINATION_PROGRESS_DELTA_SCALE: i64 = 2;
 const COUNTER_DOMINATION_DELTA_SCALE: i64 = 1;
-const POSITIONAL_BENEFIT_CAP: i64 = 1_800;
-const POSITIONAL_HARM_CAP: i64 = 1_800;
+const POSITIONAL_BENEFIT_CAP: i64 = 1_200;
+const POSITIONAL_HARM_CAP: i64 = 1_200;
+const PRESSURE_POSITIONAL_BENEFIT_CAP: i64 = 1_800;
+const PRESSURE_POSITIONAL_HARM_CAP: i64 = 1_800;
 const SEARCH_DOMINATION_DELTA_SCALE: i64 = 2;
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -54,7 +58,7 @@ pub(crate) fn evaluate_hunting_transition(
     let (Some(parent_analysis), Some(child_analysis)) =
         (parent.active_analysis(), child.active_analysis())
     else {
-        return finish(score, 0, 0);
+        return finish(score, 0, POSITIONAL_BENEFIT_CAP, POSITIONAL_HARM_CAP);
     };
 
     let Some(parent_domination) = DominationAnalysis::best_target_for(
@@ -63,7 +67,7 @@ pub(crate) fn evaluate_hunting_transition(
         &parent_analysis.actor_snapshots,
         actor,
     ) else {
-        return finish(score, 0, 0);
+        return finish(score, 0, POSITIONAL_BENEFIT_CAP, POSITIONAL_HARM_CAP);
     };
     score.target = Some(parent_domination.target);
 
@@ -116,17 +120,30 @@ pub(crate) fn evaluate_hunting_transition(
         &mut score.length_benefit,
         &mut score.length_harm,
     );
+    let pressure_active = phase_rank(parent_domination.phase) >= phase_rank(DominationPhase::Pressure)
+        || phase_rank(child_domination.phase) >= phase_rank(DominationPhase::Pressure);
+    let mobility_scale = if pressure_active {
+        PRESSURE_MOBILITY_DELTA_SCALE
+    } else {
+        MOBILITY_PRESSURE_DELTA_SCALE
+    };
+    let escape_scale = if pressure_active {
+        PRESSURE_ESCAPE_DELTA_SCALE
+    } else {
+        ESCAPE_PRESSURE_DELTA_SCALE
+    };
+
     add_signed_component(
         i64::from(child_domination.mobility_pressure_milli)
             .saturating_sub(i64::from(parent_domination.mobility_pressure_milli))
-            .saturating_mul(MOBILITY_PRESSURE_DELTA_SCALE),
+            .saturating_mul(mobility_scale),
         &mut score.mobility_benefit,
         &mut score.mobility_harm,
     );
     add_signed_component(
         i64::from(child_domination.escape_pressure_milli)
             .saturating_sub(i64::from(parent_domination.escape_pressure_milli))
-            .saturating_mul(ESCAPE_PRESSURE_DELTA_SCALE),
+            .saturating_mul(escape_scale),
         &mut score.escape_benefit,
         &mut score.escape_harm,
     );
@@ -160,13 +177,23 @@ pub(crate) fn evaluate_hunting_transition(
                 .saturating_sub(i64::from(parent_domination.escape_pressure_milli)),
         );
 
-    finish(score, search_priority, domination_delta)
+    let (benefit_cap, harm_cap) = if pressure_active {
+        (
+            PRESSURE_POSITIONAL_BENEFIT_CAP,
+            PRESSURE_POSITIONAL_HARM_CAP,
+        )
+    } else {
+        (POSITIONAL_BENEFIT_CAP, POSITIONAL_HARM_CAP)
+    };
+
+    finish(score, search_priority, benefit_cap, harm_cap)
 }
 
 fn finish(
     mut score: HuntingTransitionScore,
     search_priority: i64,
-    _domination_delta: i64,
+    positional_benefit_cap: i64,
+    positional_harm_cap: i64,
 ) -> HuntingTransitionScore {
     // DominationDelta is intentionally a search signal and diagnostic aggregate.
     // Territory, length, mobility and escape are its primitive components, so adding
@@ -178,7 +205,7 @@ fn finish(
         .saturating_add(score.escape_benefit)
         .saturating_add(score.counter_domination_benefit)
         .saturating_add(score.phase_benefit)
-        .min(POSITIONAL_BENEFIT_CAP);
+        .min(positional_benefit_cap);
     let positional_harm = score
         .territory_harm
         .saturating_add(score.length_harm)
@@ -186,7 +213,7 @@ fn finish(
         .saturating_add(score.escape_harm)
         .saturating_add(score.counter_domination_harm)
         .saturating_add(score.phase_harm)
-        .min(POSITIONAL_HARM_CAP);
+        .min(positional_harm_cap);
 
     score.total_benefit = score
         .capture_benefit
@@ -292,7 +319,8 @@ mod tests {
                 ..HuntingTransitionScore::default()
             },
             0,
-            0,
+            POSITIONAL_BENEFIT_CAP,
+            POSITIONAL_HARM_CAP,
         );
 
         assert_eq!(score.total_benefit, 1700);
