@@ -103,7 +103,7 @@ pub(crate) fn evaluate_hunting_transition(
         actor,
         parent_domination.target,
     ) else {
-        return finish(score, 0, 0);
+        return finish(score, 0, POSITIONAL_BENEFIT_CAP, POSITIONAL_HARM_CAP);
     };
 
     add_signed_component(
@@ -120,8 +120,9 @@ pub(crate) fn evaluate_hunting_transition(
         &mut score.length_benefit,
         &mut score.length_harm,
     );
-    let pressure_active = phase_rank(parent_domination.phase) >= phase_rank(DominationPhase::Pressure)
-        || phase_rank(child_domination.phase) >= phase_rank(DominationPhase::Pressure);
+    let pressure_active =
+        phase_rank(parent_domination.phase) >= phase_rank(DominationPhase::Pressure)
+            || phase_rank(child_domination.phase) >= phase_rank(DominationPhase::Pressure);
     let mobility_scale = if pressure_active {
         PRESSURE_MOBILITY_DELTA_SCALE
     } else {
