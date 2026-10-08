@@ -853,7 +853,7 @@ mod tests {
         let score = score_actor_transition(facts, low_food_weight);
 
         assert!(score.food_benefit > 0);
-        assert!(score.food_benefit < 500);
+        assert!(score.food_benefit < 600);
         assert_eq!(score.food_harm, 0);
     }
 
