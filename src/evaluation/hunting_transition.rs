@@ -139,8 +139,6 @@ pub(crate) fn evaluate_hunting_transition(
         &mut score.domination_harm,
     );
 
-    let phase_delta =
-        phase_rank(child_domination.phase).saturating_sub(phase_rank(parent_domination.phase));
     add_signed_component(
         phase_transition_utility(parent_domination.phase, child_domination.phase),
         &mut score.phase_benefit,
