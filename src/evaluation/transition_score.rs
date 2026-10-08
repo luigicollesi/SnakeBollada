@@ -411,9 +411,7 @@ fn score_actor_transition(
     // Size security is a small shaping signal only while growth is strategically
     // required. This preserves the incentive to gain head-to-head safety at equal
     // size or while undersized without inflating Food after we already lead.
-    if !facts.died
-        && facts.growth_pressure_before >= FOOD_SIZE_SECURITY_PRESSURE_THRESHOLD_MILLI
-    {
+    if !facts.died && facts.growth_pressure_before >= FOOD_SIZE_SECURITY_PRESSURE_THRESHOLD_MILLI {
         add_signed_delta(
             i64::from(facts.size_security_after)
                 .saturating_sub(i64::from(facts.size_security_before))
