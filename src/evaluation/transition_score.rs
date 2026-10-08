@@ -409,18 +409,17 @@ fn score_actor_transition(
     // Relative size security and growth pressure are inputs to Food relevance,
     // not independent rewards. Crediting their deltas here double-counts the
     // same growth already represented by an actual food consumption event.
-    if !facts.died {
-        if facts.growth_pressure_after >= GROWTH_STALL_THRESHOLD_MILLI
-            && !made_growth_progress(&facts)
-        {
-            let divisor = if food_eta_worsened(&facts) {
-                GROWTH_DETOUR_DIVISOR
-            } else {
-                GROWTH_STALL_DIVISOR
-            };
-            food_harm = food_harm
-                .saturating_add(i64::from(facts.growth_pressure_after).saturating_div(divisor));
-        }
+    if !facts.died
+        && facts.growth_pressure_after >= GROWTH_STALL_THRESHOLD_MILLI
+        && !made_growth_progress(&facts)
+    {
+        let divisor = if food_eta_worsened(&facts) {
+            GROWTH_DETOUR_DIVISOR
+        } else {
+            GROWTH_STALL_DIVISOR
+        };
+        food_harm = food_harm
+            .saturating_add(i64::from(facts.growth_pressure_after).saturating_div(divisor));
     }
 
     let raw_hunting_milli = if facts.attributed_kill {
