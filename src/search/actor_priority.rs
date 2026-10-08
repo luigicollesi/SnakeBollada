@@ -7,7 +7,7 @@ use super::graph::{FutureGraph, NodeId, SearchEdge, SearchNode};
 use crate::direction::Direction;
 
 const FORCING_SCALE: i64 = 4_000;
-const SEARCH_UTILITY_SLACK: i64 = 2_000;
+const SEARCH_UTILITY_SLACK: i64 = 1_500;
 const ENEMY_HUNTING_PRIORITY_DIVISOR: i64 = 2;
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -198,7 +198,7 @@ pub(crate) fn line_hunting_search_priority(graph: &FutureGraph, line: &BeamLine)
             } else {
                 1
             };
-            total = total.saturating_add(positive_streak.saturating_mul(75));
+            total = total.saturating_add(positive_streak.saturating_mul(40));
             previous_positive = true;
         } else {
             positive_streak = 0;
