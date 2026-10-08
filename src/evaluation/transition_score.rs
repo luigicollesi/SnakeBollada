@@ -8,13 +8,13 @@ use crate::search::graph::SearchNode;
 use crate::simulation::resolver::{EliminationAttribution, InstantEvent};
 use crate::simulation::state::ActorIndex;
 
-const FOOD_POTENTIAL_DELTA_SCALE: i64 = 1;
+const FOOD_POTENTIAL_DELTA_SCALE: i64 = 2;
 const FOOD_POTENTIAL_DEADBAND: u16 = 20;
 const SPACE_CAPACITY_DEADBAND: i16 = 20;
 const TERRITORY_CONTROL_DEADBAND: i16 = 15;
 const BORDER_RISK_DEADBAND: i16 = 20;
 const FOOD_CONSUMED: i64 = 1200;
-const FOOD_ETA_STEP: i64 = 120;
+const FOOD_ETA_STEP: i64 = 180;
 const GROWTH_STALL_THRESHOLD_MILLI: u16 = 750;
 const GROWTH_CONSUMPTION_BONUS_SCALE: i64 = 1;
 const GROWTH_DETOUR_DIVISOR: i64 = 2;
