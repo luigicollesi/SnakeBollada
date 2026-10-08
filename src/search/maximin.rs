@@ -14,7 +14,9 @@ use super::graph::{FutureGraph, NodeId, SearchEdge, SearchNode};
 const TERMINAL_VALUE: i64 = 1_000_000_000;
 const INCOMPLETE_MARGIN: i64 = 20_000;
 const MAX_VARIANTS_PER_NODE: usize = 3;
-const OPPONENT_RESPONSE_UTILITY_SLACK: i64 = 300;
+const OPPONENT_RESPONSE_UTILITY_SLACK: i64 = 100;
+const PROVISIONAL_RESPONSE_FOOD_NUMERATOR: i64 = 1;
+const PROVISIONAL_RESPONSE_FOOD_DENOMINATOR: i64 = 2;
 const MIN_NEAR_BEST_PLAUSIBILITY_MILLI: u16 = 250;
 const OPPONENT_RESPONSE_PLAUSIBILITY_SLACK_MILLI: u16 = 150;
 const GROWTH_FRONTIER_PRESSURE_NUMERATOR: i64 = 3;
@@ -1094,7 +1096,7 @@ fn response_regret_and_alternatives<'a>(
     lines: &'a [EvaluatedLine],
     enemy_id: ActorIndex,
 ) -> (i64, Vec<&'a EvaluatedLine>) {
-    let current = actor_utility(candidate, enemy_id);
+    let current = actor_response_utility(candidate, enemy_id);
     let alternatives = lines
         .iter()
         .filter(|alternative| {
@@ -1103,7 +1105,7 @@ fn response_regret_and_alternatives<'a>(
         .collect::<Vec<_>>();
     let best = alternatives
         .iter()
-        .map(|alternative| actor_utility(alternative, enemy_id))
+        .map(|alternative| actor_response_utility(alternative, enemy_id))
         .max()
         .unwrap_or(current);
 
@@ -1181,13 +1183,13 @@ fn unilateral_regret(
     enemies
         .iter()
         .fold((0_i64, 0_i64), |(worst, total), enemy_id| {
-            let current = actor_utility(candidate, *enemy_id);
+            let current = actor_response_utility(candidate, *enemy_id);
             let best = lines
                 .iter()
                 .filter(|alternative| {
                     same_joint_context_except_actor(node, candidate, alternative, *enemy_id)
                 })
-                .map(|alternative| actor_utility(alternative, *enemy_id))
+                .map(|alternative| actor_response_utility(alternative, *enemy_id))
                 .max()
                 .unwrap_or(current);
             let regret = best.saturating_sub(current).max(0);
@@ -1221,6 +1223,26 @@ fn same_joint_context_except_actor(
 
 fn actor_utility(line: &EvaluatedLine, actor: ActorIndex) -> i64 {
     line.actor_utility_totals.get(actor).copied().unwrap_or(0)
+}
+
+fn actor_response_utility(line: &EvaluatedLine, actor: ActorIndex) -> i64 {
+    let raw = actor_utility(line, actor);
+    if !line.certainty.is_provisional() || line.terminal != LineTerminal::Running {
+        return raw;
+    }
+
+    let Some(breakdown) = line.actor_breakdowns.get(actor).copied() else {
+        return raw;
+    };
+
+    let food = breakdown
+        .food
+        .net()
+        .saturating_mul(PROVISIONAL_RESPONSE_FOOD_NUMERATOR)
+        .saturating_div(PROVISIONAL_RESPONSE_FOOD_DENOMINATOR);
+
+    food.saturating_add(breakdown.hunting.net())
+        .saturating_add(breakdown.survival.net())
 }
 
 fn rank_and_dedup_variants(lines: &mut Vec<EvaluatedLine>, limit: usize) {
@@ -2081,6 +2103,28 @@ mod tests {
         assert_eq!(chosen.opponent_utility_total, 280);
         assert_eq!(actor_utility(&chosen, ActorIndex::new(1).unwrap()), 140);
         assert_eq!(actor_utility(&chosen, ActorIndex::new(2).unwrap()), 140);
+    }
+
+    #[test]
+    fn provisional_response_regret_discounts_uncertain_food_only() {
+        let enemy = ActorIndex::new(1).unwrap();
+        let mut line = synthetic_line(0, 1000, 1);
+        line.certainty = ForecastCertainty::FoodProvisional;
+        line.actor_breakdowns.insert(
+            enemy,
+            RouteUtilityBreakdown::new(
+                CategoryScore::new(1000, 0),
+                CategoryScore::new(300, 0),
+                CategoryScore::new(0, 100),
+                CategoryScore::default(),
+            ),
+        );
+
+        assert_eq!(actor_utility(&line, enemy), 1000);
+        assert_eq!(actor_response_utility(&line, enemy), 700);
+
+        line.certainty = ForecastCertainty::Deterministic;
+        assert_eq!(actor_response_utility(&line, enemy), 1000);
     }
 
     #[test]
