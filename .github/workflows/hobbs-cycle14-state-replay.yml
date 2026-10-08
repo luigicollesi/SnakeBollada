@@ -1,0 +1,191 @@
+name: Hobbs Cycle 14 State Replay
+
+on:
+  pull_request:
+    branches: [dev]
+    paths:
+      - ".github/workflows/hobbs-cycle14-state-replay.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  replay:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Checkout current SnakeBollada
+        uses: actions/checkout@v4
+
+      - name: Build current SnakeBollada
+        run: docker build -t snakebollada:replay .
+
+      - name: Start current SnakeBollada
+        run: |
+          docker run -d --name snakebollada-replay \
+            -p 8000:8000 \
+            -e RUST_LOG="info,opponent_intent=debug,search_diagnostics=debug" \
+            snakebollada:replay
+          for i in $(seq 1 30); do
+            curl -fsS http://127.0.0.1:8000/ >/dev/null && exit 0
+            sleep 1
+          done
+          docker logs snakebollada-replay || true
+          exit 1
+
+      - name: Download Cycle 14 baseline
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p baseline
+          gh run download 37558196072 \
+            --repo luigicollesi/SnakeBollada \
+            --name hobbs-futuregraph-cycle14-domination-analysis-20261005 \
+            --dir baseline
+          test -f baseline/game.jsonl
+          test -f baseline/decision-trace.json
+
+      - name: Replay identical historical states
+        run: |
+          python3 - <<'PY'
+          import json, urllib.request, urllib.error
+          from pathlib import Path
+
+          baseline = json.loads(Path("baseline/decision-trace.json").read_text())
+          baseline_move = {int(r["turn"]): r["move"] for r in baseline}
+
+          states = []
+          for line in Path("baseline/game.jsonl").read_text().splitlines():
+              try:
+                  obj = json.loads(line)
+              except Exception:
+                  continue
+              if isinstance(obj, dict) and "turn" in obj and "board" in obj and "you" in obj:
+                  states.append(obj)
+
+          def post(path, payload):
+              data = json.dumps(payload).encode()
+              req = urllib.request.Request(
+                  "http://127.0.0.1:8000" + path,
+                  data=data,
+                  headers={"Content-Type":"application/json"},
+                  method="POST",
+              )
+              with urllib.request.urlopen(req, timeout=5) as response:
+                  raw = response.read().decode()
+                  return json.loads(raw) if raw else {}
+
+          if not states:
+              raise SystemExit("no historical states found")
+
+          post("/start", states[0])
+          rows = []
+          for state in states:
+              turn = int(state["turn"])
+              if turn not in baseline_move:
+                  continue
+              response = post("/move", state)
+              current = response.get("move")
+              old = baseline_move[turn]
+              rows.append({
+                  "turn": turn,
+                  "baseline_move": old,
+                  "current_move": current,
+                  "changed": current != old,
+                  "ours_len": state["you"].get("length"),
+                  "ours_health": state["you"].get("health"),
+                  "hobbs_len": next(
+                      (s.get("length") for s in state["board"].get("snakes", [])
+                       if s.get("name") == "Hovering Hobbs"),
+                      None,
+                  ),
+              })
+
+          try:
+              post("/end", states[-1])
+          except Exception:
+              pass
+
+          Path("replay-comparison.json").write_text(json.dumps(rows, indent=2))
+          changed = [r for r in rows if r["changed"]]
+          with Path("replay-comparison.txt").open("w") as out:
+              out.write(f"states={len(rows)} changed={len(changed)}\n")
+              if changed:
+                  out.write(f"first_changed_turn={changed[0]['turn']}\n")
+              for r in rows:
+                  flag = "CHANGED" if r["changed"] else "same"
+                  out.write(
+                      f"turn={r['turn']:>3} {flag:<7} "
+                      f"old={r['baseline_move']:<5} new={str(r['current_move']):<5} "
+                      f"len={r['ours_len']}/{r['hobbs_len']} health={r['ours_health']}\n"
+                  )
+          print(Path("replay-comparison.txt").read_text())
+          PY
+
+      - name: Collect replay diagnostics
+        if: always()
+        run: |
+          docker logs snakebollada-replay > replay-snakebollada.log 2>&1 || true
+          grep 'round turn=' replay-snakebollada.log > replay-route-breakdown.log || true
+          grep 'MOVE ' replay-snakebollada.log > replay-moves.log || true
+          grep 'hunt_step turn=' replay-snakebollada.log > replay-hunting-steps.log || true
+
+      - name: Join decision categories
+        if: always()
+        run: |
+          python3 - <<'PY'
+          import json, re
+          from pathlib import Path
+
+          rows = json.loads(Path("replay-comparison.json").read_text())
+          by_turn = {r["turn"]: r for r in rows}
+
+          move_re = re.compile(
+              r"MOVE (?P<turn>\d+): (?P<move>\w+).*?"
+              r"beam_value=(?P<beam>-?\d+).*?"
+              r"ours_food=(?P<food>-?\d+).*?"
+              r"ours_hunt=(?P<hunt>-?\d+).*?"
+              r"ours_survival=(?P<survival>-?\d+).*?"
+              r"ours_terminal=(?P<terminal>-?\d+)"
+          )
+          for line in Path("replay-snakebollada.log").read_text(errors="replace").splitlines():
+              m = move_re.search(line)
+              if not m:
+                  continue
+              d = m.groupdict()
+              t = int(d["turn"])
+              if t not in by_turn:
+                  continue
+              for k in ("beam","food","hunt","survival","terminal"):
+                  by_turn[t][k] = int(d[k])
+
+          enriched = [by_turn[t] for t in sorted(by_turn)]
+          Path("replay-enriched.json").write_text(json.dumps(enriched, indent=2))
+          with Path("replay-enriched.txt").open("w") as out:
+              for r in enriched:
+                  out.write(
+                      f"turn={r['turn']:>3} changed={str(r['changed']):<5} "
+                      f"old={r['baseline_move']:<5} new={str(r['current_move']):<5} "
+                      f"len={r['ours_len']}/{r['hobbs_len']} "
+                      f"beam={r.get('beam')} "
+                      f"F/H/S/T={r.get('food')}/{r.get('hunt')}/{r.get('survival')}/{r.get('terminal')}\n"
+                  )
+          PY
+
+      - name: Upload replay evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: hobbs-cycle14-state-replay-current
+          path: |
+            replay-comparison.json
+            replay-comparison.txt
+            replay-enriched.json
+            replay-enriched.txt
+            replay-snakebollada.log
+            replay-route-breakdown.log
+            replay-moves.log
+            replay-hunting-steps.log
+          if-no-files-found: warn
