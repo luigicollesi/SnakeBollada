@@ -34,6 +34,9 @@ pub(crate) struct HobbsSearchResult {
     pub(crate) completed_depth: u8,
     pub(crate) root_directions: usize,
     pub(crate) certainty: ForecastCertainty,
+    /// Actual MAX/MIN-selected line; no additional search is required for
+    /// shadow territorial diagnostics, even when iterative deepening stops.
+    pub(crate) path: FuturePath,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -236,6 +239,7 @@ pub(crate) fn search_hobbs(
             completed_depth: depth,
             root_directions: directions.len(),
             certainty: route.certainty,
+            path: route.path.clone(),
         });
         // If the winner/loser is known at an immediate horizon and verified
         // deterministic, continuing cannot change that branch's outcome.
