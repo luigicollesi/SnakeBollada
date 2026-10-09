@@ -202,7 +202,8 @@ fn trace_territory_shadow(
                 worst_access = worst_access.min(snapshot.accessible_now);
                 worst_future = worst_future.min(snapshot.future_reach);
                 smallest_regions = smallest_regions.min(snapshot.independent_regions);
-                smallest_largest_branch = smallest_largest_branch.min(snapshot.largest_independent_region);
+                smallest_largest_branch =
+                    smallest_largest_branch.min(snapshot.largest_independent_region);
                 biggest_gate = biggest_gate.max(snapshot.single_gate_exposure);
                 worst_contested_gate = worst_contested_gate.max(snapshot.contested_gate_exposure);
             } else {
