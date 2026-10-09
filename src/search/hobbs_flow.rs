@@ -49,6 +49,16 @@ impl RouteRank {
             (_, TrapAssessment::ForcedCorridor) => 2,
         }
     }
+
+    fn safety_rank(self) -> u8 {
+        match self.safety {
+            TrapAssessment::Viable => 4,
+            TrapAssessment::Unknown => 3,
+            TrapAssessment::Constrained => 2,
+            TrapAssessment::ForcedCorridor => 1,
+            TrapAssessment::ProvenTrap => 0,
+        }
+    }
 }
 
 impl Ord for RouteRank {
@@ -56,6 +66,7 @@ impl Ord for RouteRank {
         self.tier()
             .cmp(&other.tier())
             .then_with(|| self.score.cmp(&other.score))
+            .then_with(|| self.safety_rank().cmp(&other.safety_rank()))
     }
 }
 
@@ -241,27 +252,6 @@ fn evaluate_minimax(
             }
         }
         if let Some(worst_response) = worst {
-            #[cfg(test)]
-            {
-                let root_state = &graph.node(node_id).state;
-                if node_id == graph.root()
-                    && root_state.width == 11
-                    && root_state
-                        .snake(&root_state.our_snake_id)
-                        .and_then(|s| s.head())
-                        .is_some_and(|p| (p.x == 9 && p.y == 10) || (p.x == 2 && p.y == 9))
-                {
-                    eprintln!(
-                        "HOBBS_DIAG turn={} depth={} direction={:?} rank={:?} certainty={:?} steps={}",
-                        root_state.turn,
-                        depth,
-                        direction,
-                        worst_response.rank,
-                        worst_response.certainty,
-                        worst_response.path.len()
-                    );
-                }
-            }
             if best.as_ref().is_none_or(|previous| {
                 worst_response.rank > previous.rank
                     || (worst_response.rank == previous.rank
@@ -342,6 +332,19 @@ mod tests {
                 hazard_damage_per_turn: 0,
             },
         }
+    }
+
+    #[test]
+    fn loss_tie_prefers_less_restricted_escape() {
+        let less_restricted = RouteRank {
+            score: StateScore::Loss,
+            safety: TrapAssessment::Constrained,
+        };
+        let forced = RouteRank {
+            score: StateScore::Loss,
+            safety: TrapAssessment::ForcedCorridor,
+        };
+        assert!(less_restricted > forced);
     }
 
     #[test]

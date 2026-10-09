@@ -49,7 +49,7 @@ pub(crate) fn assess_state(state: &SimulatedGameState) -> TrapAssessment {
     let threatened = state
         .snakes
         .iter()
-        .filter(|enemy| enemy.alive && enemy.id != ours.id && enemy.length() >= ours.length())
+        .filter(|enemy| enemy.alive && enemy.id != ours.id && enemy.length() > ours.length())
         .filter_map(|enemy| enemy.head())
         .any(|enemy_head| {
             let Some(exit) = only_exit else {
@@ -153,6 +153,14 @@ mod tests {
     #[test]
     fn shorter_opponent_does_not_make_single_exit_proven_trap() {
         let state = board(vec![(0, 0), (0, 1), (1, 1), (2, 1), (2, 0)], vec![(1, 3)]);
+        assert_eq!(assess_state(&state), TrapAssessment::Viable);
+    }
+
+    #[test]
+    fn equal_size_enemy_does_not_dominate_edge_lane() {
+        let mut state = board(vec![(10, 10), (9, 10), (9, 9)], vec![(7, 8), (7, 7), (8, 7)]);
+        state.width = 11;
+        state.height = 11;
         assert_eq!(assess_state(&state), TrapAssessment::Viable);
     }
 
