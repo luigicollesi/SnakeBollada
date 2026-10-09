@@ -18,10 +18,7 @@ use crate::simulation::joint_action::JointAction;
 
 use super::budget::SearchBudget;
 use super::forecast::ForecastCertainty;
-use super::graph::{
-    CachedSearchValue, FutureGraph, NodeId, ResponseLookup, SearchBoundKind, SearchEdge,
-    SearchError,
-};
+use super::graph::{CachedSearchValue, FutureGraph, NodeId, ResponseLookup, SearchBoundKind, SearchEdge, SearchError};
 use super::path::{FuturePath, FutureStep, MAX_SEARCH_DEPTH};
 
 #[derive(Debug, Clone)]
@@ -87,7 +84,6 @@ struct Route {
     /// Exact number of simulated turns until a terminal Win/Loss/Tie.
     /// Only present when the terminal state was actually reached.
     terminal_plies: Option<u16>,
-    bound: SearchBoundKind,
 }
 
 fn compare_routes(left: &Route, right: &Route) -> Ordering {
@@ -122,7 +118,6 @@ fn compare_routes(left: &Route, right: &Route) -> Ordering {
 
 type ScoredCache = HashMap<NodeId, RouteRank>;
 
-#[cfg(test)]
 fn alpha_cuts_reply(incumbent: &Route, worst_so_far: &Route) -> bool {
     // MIN cannot improve its value by inspecting additional replies. Once its
     // upper bound is <= this MAX incumbent, the action cannot win the MAX.
@@ -149,7 +144,6 @@ pub(crate) fn search_hobbs(
             ForecastCertainty::Deterministic,
             &search_budget,
             &mut scored,
-            SearchWindow::root(),
         )?
         else {
             break;
@@ -208,46 +202,6 @@ pub(crate) fn search_hobbs(
     Ok(last_complete)
 }
 
-/// Paranoid Alpha-Beta search. The Hobbs evaluator is *local* to each
-/// subtree; route safety and terminal plies are added when unwinding an edge.
-/// An inherited bound can be passed to a child only if the edge transform is
-/// order-preserving. Otherwise the child uses a full window.
-#[derive(Clone)]
-struct SearchWindow {
-    alpha: Option<Route>,
-    beta: Option<Route>,
-}
-
-impl SearchWindow {
-    fn root() -> Self {
-        Self {
-            alpha: None,
-            beta: None,
-        }
-    }
-
-    fn for_child(&self, immediate_safety: TrapAssessment) -> Self {
-        fn adjust(bound: Option<Route>, safety: TrapAssessment) -> Option<Route> {
-            // Joining a constrained/forced guard can change score tiers.
-            // The special immediate-loss tie-break is also not invariant
-            // under shifting the terminal distance by one.
-            if safety != TrapAssessment::Viable {
-                return None;
-            }
-            let mut bound = bound?;
-            if matches!(bound.rank.score, StateScore::Loss) {
-                return None;
-            }
-            bound.terminal_plies = bound.terminal_plies.map(|plies| plies.saturating_sub(1));
-            Some(bound)
-        }
-        Self {
-            alpha: adjust(self.alpha.clone(), immediate_safety),
-            beta: adjust(self.beta.clone(), immediate_safety),
-        }
-    }
-}
-
 fn evaluate_minimax(
     graph: &mut FutureGraph,
     node_id: NodeId,
@@ -255,7 +209,6 @@ fn evaluate_minimax(
     certainty: ForecastCertainty,
     budget: &SearchBudget,
     cache: &mut ScoredCache,
-    window: SearchWindow,
 ) -> Result<Option<Route>, SearchError> {
     if budget.expired() {
         return Ok(None);
@@ -264,17 +217,15 @@ fn evaluate_minimax(
         let rank = *cache
             .entry(node_id)
             .or_insert_with(|| evaluate_leaf(graph, node_id));
-        let terminal_plies = matches!(
-            rank.score,
-            StateScore::Win | StateScore::Loss | StateScore::Tie
-        )
-        .then_some(0);
         return Ok(Some(Route {
             rank,
             path: FuturePath::empty(),
             certainty,
-            terminal_plies,
-            bound: SearchBoundKind::Exact,
+            terminal_plies: matches!(
+                rank.score,
+                StateScore::Win | StateScore::Loss | StateScore::Tie
+            )
+            .then_some(0),
         }));
     }
 
@@ -289,47 +240,36 @@ fn evaluate_minimax(
             rank,
             path: FuturePath::empty(),
             certainty,
-            terminal_plies: None,
-            bound: SearchBoundKind::Exact,
+            terminal_plies: matches!(
+                rank.score,
+                StateScore::Win | StateScore::Loss | StateScore::Tie
+            )
+            .then_some(0),
         }));
     }
 
     let mut best: Option<Route> = None;
-    let mut local_alpha = window.alpha.clone();
-    let mut result_kind = SearchBoundKind::Exact;
-
     for direction in directions {
         let mut known = graph.known_responses(node_id, direction);
-        let count = known.len();
+        let known_count = known.len();
         let preferred_response = graph.node(node_id).preferred_reply.get(&direction).cloned();
         known.sort_by(|a, b| {
             (preferred_response.as_ref() == Some(&b.joint_action))
                 .cmp(&(preferred_response.as_ref() == Some(&a.joint_action)))
-                .then_with(|| {
-                    let rank = |id: NodeId| {
-                        cache.get(&id).copied().or_else(|| {
-                            graph.node(id).last_search.map(|past| RouteRank {
-                                score: past.score,
-                                safety: past.safety,
-                            })
-                        })
-                    };
-                    match (rank(a.child), rank(b.child)) {
-                        (Some(ra), Some(rb)) => ra.cmp(&rb),
-                        (Some(_), None) => Ordering::Less,
-                        (None, Some(_)) => Ordering::Greater,
-                        (None, None) => Ordering::Equal,
-                    }
+                .then_with(|| match (cache.get(&a.child), cache.get(&b.child)) {
+                    (Some(ra), Some(rb)) => ra.cmp(rb),
+                    (Some(_), None) => Ordering::Less,
+                    (None, Some(_)) => Ordering::Greater,
+                    (None, None) => Ordering::Equal,
                 })
         });
 
-        let mut old = known.into_iter();
-        let mut next_index = count;
+        let mut cached = known.into_iter();
+        let mut next_index = known_count;
         let mut worst: Option<Route> = None;
-        let mut local_beta = window.beta.clone();
-        let mut cutoff = false;
+        let mut pruned = false;
         loop {
-            let edge = if let Some(existing) = old.next() {
+            let edge = if let Some(existing) = cached.next() {
                 existing
             } else {
                 match graph.next_response(node_id, direction, next_index, budget)? {
@@ -349,85 +289,46 @@ fn evaluate_minimax(
                 child,
                 forecast_delta,
             } = edge;
-            let immediate_safety = assess_survival_state(&graph.node(child).state);
-            let child_window = SearchWindow {
-                alpha: local_alpha.clone(),
-                beta: local_beta.clone(),
-            }
-            .for_child(immediate_safety);
+            let child_certainty = certainty.after(forecast_delta);
             let Some(mut candidate) = evaluate_minimax(
                 graph,
                 child,
                 depth - 1,
-                certainty.after(forecast_delta),
+                child_certainty,
                 budget,
                 cache,
-                child_window,
             )?
             else {
                 return Ok(None);
             };
             candidate.terminal_plies = candidate
                 .terminal_plies
-                .map(|plies| plies.saturating_add(1));
+                .map(|steps| steps.saturating_add(1));
+            let immediate_safety = assess_survival_state(&graph.node(child).state);
             candidate.rank.safety = worst_safety(candidate.rank.safety, immediate_safety);
             candidate.path = candidate.path.prepend(FutureStep {
                 node: node_id,
                 joint_action,
                 child,
             });
-
-            // MAX may return a lower bound when it has already exceeded
-            // the MIN window. Such a child cannot improve MIN's incumbent.
-            if let Some(limit) = local_beta.as_ref() {
-                if matches!(candidate.bound, SearchBoundKind::Lower)
-                    && !compare_routes(&candidate, limit).is_lt()
-                {
-                    continue;
-                }
-            }
             if worst
                 .as_ref()
                 .is_none_or(|previous| compare_routes(&candidate, previous).is_lt())
             {
                 worst = Some(candidate);
             }
-            if let (Some(bound), Some(worst_so_far)) = (local_alpha.as_ref(), worst.as_ref()) {
-                if !compare_routes(worst_so_far, bound).is_gt() {
-                    cutoff = true;
+            if let (Some(incumbent), Some(worst_so_far)) = (&best, &worst) {
+                if alpha_cuts_reply(incumbent, worst_so_far) {
+                    pruned = true;
                     break;
                 }
-            }
-            if let Some(worst_so_far) = worst.as_ref() {
-                if local_beta
-                    .as_ref()
-                    .is_none_or(|bound| compare_routes(worst_so_far, bound).is_lt())
-                {
-                    local_beta = Some(worst_so_far.clone());
-                }
-            }
-        }
-
-        // MIN can have no exact reply only when every child exceeded an
-        // inherited beta bound. This is a valid lower bound for MAX.
-        if worst.is_none() {
-            if let Some(limit) = window.beta.as_ref() {
-                if best
-                    .as_ref()
-                    .is_none_or(|current| compare_routes(limit, current).is_gt())
-                {
-                    result_kind = SearchBoundKind::Lower;
-                    best = Some(limit.clone());
-                }
-                break;
             }
         }
         if let Some(worst_response) = worst {
             if let Some(first) = worst_response.path.first() {
                 graph.record_worst_reply(node_id, direction, first.joint_action.clone());
             }
-            if cutoff {
-                // MIN has proved that this direction cannot improve alpha.
+            if pruned {
                 continue;
             }
             if best.as_ref().is_none_or(|previous| {
@@ -439,53 +340,17 @@ fn evaluate_minimax(
             }) {
                 best = Some(worst_response);
             }
-            if let (Some(bound), Some(current)) = (window.beta.as_ref(), best.as_ref()) {
-                if !compare_routes(current, bound).is_lt() {
-                    result_kind = SearchBoundKind::Lower;
-                    break;
-                }
-            }
-            if let Some(current) = best.as_ref() {
-                if local_alpha
-                    .as_ref()
-                    .is_none_or(|bound| compare_routes(current, bound).is_gt())
-                {
-                    local_alpha = Some(current.clone());
-                }
-            }
         }
     }
-
-    // When every direction failed low, this is only an upper bound and must
-    // not displace an already selected move at an ancestor.
-    if best.is_none() {
-        best = window.alpha.clone();
-        result_kind = SearchBoundKind::Upper;
-    } else if matches!(result_kind, SearchBoundKind::Exact)
-        && window.alpha.as_ref().is_some_and(|bound| {
-            best.as_ref()
-                .is_some_and(|current| !compare_routes(current, bound).is_gt())
-        })
-    {
-        result_kind = SearchBoundKind::Upper;
-    }
-    if let Some(result) = best.as_ref() {
-        let best_direction = direction_of_first(graph, node_id, &result.path);
-        graph.record_search(
-            node_id,
+    if let Some(chosen) = best.as_ref() {
+        let direction = direction_of_first(graph, node_id, &chosen.path);
+        graph.record_search(node_id, depth, CachedSearchValue {
+            score: chosen.rank.score,
+            safety: chosen.rank.safety,
             depth,
-            CachedSearchValue {
-                score: result.rank.score,
-                safety: result.rank.safety,
-                depth,
-                certainty: result.certainty,
-                bound: result_kind,
-            },
-            best_direction,
-        );
-    }
-    if let Some(route) = best.as_mut() {
-        route.bound = result_kind;
+            certainty: chosen.certainty,
+            bound: SearchBoundKind::Exact,
+        }, direction);
     }
     Ok(best)
 }
@@ -564,7 +429,6 @@ mod tests {
             path: FuturePath::empty(),
             certainty: ForecastCertainty::Deterministic,
             terminal_plies,
-            bound: SearchBoundKind::Exact,
         }
     }
 
@@ -746,7 +610,6 @@ mod tests {
             ForecastCertainty::Deterministic,
             &budget,
             &mut scored,
-            SearchWindow::root(),
         )
         .unwrap()
         .unwrap();
