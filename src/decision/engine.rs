@@ -3,7 +3,7 @@
 
 use crate::analysis::{
     analyze_territorial_control, detect_territorial_partition, verify_territorial_return,
-    ReturnProof, TerritorialControlAnalysis,
+    ReturnExpansion, ReturnProof, TerritorialControlAnalysis,
 };
 use crate::direction::Direction;
 use crate::evaluation::StateScore;
@@ -153,7 +153,7 @@ impl TerritorialMode {
 /// Cap the work by both a tiny local timer and the request's safety reserve.
 fn trace_territory_shadow(
     state: &GameState,
-    graph: &FutureGraph,
+    graph: &mut FutureGraph,
     budget: &SearchBudget,
     selected: Direction,
 ) {
@@ -170,7 +170,8 @@ fn trace_territory_shadow(
         return;
     }
     let expires = Instant::now() + SHADOW_LIMIT;
-    let root_state = &graph.node(graph.root()).state;
+    let root = graph.root();
+    let root_state = &graph.node(root).state;
     if let Some(snapshot) = analyze_territorial_control(root_state, &root_state.our_snake_id) {
         log_territory_snapshot(state.turn, "root", selected, snapshot);
     }
@@ -205,18 +206,28 @@ fn trace_territory_shadow(
             if Instant::now() >= expires {
                 break;
             }
-            let child = &graph.node(edge.child).state;
             // Analyze only partitions that lose a substantial connected
             // region. These counters are sampled, not an exhaustive
             // assessment of replies pruned by minimax.
-            if let Some(cut) =
-                detect_territorial_partition(root_state, child, &root_state.our_snake_id)
-            {
+            let cut = detect_territorial_partition(
+                &graph.node(root).state,
+                &graph.node(edge.child).state,
+                &graph.node(root).state.our_snake_id,
+            );
+            if let Some(cut) = cut {
                 cut_candidates += 1;
                 largest_partition = largest_partition.max(cut.lost_access);
                 if return_checks < 1 && Instant::now() < expires {
-                    let report =
-                        verify_territorial_return(child, &cut.target_region, 5, 120, expires);
+                    let report = verify_territorial_return(
+                        graph,
+                        edge.child,
+                        &cut.target_region,
+                        5,
+                        120,
+                        expires,
+                        ReturnExpansion::ReadOnly,
+                        budget,
+                    );
                     return_checks += 1;
                     match report.result {
                         ReturnProof::VerifiedForFixedFood => return_verified += 1,
@@ -227,7 +238,7 @@ fn trace_territory_shadow(
                     }
                     log::info!(
                         target: "territorial_control",
-                        "territory_return turn={} direction={:?} selected={} before={} after={} lost={} self_blocked={} proof={:?} horizon={} nodes={} evidence=sampled_fixed_food",
+                        "territory_return turn={} direction={:?} selected={} before={} after={} lost={} self_blocked={} proof={:?} horizon={} nodes={} food_provisional={} evidence=cached_graph_only",
                         state.turn,
                         direction,
                         direction == selected,
@@ -238,9 +249,11 @@ fn trace_territory_shadow(
                         report.result,
                         report.horizon,
                         report.explored,
+                        report.provisional_food,
                     );
                 }
             }
+            let child = &graph.node(edge.child).state;
             if let Some(snapshot) = analyze_territorial_control(child, &child.our_snake_id) {
                 sampled += 1;
                 worst_access = worst_access.min(snapshot.accessible_now);
@@ -256,7 +269,7 @@ fn trace_territory_shadow(
         }
         log::info!(
             target: "territorial_control",
-            "territory_shadow turn={} direction={:?} selected={} known_replies={} sampled={} unknown={} complete_known={} min_access={:?} min_future={:?} min_regions={:?} min_largest_branch={:?} max_gate_exposure={} max_contested_gate={} cuts={} max_lost={} return_verified={} return_not_guaranteed={} return_unknown={} evidence=optimistic",
+            "territory_shadow turn={} direction={:?} selected={} known_replies={} sampled={} unknown={} sampled_known={} min_access={:?} min_future={:?} min_regions={:?} min_largest_branch={:?} max_gate_exposure={} max_contested_gate={} cuts={} max_lost={} return_verified={} return_not_guaranteed={} return_unknown={} evidence=optimistic",
             state.turn,
             direction,
             direction == selected,
