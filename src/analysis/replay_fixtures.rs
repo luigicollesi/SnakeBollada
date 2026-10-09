@@ -3,7 +3,13 @@
 use crate::simulation::state::{RulesContext, SimulatedGameState, SimulatedSnake};
 use crate::Coord;
 
-type RecordedCoordinates<'a> = (i32, i32, &'a [(i32, i32)], &'a [(i32, i32)], &'a [(i32, i32)]);
+type RecordedCoordinates<'a> = (
+    i32,
+    i32,
+    &'a [(i32, i32)],
+    &'a [(i32, i32)],
+    &'a [(i32, i32)],
+);
 
 pub(super) fn state(turn: i32) -> SimulatedGameState {
     let (our_health, enemy_health, ours, enemy, food): RecordedCoordinates<'_> = match turn {
