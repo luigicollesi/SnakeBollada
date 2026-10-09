@@ -8,9 +8,9 @@
 use std::collections::HashMap;
 use std::time::Instant;
 
+use crate::direction::Direction;
 use crate::search::budget::SearchBudget;
 use crate::search::forecast::ForecastCertainty;
-use crate::direction::Direction;
 use crate::search::graph::{
     FutureGraph, NodeId, ResponseCoverage, ResponseLookup, SearchError, SearchNode,
 };
@@ -310,8 +310,7 @@ impl Context<'_> {
             let mut saw_reply = false;
             let mut unknown_reply = false;
             let mut refuted = false;
-            let mut exhausted =
-                graph.coverage(node, direction) == ResponseCoverage::Complete;
+            let mut exhausted = graph.coverage(node, direction) == ResponseCoverage::Complete;
 
             loop {
                 if self.out_of_budget(budget) {
@@ -367,8 +366,7 @@ impl Context<'_> {
             // all cached replies is not enough to certify a guaranteed return.
             if saw_reply
                 && !unknown_reply
-                && (exhausted
-                    || graph.coverage(node, direction) == ResponseCoverage::Complete)
+                && (exhausted || graph.coverage(node, direction) == ResponseCoverage::Complete)
             {
                 self.visited.insert(key, ReturnProof::VerifiedForFixedFood);
                 return ReturnProof::VerifiedForFixedFood;
