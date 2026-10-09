@@ -320,6 +320,31 @@ impl FutureGraph {
             .collect()
     }
 
+    /// Read-only counterpart of available_directions. When generators were
+    /// never initialized, reply coverage is unknown rather than zero moves.
+    /// Never mutates graph state or search ordering caches.
+    pub(crate) fn cached_directions(&self, node_id: NodeId) -> Option<Vec<Direction>> {
+        let node = self.nodes.get(node_id)?;
+        if !node.generators_initialized {
+            return None;
+        }
+        let actor = node.state.actor_index(&node.state.our_snake_id);
+        Some(
+            Direction::ALL
+                .into_iter()
+                .filter(|direction| {
+                    (node.legal_moves.contains(*direction)
+                        && !node.exhausted_moves.contains(*direction))
+                        || actor.is_some_and(|actor| {
+                            node.children.iter().any(|edge| {
+                                edge.joint_action.direction_for(actor) == Some(*direction)
+                            })
+                        })
+                })
+                .collect(),
+        )
+    }
+
     /// Return already resolved responses for BestFirst ordering.
     pub(crate) fn responses_retained_after_decision(&self, node_id: NodeId) -> bool {
         self.nodes[node_id].retained_pruned
@@ -611,6 +636,16 @@ mod tests {
             ResponseCoverage::Partial,
             "retention must invalidate the completeness certificate"
         );
+    }
+
+    #[test]
+    fn cached_directions_never_initialize_generators() {
+        let mut graph = FutureGraph::new_beam(state());
+        let root = graph.root();
+        assert_eq!(graph.cached_directions(root), None);
+        assert_eq!(graph.response_coverage(root, Direction::Up), ResponseCoverage::Unexpanded);
+        let live = graph.available_directions(root);
+        assert_eq!(graph.cached_directions(root), Some(live));
     }
 
     #[test]
