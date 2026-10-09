@@ -215,7 +215,9 @@ fn trace_territory_shadow(
     }
     let compare_deadline = expires.min(Instant::now() + Duration::from_millis(3));
     for direction in Direction::ALL {
-        if Instant::now() >= compare_deadline { break; }
+        if Instant::now() >= compare_deadline {
+            break;
+        }
         if let Some(sample) = TerritoryDirectionSample::from_cached_replies(
             graph,
             direction,
