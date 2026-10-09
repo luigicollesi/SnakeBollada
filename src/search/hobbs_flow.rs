@@ -137,7 +137,6 @@ pub(crate) fn search_hobbs(
     let search_budget = budget.limited_to_soft_deadline();
     let mut scored = ScoredCache::new();
     let root = graph.root();
-    let root_turn = graph.node(root).state.turn;
     let mut last_complete = None;
     for depth in 1..=MAX_SEARCH_DEPTH {
         if search_budget.expired() {
@@ -150,7 +149,7 @@ pub(crate) fn search_hobbs(
             ForecastCertainty::Deterministic,
             &search_budget,
             &mut scored,
-            SearchWindow::root(root_turn),
+            SearchWindow::root(),
         )?
         else {
             break;
@@ -209,25 +208,42 @@ pub(crate) fn search_hobbs(
     Ok(last_complete)
 }
 
-/// Full-window paranoid Alpha-Beta search. All leaves use an identical
-/// root-relative terminal distance and cumulative structural guard; ancestor
-/// bounds are therefore comparable with descendant values without rewriting
-/// them across edges.
+/// Paranoid Alpha-Beta search. The Hobbs evaluator is *local* to each
+/// subtree; route safety and terminal plies are added when unwinding an edge.
+/// An inherited bound can be passed to a child only if the edge transform is
+/// order-preserving. Otherwise the child uses a full window.
 #[derive(Clone)]
 struct SearchWindow {
     alpha: Option<Route>,
     beta: Option<Route>,
-    path_safety: TrapAssessment,
-    root_turn: i32,
 }
 
 impl SearchWindow {
-    fn root(root_turn: i32) -> Self {
+    fn root() -> Self {
         Self {
             alpha: None,
             beta: None,
-            path_safety: TrapAssessment::Viable,
-            root_turn,
+        }
+    }
+
+    fn for_child(&self, immediate_safety: TrapAssessment) -> Self {
+        fn adjust(bound: Option<Route>, safety: TrapAssessment) -> Option<Route> {
+            // Joining a constrained/forced guard can change score tiers.
+            // The special immediate-loss tie-break is also not invariant
+            // under shifting the terminal distance by one.
+            if safety != TrapAssessment::Viable {
+                return None;
+            }
+            let mut bound = bound?;
+            if matches!(bound.rank.score, StateScore::Loss) {
+                return None;
+            }
+            bound.terminal_plies = bound.terminal_plies.map(|plies| plies.saturating_sub(1));
+            Some(bound)
+        }
+        Self {
+            alpha: adjust(self.alpha.clone(), immediate_safety),
+            beta: adjust(self.beta.clone(), immediate_safety),
         }
     }
 }
@@ -245,24 +261,14 @@ fn evaluate_minimax(
         return Ok(None);
     }
     if graph.node(node_id).is_terminal() || depth == 0 {
-        let mut rank = *cache
+        let rank = *cache
             .entry(node_id)
             .or_insert_with(|| evaluate_leaf(graph, node_id));
-        rank.safety = worst_safety(window.path_safety, rank.safety);
         let terminal_plies = matches!(
             rank.score,
             StateScore::Win | StateScore::Loss | StateScore::Tie
         )
-        .then(|| {
-            u16::try_from(
-                graph
-                    .node(node_id)
-                    .state
-                    .turn
-                    .saturating_sub(window.root_turn),
-            )
-            .unwrap_or(u16::MAX)
-        });
+        .then_some(0);
         return Ok(Some(Route {
             rank,
             path: FuturePath::empty(),
@@ -276,10 +282,9 @@ fn evaluate_minimax(
     let preferred = graph.node(node_id).preferred_direction;
     directions.sort_by_key(|direction| (Some(*direction) != preferred, direction.rank()));
     if directions.is_empty() {
-        let mut rank = *cache
+        let rank = *cache
             .entry(node_id)
             .or_insert_with(|| evaluate_leaf(graph, node_id));
-        rank.safety = worst_safety(window.path_safety, rank.safety);
         return Ok(Some(Route {
             rank,
             path: FuturePath::empty(),
@@ -344,10 +349,11 @@ fn evaluate_minimax(
                 child,
                 forecast_delta,
             } = edge;
-            let child_safety = worst_safety(
-                window.path_safety,
-                assess_survival_state(&graph.node(child).state),
-            );
+            let immediate_safety = assess_survival_state(&graph.node(child).state);
+            let child_window = SearchWindow {
+                alpha: local_alpha.clone(),
+                beta: local_beta.clone(),
+            }.for_child(immediate_safety);
             let Some(mut candidate) = evaluate_minimax(
                 graph,
                 child,
@@ -355,16 +361,13 @@ fn evaluate_minimax(
                 certainty.after(forecast_delta),
                 budget,
                 cache,
-                SearchWindow {
-                    alpha: local_alpha.clone(),
-                    beta: local_beta.clone(),
-                    path_safety: child_safety,
-                    root_turn: window.root_turn,
-                },
+                child_window,
             )?
             else {
                 return Ok(None);
             };
+            candidate.terminal_plies = candidate.terminal_plies.map(|plies| plies.saturating_add(1));
+            candidate.rank.safety = worst_safety(candidate.rank.safety, immediate_safety);
             candidate.path = candidate.path.prepend(FutureStep {
                 node: node_id,
                 joint_action,
@@ -740,7 +743,7 @@ mod tests {
             ForecastCertainty::Deterministic,
             &budget,
             &mut scored,
-            SearchWindow::root(286),
+            SearchWindow::root(),
         )
         .unwrap()
         .unwrap();
