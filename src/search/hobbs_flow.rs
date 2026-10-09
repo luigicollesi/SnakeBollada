@@ -402,9 +402,11 @@ mod tests {
         assert!(result.completed_depth >= 1);
         assert!(result.root_directions >= 2);
         let our_actor = graph.node(graph.root()).state.actor_index("ours").unwrap();
-        assert!(graph.node(graph.root()).children.iter().any(|edge|
-            edge.joint_action.direction_for(our_actor) == Some(result.direction)
-        ));
+        assert!(graph
+            .node(graph.root())
+            .children
+            .iter()
+            .any(|edge| edge.joint_action.direction_for(our_actor) == Some(result.direction)));
     }
 
     #[test]
