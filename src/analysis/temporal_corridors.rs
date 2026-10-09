@@ -291,7 +291,10 @@ mod tests {
         );
         let corner_hint = adversarial_order(&corner);
         let center_hint = adversarial_order(&center);
-        assert_eq!(corner_hint.our_continuations(), center_hint.our_continuations());
+        assert_eq!(
+            corner_hint.our_continuations(),
+            center_hint.our_continuations()
+        );
         assert!(corner_hint.enemy_continuations() < center_hint.enemy_continuations());
         // The adversary's more flexible escape is a more pessimistic reply.
         assert!(center_hint < corner_hint);
