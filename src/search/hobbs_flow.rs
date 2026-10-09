@@ -7,9 +7,11 @@
 
 use std::cmp::Ordering;
 use std::collections::HashMap;
+use std::time::{Duration, Instant};
 
 use crate::analysis::{
     adversarial_order, AdversarialCorridorOrder, CorridorOutlook, TemporalTerritory,
+    TerritoryDirectionSample, TerritorySnapshot,
 };
 use crate::direction::Direction;
 use crate::evaluation::{
@@ -145,6 +147,7 @@ fn compare_routes(left: &Route, right: &Route) -> Ordering {
 struct ScoredCache {
     leaf_ranks: HashMap<NodeId, RouteRank>,
     corridor_orders: HashMap<NodeId, AdversarialCorridorOrder>,
+    territory_snapshots: HashMap<NodeId, TerritorySnapshot>,
 }
 
 impl ScoredCache {
@@ -178,6 +181,17 @@ pub(crate) fn search_hobbs(
     graph: &mut FutureGraph,
     budget: &SearchBudget,
 ) -> Result<Option<HobbsSearchResult>, SearchError> {
+    search_hobbs_with_territory_ordering(graph, budget, false)
+}
+
+/// Experimental: only change which cached root directions are searched first.
+/// Completed Minimax depths still enumerate every required enemy reply and
+/// compare the exact same RouteRank as the default Hobbs flow.
+pub(crate) fn search_hobbs_with_territory_ordering(
+    graph: &mut FutureGraph,
+    budget: &SearchBudget,
+    territory_ordering: bool,
+) -> Result<Option<HobbsSearchResult>, SearchError> {
     // The soft deadline leaves headroom for serialization and runtime jitter.
     let search_budget = budget.limited_to_soft_deadline();
     let mut scored = ScoredCache::new();
@@ -194,6 +208,7 @@ pub(crate) fn search_hobbs(
             ForecastCertainty::Deterministic,
             &search_budget,
             &mut scored,
+            territory_ordering,
         )?
         else {
             break;
@@ -260,6 +275,7 @@ fn evaluate_minimax(
     certainty: ForecastCertainty,
     budget: &SearchBudget,
     cache: &mut ScoredCache,
+    territory_ordering: bool,
 ) -> Result<Option<Route>, SearchError> {
     if budget.expired() {
         return Ok(None);
@@ -300,21 +316,41 @@ fn evaluate_minimax(
             }
             corridor_by_direction.insert(*direction, (worst_ours, best_enemy));
         }
-        directions.sort_by_key(|direction| {
-            let (our_exits, their_exits) = corridor_by_direction
-                .get(direction)
-                .copied()
-                .unwrap_or((0, u8::MAX));
-            (
-                our_exits == 0,
-                // The previous completed depth is the best first search
-                // incumbent for alpha pruning, unless this line has no
-                // projected continuation at all.
-                Some(*direction) != preferred,
-                std::cmp::Reverse(our_exits),
-                their_exits,
-                direction.rank(),
-            )
+        // Sample at most 24 unique cached states per search. All snapshots
+        // are shared between iterative depths; no new actions are generated.
+        // A 2ms deadline bounds overhead and leaves the normal search reserve.
+        let mut territorial = HashMap::<Direction, TerritoryDirectionSample>::new();
+        if territory_ordering && depth >= 2 && !budget.expired() {
+            let expires = Instant::now() + Duration::from_millis(2);
+            for direction in &directions {
+                if Instant::now() >= expires { break; }
+                if let Some(sample) = TerritoryDirectionSample::from_cached_replies(
+                    graph,
+                    *direction,
+                    &mut cache.territory_snapshots,
+                    expires,
+                ) {
+                    territorial.insert(*direction, sample);
+                }
+            }
+        }
+        directions.sort_by(|left, right| {
+            let a = *left;
+            let b = *right;
+            let (left_exits, left_enemy) = corridor_by_direction
+                .get(&a).copied().unwrap_or((0, u8::MAX));
+            let (right_exits, right_enemy) = corridor_by_direction
+                .get(&b).copied().unwrap_or((0, u8::MAX));
+            (left_exits == 0).cmp(&(right_exits == 0))
+                .then_with(|| match (territorial.get(&a), territorial.get(&b)) {
+                    (Some(left_hint), Some(right_hint)) =>
+                        right_hint.ordering_key().cmp(&left_hint.ordering_key()),
+                    _ => Ordering::Equal,
+                })
+                .then_with(|| (Some(a) != preferred).cmp(&(Some(b) != preferred)))
+                .then_with(|| right_exits.cmp(&left_exits))
+                .then_with(|| left_enemy.cmp(&right_enemy))
+                .then_with(|| a.rank().cmp(&b.rank()))
         });
     } else {
         directions.sort_by_key(|direction| (Some(*direction) != preferred, direction.rank()));
@@ -392,7 +428,7 @@ fn evaluate_minimax(
             } = edge;
             let child_certainty = certainty.after(forecast_delta);
             let Some(mut candidate) =
-                evaluate_minimax(graph, child, depth - 1, child_certainty, budget, cache)?
+                evaluate_minimax(graph, child, depth - 1, child_certainty, budget, cache, territory_ordering)?
             else {
                 return Ok(None);
             };
