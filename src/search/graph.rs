@@ -43,6 +43,15 @@ pub(crate) enum ResponseLookup {
     Deadline,
 }
 
+/// Coverage of *legal enemy replies*, not merely already cached edges.
+/// In particular, Alpha-Beta can leave an action partially expanded.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ResponseCoverage {
+    Unexpanded,
+    Partial,
+    Complete,
+}
+
 /// A search result is retained as a move-ordering hint only. Bounds must be
 /// recalculated for each search's root turn, path safety and food certainty.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -62,6 +71,8 @@ pub(crate) struct SearchNode {
     pub(crate) preferred_reply: HashMap<Direction, JointAction>,
     pub(crate) last_search: Option<CachedSearchValue>,
     generators_initialized: bool,
+    /// Root pruning after a move is selected destroys coverage evidence.
+    retained_pruned: bool,
     legal_moves: MoveMask,
     exhausted_moves: MoveMask,
     mobility: Option<MobilityAnalysis>,
@@ -190,6 +201,7 @@ impl FutureGraph {
         // Alpha-Beta can stop with incomplete opponent alternatives.
         // Preserve matching edges without retaining generators for unchosen moves.
         let root = self.root;
+        self.nodes[root].retained_pruned = true;
         let state = &self.nodes[root].state;
         if let Some(actor) = state.actor_index(&state.our_snake_id) {
             self.nodes[root]
@@ -309,6 +321,30 @@ impl FutureGraph {
     }
 
     /// Return already resolved responses for BestFirst ordering.
+    pub(crate) fn responses_retained_after_decision(&self, node_id: NodeId) -> bool {
+        self.nodes[node_id].retained_pruned
+    }
+
+    /// Complete is only set after the lazy generator actually reports
+    /// Exhausted. Retaining the chosen root edge cannot establish coverage.
+    pub(crate) fn response_coverage(
+        &self,
+        node_id: NodeId,
+        direction: Direction,
+    ) -> ResponseCoverage {
+        let node = &self.nodes[node_id];
+        if node.retained_pruned {
+            return ResponseCoverage::Partial;
+        }
+        if node.exhausted_moves.contains(direction) && node.generators_initialized {
+            ResponseCoverage::Complete
+        } else if node.generators_initialized {
+            ResponseCoverage::Partial
+        } else {
+            ResponseCoverage::Unexpanded
+        }
+    }
+
     pub(crate) fn known_responses(&self, node_id: NodeId, direction: Direction) -> Vec<SearchEdge> {
         let node = &self.nodes[node_id];
         let Some(actor) = node.state.actor_index(&node.state.our_snake_id) else {
@@ -461,6 +497,7 @@ fn build_node_with_key(state: SimulatedGameState, key: Arc<StateKey>) -> SearchN
         preferred_reply: HashMap::new(),
         last_search: None,
         generators_initialized: false,
+        retained_pruned: false,
         legal_moves: MoveMask::empty(),
         exhausted_moves: MoveMask::empty(),
         mobility: None,
