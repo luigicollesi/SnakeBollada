@@ -302,9 +302,13 @@ fn evaluate_minimax(
                 .copied()
                 .unwrap_or((0, u8::MAX));
             (
+                our_exits == 0,
+                // The previous completed depth is the best first search
+                // incumbent for alpha pruning, unless this line has no
+                // projected continuation at all.
+                Some(*direction) != preferred,
                 std::cmp::Reverse(our_exits),
                 their_exits,
-                Some(*direction) != preferred,
                 direction.rank(),
             )
         });
