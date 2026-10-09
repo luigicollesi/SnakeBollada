@@ -5,7 +5,6 @@
 //! is intentionally not predicted here: the turn resolver handles observed
 //! consumption, while unknown future food spawns remain provisional.
 
-use crate::direction::Direction;
 use crate::simulation::state::{ActorIndex, SimulatedGameState};
 use crate::Coord;
 
@@ -91,21 +90,26 @@ impl TemporalTerritory {
             }
         }
 
+        let mut next_frontiers = vec![Vec::<usize>::new(); players];
         for cycle in 1..=u16::from(cycles) {
-            let mut next_frontiers = vec![Vec::<usize>::new(); players];
+            for frontier in &mut next_frontiers {
+                frontier.clear();
+            }
             let mut found_frontier = false;
 
             for &actor in &actors {
                 for &cell in &frontiers[actor] {
-                    let position = Coord {
-                        x: i32::try_from(cell % width).unwrap_or(i32::MAX),
-                        y: i32::try_from(cell / width).unwrap_or(i32::MAX),
-                    };
-                    for direction in Direction::ALL {
-                        let Some(neighbor) = index_of(direction.apply(position), width, height)
-                        else {
-                            continue;
-                        };
+                    let x = cell % width;
+                    let y = cell / width;
+                    // Preserve Up, Right, Down, Left tie-breaking while
+                    // avoiding four Coord conversions and index lookups.
+                    let neighbors = [
+                        (y + 1 < height).then(|| cell + width),
+                        (x + 1 < width).then(|| cell + 1),
+                        (y > 0).then(|| cell - width),
+                        (x > 0).then(|| cell - 1),
+                    ];
+                    for neighbor in neighbors.into_iter().flatten() {
                         if visited[neighbor] || release_at[neighbor] > cycle {
                             continue;
                         }
@@ -119,7 +123,7 @@ impl TemporalTerritory {
             if !found_frontier {
                 break;
             }
-            frontiers = next_frontiers;
+            std::mem::swap(&mut frontiers, &mut next_frontiers);
         }
 
         let mut food_cells = vec![false; cells];
