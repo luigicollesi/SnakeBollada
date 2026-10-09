@@ -6,10 +6,10 @@ mod temporal_territory;
 mod territorial_control;
 pub(crate) use temporal_corridors::{adversarial_order, AdversarialCorridorOrder, CorridorOutlook};
 pub(crate) use temporal_return::{
-    verify_return as verify_territorial_return, ReturnAnalysis, ReturnProof,
+    verify_return as verify_territorial_return, ReturnProof,
 };
 pub(crate) use temporal_territory::{TemporalTerritory, TerritoryCellWeights};
 pub(crate) use territorial_control::{
     analyze as analyze_territorial_control, partition_after as detect_territorial_partition,
-    TerritorialControlAnalysis, TerritorialPartition,
+    TerritorialControlAnalysis,
 };
