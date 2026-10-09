@@ -75,8 +75,12 @@ impl Ord for RouteRank {
             .cmp(&other.tier())
             .then_with(|| match (self.score, other.score) {
                 (
-                    StateScore::Normal { utility_milli: left },
-                    StateScore::Normal { utility_milli: right },
+                    StateScore::Normal {
+                        utility_milli: left,
+                    },
+                    StateScore::Normal {
+                        utility_milli: right,
+                    },
                 ) => left
                     .saturating_add(i64::from(self.pressure) * 20)
                     .cmp(&right.saturating_add(i64::from(other.pressure) * 20)),
@@ -879,7 +883,10 @@ mod tests {
             pressure: 2,
         };
         assert!(threatening > safe);
-        assert!(safe > reckless, "small corridor hints cannot override strong territory");
+        assert!(
+            safe > reckless,
+            "small corridor hints cannot override strong territory"
+        );
         assert!(safe > unsafe_attack);
         assert!(
             RouteRank {
