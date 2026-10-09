@@ -140,12 +140,8 @@ pub(crate) fn analyze(
 
     // Optional: the exact-body short projection is deliberately bounded and
     // may refuse dense states rather than giving a misleading zero value.
-    let continuing_exits = crate::analysis::CorridorOutlook::from_state(
-        state,
-        snake_id,
-        3,
-    )
-    .map(|outlook| outlook.continuing_exits);
+    let continuing_exits = crate::analysis::CorridorOutlook::from_state(state, snake_id, 3)
+        .map(|outlook| outlook.continuing_exits);
 
     Some(TerritorialControlAnalysis {
         accessible_now,
