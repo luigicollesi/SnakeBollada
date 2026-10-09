@@ -91,8 +91,11 @@ impl DecisionEngine {
             let root_state = &graph.node(graph.root()).state;
             if let Some(actor) = root_state.actor_index(&root_state.our_snake_id) {
                 let params = HobbsScoreParams::STANDARD;
-                let territory =
-                    TemporalTerritory::from_state(root_state, params.fill_cycles, params.cell_weights);
+                let territory = TemporalTerritory::from_state(
+                    root_state,
+                    params.fill_cycles,
+                    params.cell_weights,
+                );
                 let hobbs: HobbsEvaluation =
                     evaluate_hobbs_state(root_state, &territory, actor, params);
                 let mode = match hobbs.score {
