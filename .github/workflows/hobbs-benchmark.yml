@@ -39,7 +39,7 @@ jobs:
         run: |
           set -euo pipefail
           read -r -a seeds <<< "$BENCHMARK_SEEDS"
-          if ((\${#seeds[@]} > 30)); then
+          if ((${#seeds[@]} > 30)); then
             echo "Too many seeds" >&2
             exit 1
           fi
