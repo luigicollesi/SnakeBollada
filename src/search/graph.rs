@@ -638,7 +638,7 @@ mod tests {
                 safety: TrapAssessment::Viable,
                 depth: 2,
                 certainty: ForecastCertainty::Deterministic,
-                },
+            },
             Some(Direction::Left),
         );
         graph.record_worst_reply(child, Direction::Left, edge.joint_action.clone());

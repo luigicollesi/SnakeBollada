@@ -18,7 +18,9 @@ use crate::simulation::joint_action::JointAction;
 
 use super::budget::SearchBudget;
 use super::forecast::ForecastCertainty;
-use super::graph::{CachedSearchValue, FutureGraph, NodeId, ResponseLookup, SearchEdge, SearchError};
+use super::graph::{
+    CachedSearchValue, FutureGraph, NodeId, ResponseLookup, SearchEdge, SearchError,
+};
 use super::path::{FuturePath, FutureStep, MAX_SEARCH_DEPTH};
 
 #[derive(Debug, Clone)]
@@ -290,14 +292,8 @@ fn evaluate_minimax(
                 forecast_delta,
             } = edge;
             let child_certainty = certainty.after(forecast_delta);
-            let Some(mut candidate) = evaluate_minimax(
-                graph,
-                child,
-                depth - 1,
-                child_certainty,
-                budget,
-                cache,
-            )?
+            let Some(mut candidate) =
+                evaluate_minimax(graph, child, depth - 1, child_certainty, budget, cache)?
             else {
                 return Ok(None);
             };
@@ -344,12 +340,17 @@ fn evaluate_minimax(
     }
     if let Some(chosen) = best.as_ref() {
         let direction = direction_of_first(graph, node_id, &chosen.path);
-        graph.record_search(node_id, depth, CachedSearchValue {
-            score: chosen.rank.score,
-            safety: chosen.rank.safety,
+        graph.record_search(
+            node_id,
             depth,
-            certainty: chosen.certainty,
-        }, direction);
+            CachedSearchValue {
+                score: chosen.rank.score,
+                safety: chosen.rank.safety,
+                depth,
+                certainty: chosen.certainty,
+            },
+            direction,
+        );
     }
     Ok(best)
 }
