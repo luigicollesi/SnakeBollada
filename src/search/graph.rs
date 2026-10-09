@@ -305,18 +305,19 @@ impl FutureGraph {
         if budget.expired() {
             return Ok(ResponseLookup::Deadline);
         }
-        if !self.nodes[node_id].pending_by_direction.contains_key(&direction) {
+        if !self.nodes[node_id]
+            .pending_by_direction
+            .contains_key(&direction)
+        {
             let state = &self.nodes[node_id].state;
             let mobility = self.nodes[node_id]
                 .mobility
                 .as_ref()
                 .expect("initialized node has a mobility analysis");
-            let actions = JointActionGenerator::new(
-                state,
-                MoveMask::single(direction),
-                mobility,
-            );
-            self.nodes[node_id].pending_by_direction.insert(direction, actions);
+            let actions = JointActionGenerator::new(state, MoveMask::single(direction), mobility);
+            self.nodes[node_id]
+                .pending_by_direction
+                .insert(direction, actions);
         }
         let action = self.nodes[node_id]
             .pending_by_direction
