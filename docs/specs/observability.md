@@ -1,113 +1,19 @@
-# SPEC — Sessão Efêmera e Observabilidade
+# Runtime and observability
 
-**Status:** Observabilidade persistida desativada  
-**Branch alvo:** `dev`  
-**Escopo:** Battlesnake API v1
+**Current implementation:** `src/runtime.rs` stores independent, ephemeral decision sessions in memory indexed by Battlesnake game ID.
 
-## Decisão atual
+- `POST /start` creates a new session; a duplicate start keeps the existing one.
+- `POST /move` executes `DecisionState` for the requested session under its own mutex.
+- `POST /move` without a session uses the stateless authoritative Hobbs flow.
+- `POST /end` releases the session and its cached FutureGraph.
+- Multiple game sessions are supported per process. There is no database persistence or game-history writer.
 
-A SnakeBollada não persiste histórico de partidas e não envia telemetria para disco, banco de dados ou serviço externo.
+### Retained memory
 
-A aplicação assume uma única partida ativa por processo.
+Each `DecisionState` stores the FutureGraph, the last observed food set, and a bounded window of processing/latency times for jitter budgeting. The search graph contains physical states, transposition keys, joint actions, and forecast certainty; it does not persist opponent-intent profiles or Food/Hunting utility history.
 
-O único estado mantido entre requests é o estado efêmero necessário para melhorar a decisão durante a partida:
+### Search telemetry
 
-- `DecisionState`;
-- `FutureGraph` reaproveitável;
-- agressividade acumulada;
-- último comprimento observado;
-- food observado para validar o rolling graph;
-- pequena janela de tempos usada pelo SearchBudget.
+Per move, standard process logs report selected action, analyzed depth, node/edge counts, transposition hits, processing time, reserve, Hobbs score, structural guard classification, provisional-spawn flag, root alternatives, and graph expansion cost. Logs are not a persisted match database.
 
-Esse estado existe somente em memória.
-
-## Ciclo de vida
-
-```text
-POST /start
-    ↓
-cria ActiveGame
-    ↓
-DecisionState::default()
-    ↓
-FutureGraph será criado no primeiro /move
-
-POST /move
-    ↓
-usa DecisionState da sessão ativa
-    ↓
-reconcilia/reutiliza FutureGraph
-    ↓
-DecisionEngine
-    ↓
-mantém somente futuro relevante em memória
-    ↓
-retorna movimento
-
-POST /end
-    ↓
-remove ActiveGame
-    ↓
-drop DecisionState
-    ↓
-drop FutureGraph
-    ↓
-nenhum histórico é persistido
-```
-
-## Runtime
-
-A aplicação mantém apenas:
-
-```rust
-struct GameRuntime {
-    active: Mutex<Option<ActiveGame>>,
-}
-
-struct ActiveGame {
-    game_id: String,
-    decision_state: DecisionState,
-}
-```
-
-Não existem mais no runtime:
-
-- `DashMap<game_id, GameHandle>`;
-- múltiplas sessões simultâneas;
-- `LiveGameState` separado;
-- `mpsc` de telemetria;
-- recorder assíncrono;
-- `GameRecordStorage`;
-- arquivos `data/games/*.json`;
-- conexão com Neon/Postgres;
-- persistência de snapshots ou decisões.
-
-## Concorrência
-
-O runtime suporta uma única partida ativa.
-
-- `/start` para o mesmo `game.id`: tratado como duplicado;
-- `/start` para outro jogo: substitui a sessão anterior;
-- `/move` para jogo diferente da sessão ativa: usa fallback stateless e preserva a sessão ativa;
-- `/end` para o jogo ativo: remove toda a sessão e o tree cache;
-- `/end` para outro jogo: não altera a sessão ativa.
-
-## Objetivo de desempenho
-
-Nenhuma operação de I/O relacionada a histórico deve existir no caminho crítico de `/move`.
-
-O caminho crítico é:
-
-```text
-request
-→ lock da sessão
-→ DecisionState
-→ FutureGraph/Search
-→ resposta
-```
-
-Logs normais de processo continuam permitidos, mas não fazem parte de um sistema de histórico da partida.
-
-## Futuro
-
-Persistência e observabilidade podem ser reintroduzidas depois como trabalho separado, desde que não adicionem latência significativa ao caminho crítico de decisão.
+All known opponents are considered using deterministic legal responses; predictions never remove a physically legal response for strategic plausibility. Run deterministic and multi-seed Hobbs duels separately to measure effective move quality.

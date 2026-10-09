@@ -1,15 +1,43 @@
 # SnakeBollada
 
-Battlesnake written in Rust, based on the official [Battlesnake Rust Starter Project](https://github.com/BattlesnakeOfficial/starter-snake-rust).
+Battlesnake in Rust with a single state-based adversarial decision flow inspired by **Hovering Hobbs**, running on a persistent **FutureGraph**.
 
-The initial goal is to keep a clean, measurable baseline before evolving the decision engine toward collision safety, flood fill, pathfinding, territory analysis and deeper search.
+The active strategy does **not** include separate Food or Hunting modes, strategy weights, legacy Beam/Maximin scorers, or opponent-intent profiles. Food growth and enemy elimination are evaluated as consequences of simulated states.
 
-## Stack
+## Runtime and stack
 
-- Rust 1.98.1
-- Rocket 0.5.1
-- Battlesnake API v1
-- Docker
+- Rust 1.98.1; Rocket 0.5.1; Battlesnake API v1
+- Docker and Dockerfile.vercel
+- In-memory independent sessions keyed by game ID, cleared on `/end`
+- No database, file persistence, or outbound telemetry in the move path
+
+## Active move pipeline
+
+```text
+POST /move
+  -> normalize board and ruleset
+  -> reconcile previous FutureGraph / invalidate on unexpected food
+  -> enumerate legal simultaneous actions for every living snake
+  -> resolve official turn rules / cache transpositions
+  -> iterative paranoid MAX(our move) / MIN(enemy responses)
+       leaf: terminal result > Hobbs territory/length/health evaluation
+       guard: structurally blocked or threatened escape paths
+  -> use last fully completed search depth before the deadline
+  -> keep chosen root direction and relevant future nodes
+  -> return a Battlesnake direction
+```
+
+### Evaluation
+
+- Tail-aware competing territory flood fill (up to 12 cycles).
+- Empty/food/hazard cells weighted 5/20/1.
+- Territory ratio plus relative length bonus `160 milli × clamp(our length − longest enemy, −3, 3)`.
+- Critical-health policy prioritizes access to known food (health below 60 in duels, 85 with 3+ living snakes).
+- Terminal wins/losses take priority over ordinary territorial score.
+- The **Survival Guard** is a categorical check for trapped/contested escape routes, **not** a Food/Hunting/Survival point budget.
+- Future unknown food spawns are marked provisional rather than fabricated.
+
+The search is an iterative, budgeted paranoid minimax on the FutureGraph, **not an exact copy of Hobbs' complete minimax implementation**. The standard ruleset uses this flow exclusively. Unsupported rulesets or exhausted search budgets use the simple safety-oriented fallback.
 
 ## Run locally
 
@@ -17,53 +45,41 @@ The initial goal is to keep a clean, measurable baseline before evolving the dec
 cargo run
 ```
 
-The server listens on:
-
-```text
-http://0.0.0.0:8000
-```
-
-Opening `http://localhost:8000` should return the Battlesnake metadata.
+Server: `http://localhost:8000`.
 
 ## API
-
-The server exposes the standard Battlesnake endpoints:
 
 - `GET /`
 - `POST /start`
 - `POST /move`
 - `POST /end`
 
-API documentation: https://docs.battlesnake.com/api
+See [Battlesnake API](https://docs.battlesnake.com/api).
 
-## Run with Docker
+## Docker
 
 ```bash
 docker build -t snake-bollada .
 docker run --rm -p 8000:8000 snake-bollada
 ```
 
-## Local game
-
-Install the Battlesnake CLI and run:
+## Local test game
 
 ```bash
 battlesnake play -W 11 -H 11 --name "SnakeBollada" --url http://localhost:8000 -g solo --browser
 ```
 
-## Roadmap
+## CI
 
-1. Official starter behavior
-2. Legal move filtering
-3. Wall/body collision avoidance
-4. Head-to-head danger analysis
-5. Flood fill
-6. Food/pathfinding
-7. Territory/Voronoi evaluation
-8. Turn simulation
-9. Iterative deepening / adversarial search
-10. Benchmarks and optimization
+```bash
+cargo fmt --all -- --check
+cargo clippy --all-targets --all-features -- -D warnings
+cargo test --all-targets --all-features
+cargo build --release
+```
+
+Regression tests include recorded Hovering Hobbs positions, territory release/ties, growth, collision resolution, and corridor safety. Winning a duel is **not** guaranteed by a passing CI; tournament benchmarks must be run separately.
 
 ## Attribution
 
-This project starts from the MIT-licensed Battlesnake Rust starter maintained by Battlesnake.
+The project began from the MIT-licensed [Battlesnake Rust Starter Project](https://github.com/BattlesnakeOfficial/starter-snake-rust). The decision evaluator is independently adapted from ideas used in Hovering Hobbs.
