@@ -23,6 +23,8 @@ pub(crate) struct TerritorialControlAnalysis {
     pub(crate) accessible_now: u16,
     /// Distinct components entered through different first-step neighbors.
     pub(crate) independent_regions: u8,
+    /// Size of the largest branch remaining when the current head cell is removed.
+    pub(crate) largest_independent_region: u16,
     /// Current articulation cells separating at least two reachable cells.
     pub(crate) critical_gateways: u16,
     /// Largest area exposed to losing a single gateway, including its cell.
@@ -75,6 +77,7 @@ pub(crate) fn analyze(
     // regions. Do not count two paths into the same connected area twice.
     let mut seen = vec![false; cells];
     let mut independent_regions = 0_u8;
+    let mut largest_independent_region = 0_u16;
     for neighbor in neighbors(root, width, height).into_iter().flatten() {
         if !open_now[neighbor] || seen[neighbor] {
             continue;
@@ -84,6 +87,7 @@ pub(crate) fn analyze(
             continue;
         }
         independent_regions = independent_regions.saturating_add(1);
+        largest_independent_region = largest_independent_region.max(count(&branch));
         for (i, present) in branch.iter().enumerate() {
             seen[i] |= *present;
         }
@@ -146,6 +150,7 @@ pub(crate) fn analyze(
     Some(TerritorialControlAnalysis {
         accessible_now,
         independent_regions,
+        largest_independent_region,
         critical_gateways,
         single_gate_exposure,
         contested_gate_exposure,
@@ -348,6 +353,71 @@ mod tests {
         // Any food-dependent release is still only optimistic; the exact
         // corridor evaluator must reject the growth-blocked tail move.
         assert_eq!(result.continuing_exits, Some(2));
+    }
+
+    #[test]
+    fn recorded_hobbs_20261003_turn_313_measures_access_to_larger_region() {
+        use crate::direction::Direction;
+        use crate::simulation::joint_action::JointAction;
+        use crate::simulation::resolver::resolve_turn;
+
+        // Actual body and food positions from the runner-only match.
+        // Use the same opponent reply (Down) to compare the two decisions;
+        // this is diagnostic evidence, NOT a proof that Left wins minimax.
+        let mut state = board(
+            11,
+            11,
+            vec![
+                snake("ours", &[
+                    (8, 9), (8, 8), (8, 7), (8, 6), (8, 5),
+                    (9, 5), (9, 4), (9, 3), (9, 2), (9, 1),
+                    (8, 1), (8, 2), (7, 2), (7, 1), (6, 1),
+                    (6, 2), (5, 2), (5, 1), (4, 1), (3, 1),
+                    (2, 1), (1, 1), (1, 2), (2, 2), (2, 3), (3, 3),
+                ]),
+                snake("hobbs", &[
+                    (6, 7), (6, 8), (5, 8), (5, 7), (4, 7),
+                    (4, 6), (3, 6), (3, 7), (3, 8), (3, 9),
+                    (3, 10), (2, 10), (1, 10), (0, 10), (0, 9),
+                    (0, 8), (0, 7), (0, 6), (0, 5), (0, 4),
+                    (0, 3), (1, 3), (1, 4), (2, 4), (3, 4),
+                    (4, 4), (4, 5), (5, 5), (5, 4),
+                ]),
+            ],
+        );
+        state.snakes[0].health = 41;
+        state.snakes[1].health = 62;
+        state.food = vec![
+            Coord { x: 9, y: 9 },
+            Coord { x: 9, y: 10 },
+            Coord { x: 8, y: 0 },
+            Coord { x: 2, y: 5 },
+        ];
+        let us = state.actor_index("ours").unwrap();
+        let them = state.actor_index("hobbs").unwrap();
+        let step = |direction| {
+            resolve_turn(
+                &state,
+                &JointAction::new()
+                    .with_move(us, direction)
+                    .with_move(them, Direction::Down),
+            )
+            .unwrap()
+            .state
+        };
+        let left = step(Direction::Left);
+        let up = step(Direction::Up);
+        assert!(left.snake("ours").unwrap().alive);
+        assert!(up.snake("ours").unwrap().alive);
+        let left_access = analyze(&left, "ours").unwrap();
+        let up_access = analyze(&up, "ours").unwrap();
+        assert_eq!(left_access.accessible_now, up_access.accessible_now);
+        assert!(
+            left_access.largest_independent_region > up_access.largest_independent_region,
+            "the central option preserves a larger connected branch, despite equal immediate reach"
+        );
+        assert_eq!(left_access.independent_regions, 2);
+        assert_eq!(up_access.independent_regions, 2);
     }
 
     #[test]
