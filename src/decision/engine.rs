@@ -1,7 +1,10 @@
 //! Single authoritative move decision flow: FutureGraph + Hobbs minimax.
 //! No strategic Food/Hunting mode and no legacy decision switch.
 
-use crate::analysis::{analyze_territorial_control, TerritorialControlAnalysis};
+use crate::analysis::{
+    analyze_territorial_control, detect_territorial_partition, verify_territorial_return,
+    ReturnProof, TerritorialControlAnalysis,
+};
 use crate::direction::Direction;
 use crate::evaluation::StateScore;
 use crate::search::budget::SearchBudget;
@@ -192,11 +195,59 @@ fn trace_territory_shadow(
         let mut biggest_gate = 0_u16;
         let mut worst_contested_gate = 0_u16;
         let mut unknown = 0_usize;
+        let mut cut_candidates = 0_usize;
+        let mut largest_partition = 0_u16;
+        let mut return_verified = 0_usize;
+        let mut return_not_guaranteed = 0_usize;
+        let mut return_unknown = 0_usize;
+        let mut return_checks = 0_usize;
         for edge in edges {
             if Instant::now() >= expires {
                 break;
             }
             let child = &graph.node(edge.child).state;
+            // Analyze only partitions that lose a substantial connected
+            // region. These counters are sampled, not an exhaustive
+            // assessment of replies pruned by minimax.
+            if let Some(cut) = detect_territorial_partition(
+                root_state,
+                child,
+                &root_state.our_snake_id,
+            ) {
+                cut_candidates += 1;
+                largest_partition = largest_partition.max(cut.lost_access);
+                if return_checks < 1 && Instant::now() < expires {
+                    let report = verify_territorial_return(
+                        child,
+                        &cut.target_region,
+                        5,
+                        120,
+                        expires,
+                    );
+                    return_checks += 1;
+                    match report.result {
+                        ReturnProof::VerifiedForFixedFood => return_verified += 1,
+                        ReturnProof::NotGuaranteedWithinHorizon => {
+                            return_not_guaranteed += 1;
+                        }
+                        ReturnProof::Unknown => return_unknown += 1,
+                    }
+                    log::info!(
+                        target: "territorial_control",
+                        "territory_return turn={} direction={:?} selected={} before={} after={} lost={} self_blocked={} proof={:?} horizon={} nodes={} evidence=sampled_fixed_food",
+                        state.turn,
+                        direction,
+                        direction == selected,
+                        cut.before,
+                        cut.after,
+                        cut.lost_access,
+                        cut.self_blocked_gateways.len(),
+                        report.result,
+                        report.horizon,
+                        report.explored,
+                    );
+                }
+            }
             if let Some(snapshot) = analyze_territorial_control(child, &child.our_snake_id) {
                 sampled += 1;
                 worst_access = worst_access.min(snapshot.accessible_now);
@@ -212,7 +263,7 @@ fn trace_territory_shadow(
         }
         log::info!(
             target: "territorial_control",
-            "territory_shadow turn={} direction={:?} selected={} known_replies={} sampled={} unknown={} complete_known={} min_access={:?} min_future={:?} min_regions={:?} min_largest_branch={:?} max_gate_exposure={} max_contested_gate={} evidence=optimistic",
+            "territory_shadow turn={} direction={:?} selected={} known_replies={} sampled={} unknown={} complete_known={} min_access={:?} min_future={:?} min_regions={:?} min_largest_branch={:?} max_gate_exposure={} max_contested_gate={} cuts={} max_lost={} return_verified={} return_not_guaranteed={} return_unknown={} evidence=optimistic",
             state.turn,
             direction,
             direction == selected,
@@ -226,6 +277,11 @@ fn trace_territory_shadow(
             if sampled > 0 { Some(smallest_largest_branch) } else { None },
             biggest_gate,
             worst_contested_gate,
+            cut_candidates,
+            largest_partition,
+            return_verified,
+            return_not_guaranteed,
+            return_unknown,
         );
     }
 }
