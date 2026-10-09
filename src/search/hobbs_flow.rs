@@ -353,7 +353,8 @@ fn evaluate_minimax(
             let child_window = SearchWindow {
                 alpha: local_alpha.clone(),
                 beta: local_beta.clone(),
-            }.for_child(immediate_safety);
+            }
+            .for_child(immediate_safety);
             let Some(mut candidate) = evaluate_minimax(
                 graph,
                 child,
@@ -366,7 +367,9 @@ fn evaluate_minimax(
             else {
                 return Ok(None);
             };
-            candidate.terminal_plies = candidate.terminal_plies.map(|plies| plies.saturating_add(1));
+            candidate.terminal_plies = candidate
+                .terminal_plies
+                .map(|plies| plies.saturating_add(1));
             candidate.rank.safety = worst_safety(candidate.rank.safety, immediate_safety);
             candidate.path = candidate.path.prepend(FutureStep {
                 node: node_id,
