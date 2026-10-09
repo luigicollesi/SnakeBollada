@@ -10,7 +10,6 @@ use std::collections::HashMap;
 
 use crate::analysis::{
     adversarial_order, AdversarialCorridorOrder, CorridorOutlook, TemporalTerritory,
-    CORRIDOR_HORIZON,
 };
 use crate::direction::Direction;
 use crate::evaluation::{
