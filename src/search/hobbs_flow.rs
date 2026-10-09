@@ -13,6 +13,7 @@ use crate::direction::Direction;
 use crate::evaluation::{
     assess_survival_state, evaluate_hobbs_state, HobbsScoreParams, StateScore, TrapAssessment,
 };
+#[cfg(test)]
 use crate::simulation::joint_action::JointAction;
 
 use super::budget::SearchBudget;

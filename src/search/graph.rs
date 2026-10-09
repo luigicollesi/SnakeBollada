@@ -281,11 +281,17 @@ impl FutureGraph {
         budget: &SearchBudget,
     ) -> Result<ResponseLookup, SearchError> {
         self.initialize_generators(node_id);
-        if let Some(edge) = self
-            .known_responses(node_id, direction)
-            .into_iter()
-            .nth(response_index)
-        {
+        let actor = self.nodes[node_id]
+            .state
+            .actor_index(&self.nodes[node_id].state.our_snake_id);
+        if let Some(edge) = actor.and_then(|actor| {
+            self.nodes[node_id]
+                .children
+                .iter()
+                .filter(|edge| edge.joint_action.direction_for(actor) == Some(direction))
+                .nth(response_index)
+                .cloned()
+        }) {
             return Ok(ResponseLookup::Edge(edge));
         }
         if !self.nodes[node_id]
@@ -427,6 +433,98 @@ mod tests {
                 hazard_damage_per_turn: 0,
             },
         }
+    }
+
+    #[test]
+    fn lazy_response_resolves_only_one_joint_action() {
+        let mut graph = FutureGraph::new_beam(state());
+        let budget = SearchBudget::for_duration(Duration::from_secs(4));
+        let root = graph.root();
+        let directions = graph.available_directions(root);
+        assert!(directions.len() >= 2);
+
+        let first = graph.next_response(root, directions[0], 0, &budget).unwrap();
+        assert!(matches!(first, ResponseLookup::Edge(_)));
+        assert_eq!(graph.edge_count(), 1);
+        assert!(graph.known_responses(root, directions[1]).is_empty());
+        let cached = graph.next_response(root, directions[0], 0, &budget).unwrap();
+        assert!(matches!(cached, ResponseLookup::Edge(_)));
+        assert_eq!(graph.edge_count(), 1, "cached access cannot resolve a second edge");
+    }
+
+    #[test]
+    fn lazy_cursor_resumes_and_matches_full_joint_enumeration() {
+        let board = state();
+        let mut full = FutureGraph::new_beam(board.clone());
+        let mut partial = FutureGraph::new_beam(board);
+        let budget = SearchBudget::for_duration(Duration::from_secs(4));
+        assert!(full.expand_one(full.root(), &budget).unwrap());
+
+        let root = partial.root();
+        let directions = partial.available_directions(root);
+        let first = directions[0];
+        assert!(matches!(partial.next_response(root, first, 0, &budget).unwrap(), ResponseLookup::Edge(_)));
+        assert_eq!(partial.edge_count(), 1);
+        assert!(partial.expand_one(root, &budget).unwrap());
+
+        let enumerate = |graph: &FutureGraph| {
+            let mut edges = graph
+                .node(graph.root())
+                .children
+                .iter()
+                .map(|edge| {
+                    let key = &graph.node(edge.child).key;
+                    (format!("{:?}", edge.joint_action), format!("{key:?}"))
+                })
+                .collect::<Vec<_>>();
+            edges.sort();
+            edges
+        };
+        assert_eq!(enumerate(&partial), enumerate(&full));
+        assert_eq!(partial.edge_count(), full.edge_count());
+        let count = partial.known_responses(root, first).len();
+        assert!(matches!(
+            partial.next_response(root, first, count, &budget).unwrap(),
+            ResponseLookup::Exhausted
+        ));
+    }
+
+    #[test]
+    fn timeout_keeps_direction_cursor_for_later_resume() {
+        let mut graph = FutureGraph::new_beam(state());
+        let root = graph.root();
+        let direction = graph.available_directions(root)[0];
+        let exhausted = SearchBudget::for_duration(Duration::ZERO);
+        assert!(matches!(
+            graph.next_response(root, direction, 0, &exhausted).unwrap(),
+            ResponseLookup::Deadline
+        ));
+        assert_eq!(graph.edge_count(), 0);
+        let budget = SearchBudget::for_duration(Duration::from_secs(4));
+        assert!(matches!(
+            graph.next_response(root, direction, 0, &budget).unwrap(),
+            ResponseLookup::Edge(_)
+        ));
+        assert_eq!(graph.edge_count(), 1);
+    }
+
+    #[test]
+    fn chosen_direction_survives_partial_root_expansion() {
+        let mut graph = FutureGraph::new_beam(state());
+        let root = graph.root();
+        let budget = SearchBudget::for_duration(Duration::from_secs(4));
+        let direction = graph.available_directions(root)[0];
+        assert!(matches!(
+            graph.next_response(root, direction, 0, &budget).unwrap(),
+            ResponseLookup::Edge(_)
+        ));
+        let original = graph.node(root).children[0].child;
+        let key = graph.node(original).key.clone();
+        graph.retain_chosen_direction(direction);
+        assert_eq!(graph.edge_count(), 1);
+        let actual = graph.find_node_by_key(&key).unwrap();
+        graph.reroot(actual);
+        assert_eq!(graph.node(graph.root()).key.as_ref(), key.as_ref());
     }
 
     #[test]
