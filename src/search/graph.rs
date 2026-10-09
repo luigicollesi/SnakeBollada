@@ -3,11 +3,11 @@
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::Arc;
 
+use super::forecast::ForecastCertainty;
 use crate::decision::joint_actions::JointActionGenerator;
 use crate::decision::state_key::StateKey;
 use crate::direction::{Direction, MoveMask};
 use crate::evaluation::{StateScore, TrapAssessment};
-use super::forecast::ForecastCertainty;
 use crate::simulation::joint_action::JointAction;
 use crate::simulation::mobility::MobilityAnalysis;
 use crate::simulation::resolver::{resolve_turn, ResolveError};
@@ -166,7 +166,9 @@ impl FutureGraph {
         direction: Direction,
         response: JointAction,
     ) {
-        self.nodes[node_id].preferred_reply.insert(direction, response);
+        self.nodes[node_id]
+            .preferred_reply
+            .insert(direction, response);
     }
 
     pub(crate) fn node_count(&self) -> usize {
@@ -636,19 +638,33 @@ mod tests {
         };
         let child = edge.child;
         let child_key = graph.node(child).key.clone();
-        graph.record_search(child, 2, CachedSearchValue {
-            score: StateScore::Normal { utility_milli: 123 },
-            safety: TrapAssessment::Viable,
-            depth: 2,
-            certainty: ForecastCertainty::Deterministic,
-            bound: SearchBoundKind::Exact,
-        }, Some(Direction::Left));
+        graph.record_search(
+            child,
+            2,
+            CachedSearchValue {
+                score: StateScore::Normal { utility_milli: 123 },
+                safety: TrapAssessment::Viable,
+                depth: 2,
+                certainty: ForecastCertainty::Deterministic,
+                bound: SearchBoundKind::Exact,
+            },
+            Some(Direction::Left),
+        );
         graph.record_worst_reply(child, Direction::Left, edge.joint_action.clone());
         graph.retain_chosen_direction(direction);
         let new_id = graph.find_node_by_key(&child_key).unwrap();
         graph.reroot(new_id);
-        assert_eq!(graph.node(graph.root()).preferred_direction, Some(Direction::Left));
-        assert_eq!(graph.node(graph.root()).preferred_reply.get(&Direction::Left), Some(&edge.joint_action));
+        assert_eq!(
+            graph.node(graph.root()).preferred_direction,
+            Some(Direction::Left)
+        );
+        assert_eq!(
+            graph
+                .node(graph.root())
+                .preferred_reply
+                .get(&Direction::Left),
+            Some(&edge.joint_action)
+        );
         assert_eq!(graph.node(graph.root()).last_search.unwrap().depth, 2);
     }
 

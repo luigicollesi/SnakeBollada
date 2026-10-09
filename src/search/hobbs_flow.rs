@@ -18,7 +18,10 @@ use crate::simulation::joint_action::JointAction;
 
 use super::budget::SearchBudget;
 use super::forecast::ForecastCertainty;
-use super::graph::{CachedSearchValue, FutureGraph, NodeId, ResponseLookup, SearchBoundKind, SearchEdge, SearchError};
+use super::graph::{
+    CachedSearchValue, FutureGraph, NodeId, ResponseLookup, SearchBoundKind, SearchEdge,
+    SearchError,
+};
 use super::path::{FuturePath, FutureStep, MAX_SEARCH_DEPTH};
 
 #[derive(Debug, Clone)]
@@ -236,7 +239,10 @@ fn evaluate_minimax(
             rank.score,
             StateScore::Win | StateScore::Loss | StateScore::Tie
         )
-        .then(|| u16::try_from(graph.node(node_id).state.turn.saturating_sub(root_turn)).unwrap_or(u16::MAX));
+        .then(|| {
+            u16::try_from(graph.node(node_id).state.turn.saturating_sub(root_turn))
+                .unwrap_or(u16::MAX)
+        });
         return Ok(Some(Route {
             rank,
             path: FuturePath::empty(),
@@ -313,8 +319,13 @@ fn evaluate_minimax(
             if budget.expired() {
                 return Ok(None);
             }
-            let SearchEdge { joint_action, child, forecast_delta } = edge;
-            let child_safety = worst_safety(path_safety, assess_survival_state(&graph.node(child).state));
+            let SearchEdge {
+                joint_action,
+                child,
+                forecast_delta,
+            } = edge;
+            let child_safety =
+                worst_safety(path_safety, assess_survival_state(&graph.node(child).state));
             let Some(mut candidate) = evaluate_minimax(
                 graph,
                 child,
@@ -326,7 +337,8 @@ fn evaluate_minimax(
                 local_beta.clone(),
                 child_safety,
                 root_turn,
-            )? else {
+            )?
+            else {
                 return Ok(None);
             };
             candidate.path = candidate.path.prepend(FutureStep {
@@ -344,7 +356,10 @@ fn evaluate_minimax(
                     continue;
                 }
             }
-            if worst.as_ref().is_none_or(|previous| compare_routes(&candidate, previous).is_lt()) {
+            if worst
+                .as_ref()
+                .is_none_or(|previous| compare_routes(&candidate, previous).is_lt())
+            {
                 worst = Some(candidate);
             }
             if let (Some(bound), Some(worst_so_far)) = (local_alpha.as_ref(), worst.as_ref()) {
@@ -354,7 +369,10 @@ fn evaluate_minimax(
                 }
             }
             if let Some(worst_so_far) = worst.as_ref() {
-                if local_beta.as_ref().is_none_or(|bound| compare_routes(worst_so_far, bound).is_lt()) {
+                if local_beta
+                    .as_ref()
+                    .is_none_or(|bound| compare_routes(worst_so_far, bound).is_lt())
+                {
                     local_beta = Some(worst_so_far.clone());
                 }
             }
@@ -364,7 +382,10 @@ fn evaluate_minimax(
         // inherited beta bound. This is a valid lower bound for MAX.
         if worst.is_none() {
             if let Some(limit) = beta.as_ref() {
-                if best.as_ref().is_none_or(|current| compare_routes(limit, current).is_gt()) {
+                if best
+                    .as_ref()
+                    .is_none_or(|current| compare_routes(limit, current).is_gt())
+                {
                     result_kind = SearchBoundKind::Lower;
                     best = Some(limit.clone());
                 }
@@ -395,7 +416,10 @@ fn evaluate_minimax(
                 }
             }
             if let Some(current) = best.as_ref() {
-                if local_alpha.as_ref().is_none_or(|bound| compare_routes(current, bound).is_gt()) {
+                if local_alpha
+                    .as_ref()
+                    .is_none_or(|bound| compare_routes(current, bound).is_gt())
+                {
                     local_alpha = Some(current.clone());
                 }
             }
@@ -408,20 +432,27 @@ fn evaluate_minimax(
         best = alpha.clone();
         result_kind = SearchBoundKind::Upper;
     } else if matches!(result_kind, SearchBoundKind::Exact)
-        && alpha.as_ref().is_some_and(|bound|
-            best.as_ref().is_some_and(|current| !compare_routes(current, bound).is_gt()))
+        && alpha.as_ref().is_some_and(|bound| {
+            best.as_ref()
+                .is_some_and(|current| !compare_routes(current, bound).is_gt())
+        })
     {
         result_kind = SearchBoundKind::Upper;
     }
     if let Some(result) = best.as_ref() {
         let best_direction = direction_of_first(graph, node_id, &result.path);
-        graph.record_search(node_id, depth, CachedSearchValue {
-            score: result.rank.score,
-            safety: result.rank.safety,
+        graph.record_search(
+            node_id,
             depth,
-            certainty: result.certainty,
-            bound: result_kind,
-        }, best_direction);
+            CachedSearchValue {
+                score: result.rank.score,
+                safety: result.rank.safety,
+                depth,
+                certainty: result.certainty,
+                bound: result_kind,
+            },
+            best_direction,
+        );
     }
     if let Some(route) = best.as_mut() {
         route.bound = result_kind;
