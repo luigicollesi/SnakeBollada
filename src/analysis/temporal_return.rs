@@ -10,9 +10,7 @@ use std::time::Instant;
 
 use crate::search::budget::SearchBudget;
 use crate::search::forecast::ForecastCertainty;
-use crate::search::graph::{
-    FutureGraph, NodeId, ResponseCoverage, ResponseLookup,
-};
+use crate::search::graph::{FutureGraph, NodeId, ResponseCoverage, ResponseLookup};
 use crate::Coord;
 
 const MAX_GOAL_CELLS: usize = 400;
@@ -162,8 +160,8 @@ impl Context<'_> {
             let mut saw_reply = false;
             let mut unknown_reply = false;
             let mut refuted = false;
-            let mut exhausted = graph.response_coverage(node, direction)
-                == ResponseCoverage::Complete;
+            let mut exhausted =
+                graph.response_coverage(node, direction) == ResponseCoverage::Complete;
 
             loop {
                 if self.out_of_budget(budget) {
@@ -220,11 +218,9 @@ impl Context<'_> {
             if saw_reply
                 && !unknown_reply
                 && (exhausted
-                    || graph.response_coverage(node, direction)
-                        == ResponseCoverage::Complete)
+                    || graph.response_coverage(node, direction) == ResponseCoverage::Complete)
             {
-                self.visited
-                    .insert(key, ReturnProof::VerifiedForFixedFood);
+                self.visited.insert(key, ReturnProof::VerifiedForFixedFood);
                 return ReturnProof::VerifiedForFixedFood;
             }
             unknown_direction = true;
