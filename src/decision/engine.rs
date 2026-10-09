@@ -2,8 +2,8 @@
 //! No strategic Food/Hunting mode and no legacy decision switch.
 
 use crate::analysis::{
-    analyze_territorial_control, detect_territorial_partition, verify_territorial_return,
-    ReturnExecution, ReturnExpansion, ReturnProof, TerritorialControlAnalysis,
+    analyze_territorial_control, detect_territorial_partition, verify_territorial_return_cached,
+    ReturnProof, TerritorialControlAnalysis,
 };
 use crate::direction::Direction;
 use crate::evaluation::StateScore;
@@ -153,7 +153,7 @@ impl TerritorialMode {
 /// Cap the work by both a tiny local timer and the request's safety reserve.
 fn trace_territory_shadow(
     state: &GameState,
-    graph: &mut FutureGraph,
+    graph: &FutureGraph,
     budget: &SearchBudget,
     selected: Direction,
 ) {
@@ -218,17 +218,14 @@ fn trace_territory_shadow(
                 cut_candidates += 1;
                 largest_partition = largest_partition.max(cut.lost_access);
                 if return_checks < 1 && Instant::now() < expires {
-                    let report = verify_territorial_return(
+                    let report = verify_territorial_return_cached(
                         graph,
                         edge.child,
                         &cut.target_region,
                         5,
                         120,
                         expires,
-                        ReturnExecution {
-                            expansion: ReturnExpansion::ReadOnly,
-                            budget,
-                        },
+                        budget,
                     );
                     return_checks += 1;
                     match report.result {
