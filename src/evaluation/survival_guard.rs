@@ -36,9 +36,6 @@ pub(crate) fn assess_state(state: &SimulatedGameState) -> TrapAssessment {
     if legal.is_empty() {
         return TrapAssessment::ProvenTrap;
     }
-    if legal.len() != 1 {
-        return TrapAssessment::Viable;
-    }
     let Some(head) = ours.head() else {
         return TrapAssessment::Unknown;
     };
@@ -56,9 +53,19 @@ pub(crate) fn assess_state(state: &SimulatedGameState) -> TrapAssessment {
             let Some(exit) = only_exit else {
                 return false;
             };
-            let distance = (enemy_head.x - exit.x).abs() + (enemy_head.y - exit.y).abs();
-            let horizon = i32::try_from(ours.length().min(4)).unwrap_or(4) + 1;
-            distance <= horizon
+            let distance_to_exit = (enemy_head.x - exit.x).abs()
+                + (enemy_head.y - exit.y).abs();
+            let distance_to_head = (enemy_head.x - head.x).abs()
+                + (enemy_head.y - head.y).abs();
+            if legal.len() == 1 {
+                // A single escape corridor near an equal-or-larger opponent
+                // is vulnerable to a forced pin, but not a proven death.
+                distance_to_exit <= i32::try_from(ours.length().min(4)).unwrap_or(4) + 1
+            } else {
+                // An edge corridor with another nominal move can still be
+                // contested if the stronger enemy is already at the exit.
+                legal.len() == 2 && distance_to_head <= 3
+            }
         });
     if near_wall && threatened {
         TrapAssessment::Constrained
@@ -126,6 +133,17 @@ mod tests {
         state.width = 11;
         state.height = 11;
         assert_eq!(assess_state(&state), TrapAssessment::Constrained);
+    }
+
+    #[test]
+    fn stronger_enemy_near_top_edge_creates_a_contested_exit() {
+        let mut board = board(
+            vec![(5, 10), (4, 10), (4, 9), (4, 8)],
+            vec![(5, 8), (5, 7), (4, 7), (3, 7), (2, 7), (1, 7)],
+        );
+        board.width = 11;
+        board.height = 11;
+        assert_eq!(assess_state(&board), TrapAssessment::Constrained);
     }
 
     #[test]

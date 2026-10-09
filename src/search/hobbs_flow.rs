@@ -223,6 +223,11 @@ fn evaluate_minimax(
             else {
                 return Ok(None);
             };
+            // Preserve structural exposure encountered along the entire
+            // forecast path; otherwise a deep leaf can hide an earlier pin.
+            let immediate_safety = assess_survival_state(&graph.node(child).state);
+            candidate.rank.safety =
+                worst_safety(candidate.rank.safety, immediate_safety);
             candidate.path = candidate.path.prepend(BeamStep {
                 node: node_id,
                 joint_action,
@@ -248,6 +253,16 @@ fn evaluate_minimax(
         }
     }
     Ok(best)
+}
+
+fn worst_safety(left: TrapAssessment, right: TrapAssessment) -> TrapAssessment {
+    use TrapAssessment::{Constrained, ProvenTrap, Unknown, Viable};
+    match (left, right) {
+        (ProvenTrap, _) | (_, ProvenTrap) => ProvenTrap,
+        (Constrained, _) | (_, Constrained) => Constrained,
+        (Unknown, _) | (_, Unknown) => Unknown,
+        (Viable, Viable) => Viable,
+    }
 }
 
 fn direction_of_first(graph: &FutureGraph, node: NodeId, path: &BeamPath) -> Option<Direction> {
@@ -305,6 +320,18 @@ mod tests {
                 hazard_damage_per_turn: 0,
             },
         }
+    }
+
+    #[test]
+    fn forecast_preserves_worst_intermediate_safety() {
+        assert_eq!(
+            worst_safety(TrapAssessment::Viable, TrapAssessment::Constrained),
+            TrapAssessment::Constrained
+        );
+        assert_eq!(
+            worst_safety(TrapAssessment::Constrained, TrapAssessment::ProvenTrap),
+            TrapAssessment::ProvenTrap
+        );
     }
 
     #[test]
