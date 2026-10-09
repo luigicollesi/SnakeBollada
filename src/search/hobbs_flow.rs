@@ -1,0 +1,310 @@
+//! Hobbs-style paranoid search over the existing FutureGraph.
+//!
+//! The route value comes from the reached state, not the sum of Food,
+//! Hunting and Survival transition scores. Every enumerated enemy response
+//! participates in MIN; opponent intent only affects expansion order.
+//! Iterative deepening commits the previous complete depth on timeout.
+
+use std::collections::HashMap;
+
+use crate::analysis::TemporalTerritory;
+use crate::direction::Direction;
+use crate::evaluation::{
+    assess_survival_state, evaluate_hobbs_state, HobbsScoreParams, StateScore, TrapAssessment,
+};
+use crate::simulation::joint_action::JointAction;
+
+use super::beam::{BeamPath, BeamStep, MAX_BEAM_DEPTH};
+use super::budget::SearchBudget;
+use super::forecast::{ForecastCertainty, ForecastDelta};
+use super::graph::{FutureGraph, NodeId, SearchError};
+
+#[derive(Debug, Clone)]
+pub(crate) struct HobbsSearchResult {
+    pub(crate) direction: Direction,
+    pub(crate) score: StateScore,
+    pub(crate) survival: TrapAssessment,
+    pub(crate) path: BeamPath,
+    pub(crate) completed_depth: u8,
+    pub(crate) root_directions: usize,
+    pub(crate) certainty: ForecastCertainty,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+struct RouteRank {
+    // This is a structural gate, never a weighted Survival contribution.
+    survives: bool,
+    score: StateScore,
+}
+
+#[derive(Debug, Clone)]
+struct Route {
+    rank: RouteRank,
+    path: BeamPath,
+    certainty: ForecastCertainty,
+}
+
+type ScoredCache = HashMap<NodeId, RouteRank>;
+
+pub(crate) fn search_hobbs(
+    graph: &mut FutureGraph,
+    budget: &SearchBudget,
+) -> Result<Option<HobbsSearchResult>, SearchError> {
+    // The soft deadline leaves headroom for serialization and runtime jitter.
+    let search_budget = budget.limited_to_soft_deadline();
+    let mut scored = ScoredCache::new();
+    let root = graph.root();
+    let mut last_complete = None;
+    for depth in 1..=MAX_BEAM_DEPTH {
+        if search_budget.expired() {
+            break;
+        }
+        let Some(route) = evaluate_minimax(
+            graph,
+            root,
+            depth,
+            ForecastCertainty::Deterministic,
+            &search_budget,
+            &mut scored,
+        )? else {
+            break;
+        };
+
+        let Some(our_actor) = graph
+            .node(root)
+            .state
+            .actor_index(&graph.node(root).state.our_snake_id)
+        else {
+            return Ok(last_complete);
+        };
+        let Some(direction) = route
+            .path
+            .first()
+            .and_then(|step| step.joint_action.direction_for(our_actor))
+        else {
+            return Ok(last_complete);
+        };
+
+        let directions = graph
+            .node(root)
+            .children
+            .iter()
+            .filter_map(|edge| edge.joint_action.direction_for(our_actor))
+            .collect::<std::collections::HashSet<_>>();
+        let survival = if route.rank.survives {
+            TrapAssessment::Viable
+        } else if route.rank.score == StateScore::Loss {
+            TrapAssessment::Unknown
+        } else {
+            TrapAssessment::ProvenTrap
+        };
+        log::debug!(
+            target: "search_diagnostics",
+            "hobbs_depth turn={} depth={} move={:?} score={:?} survival={:?} root_directions={} nodes={}",
+            graph.node(root).state.turn,
+            depth,
+            direction,
+            route.rank.score,
+            survival,
+            directions.len(),
+            graph.node_count(),
+        );
+        last_complete = Some(HobbsSearchResult {
+            direction,
+            score: route.rank.score,
+            survival,
+            path: route.path,
+            completed_depth: depth,
+            root_directions: directions.len(),
+            certainty: route.certainty,
+        });
+        // If the winner/loser is known at an immediate horizon and verified
+        // deterministic, continuing cannot change that branch's outcome.
+        if depth > 1 && matches!(route.rank.score, StateScore::Win)
+            && !route.certainty.is_provisional()
+        {
+            break;
+        }
+    }
+    Ok(last_complete)
+}
+
+fn evaluate_minimax(
+    graph: &mut FutureGraph,
+    node_id: NodeId,
+    depth: u8,
+    certainty: ForecastCertainty,
+    budget: &SearchBudget,
+    cache: &mut ScoredCache,
+) -> Result<Option<Route>, SearchError> {
+    if budget.expired() {
+        return Ok(None);
+    }
+    if graph.node(node_id).is_terminal() || depth == 0 {
+        let rank = *cache.entry(node_id).or_insert_with(|| evaluate_leaf(graph, node_id));
+        return Ok(Some(Route {
+            rank,
+            path: BeamPath::empty(),
+            certainty,
+        }));
+    }
+
+    let expansion = graph.expand_prioritized_subtree(node_id, 1, budget)?;
+    if !expansion.completed {
+        return Ok(None);
+    }
+
+    let node = graph.node(node_id);
+    let Some(our_actor) = node.state.actor_index(&node.state.our_snake_id) else {
+        return Ok(None);
+    };
+
+    // Copy only the lightweight descriptors; we must release the graph
+    // borrow before exploring descendants mutably.
+    let mut choices = Vec::<(Direction, Vec<(JointAction, NodeId, ForecastDelta)>)>::new();
+    for direction in Direction::ALL {
+        let alternatives = node
+            .children
+            .iter()
+            .filter(|edge| edge.joint_action.direction_for(our_actor) == Some(direction))
+            .map(|edge| (edge.joint_action.clone(), edge.child, edge.forecast_delta))
+            .collect::<Vec<_>>();
+        if !alternatives.is_empty() {
+            choices.push((direction, alternatives));
+        }
+    }
+    if choices.is_empty() {
+        let rank = *cache.entry(node_id).or_insert_with(|| evaluate_leaf(graph, node_id));
+        return Ok(Some(Route {
+            rank,
+            path: BeamPath::empty(),
+            certainty,
+        }));
+    }
+
+    let mut best: Option<Route> = None;
+    for (direction, responses) in choices {
+        let mut worst: Option<Route> = None;
+        for (joint_action, child, forecast_delta) in responses {
+            if budget.expired() {
+                return Ok(None);
+            }
+            let child_certainty = certainty.after(forecast_delta);
+            let Some(mut candidate) = evaluate_minimax(
+                graph,
+                child,
+                depth - 1,
+                child_certainty,
+                budget,
+                cache,
+            )? else {
+                return Ok(None);
+            };
+            candidate.path = candidate.path.prepend(BeamStep {
+                node: node_id,
+                joint_action,
+                child,
+            });
+            if worst.as_ref().is_none_or(|previous| candidate.rank < previous.rank) {
+                worst = Some(candidate);
+            }
+        }
+        if let Some(worst_response) = worst {
+            if best.as_ref().is_none_or(|previous| {
+                worst_response.rank > previous.rank ||
+                (worst_response.rank == previous.rank &&
+                 direction.rank() < direction_of_first(graph, node_id, &previous.path).map_or(u8::MAX, Direction::rank))
+            }) {
+                best = Some(worst_response);
+            }
+        }
+    }
+    Ok(best)
+}
+
+fn direction_of_first(
+    graph: &FutureGraph,
+    node: NodeId,
+    path: &BeamPath,
+) -> Option<Direction> {
+    let state = &graph.node(node).state;
+    let our_actor = state.actor_index(&state.our_snake_id)?;
+    path.first()?.joint_action.direction_for(our_actor)
+}
+
+fn evaluate_leaf(graph: &FutureGraph, node_id: NodeId) -> RouteRank {
+    let state = &graph.node(node_id).state;
+    let Some(actor) = state.actor_index(&state.our_snake_id) else {
+        return RouteRank {
+            survives: false,
+            score: StateScore::Loss,
+        };
+    };
+    let params = HobbsScoreParams::STANDARD;
+    let territory =
+        TemporalTerritory::from_state(state, params.fill_cycles, params.cell_weights);
+    let score = evaluate_hobbs_state(state, &territory, actor, params).score;
+    let survival = assess_survival_state(state);
+    RouteRank {
+        survives: score != StateScore::Loss
+            && score != StateScore::Tie
+            && survival != TrapAssessment::ProvenTrap,
+        score,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::simulation::state::{RulesContext, SimulatedGameState, SimulatedSnake};
+    use crate::Coord;
+    use std::time::Duration;
+
+    fn snake(id: &str, x: i32, y: i32, length: usize) -> SimulatedSnake {
+        SimulatedSnake {
+            id: id.to_string(),
+            health: 100,
+            body: vec![Coord { x, y }; length],
+            alive: true,
+        }
+    }
+
+    fn state() -> SimulatedGameState {
+        SimulatedGameState {
+            turn: 0,
+            width: 7,
+            height: 7,
+            food: vec![Coord { x: 3, y: 4 }],
+            hazards: vec![],
+            snakes: vec![snake("ours", 1, 2, 3), snake("enemy", 5, 5, 3)],
+            our_snake_id: "ours".to_string(),
+            rules: RulesContext {
+                name: "standard".to_string(),
+                max_health: 100,
+                hazard_damage_per_turn: 0,
+            },
+        }
+    }
+
+    #[test]
+    fn all_root_directions_receive_a_pessimistic_answer() {
+        let mut graph = FutureGraph::new_beam(state());
+        let budget = SearchBudget::for_duration(Duration::from_secs(4));
+        let result = search_hobbs(&mut graph, &budget).unwrap().unwrap();
+        assert!(result.completed_depth >= 1);
+        assert!(result.root_directions >= 2);
+        assert_eq!(
+            result.path.first().unwrap().joint_action.direction_for(
+                graph.node(graph.root()).state.actor_index("ours").unwrap()
+            ),
+            Some(result.direction)
+        );
+    }
+
+    #[test]
+    fn no_depth_is_committed_when_budget_is_empty() {
+        let mut graph = FutureGraph::new_beam(state());
+        let budget = SearchBudget::for_duration(Duration::ZERO);
+        assert!(search_hobbs(&mut graph, &budget).unwrap().is_none());
+    }
+}
