@@ -4,8 +4,8 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::Arc;
 
 use crate::decision::joint_actions::JointActionGenerator;
-use crate::direction::{Direction, MoveMask};
 use crate::decision::state_key::StateKey;
+use crate::direction::{Direction, MoveMask};
 use crate::simulation::joint_action::JointAction;
 use crate::simulation::mobility::MobilityAnalysis;
 use crate::simulation::resolver::{resolve_turn, ResolveError};
@@ -250,9 +250,9 @@ impl FutureGraph {
             .filter(|direction| {
                 node.pending_by_direction.contains_key(direction)
                     || actor.is_some_and(|actor| {
-                        node.children.iter().any(|edge| {
-                            edge.joint_action.direction_for(actor) == Some(*direction)
-                        })
+                        node.children
+                            .iter()
+                            .any(|edge| edge.joint_action.direction_for(actor) == Some(*direction))
                     })
             })
             .collect()
@@ -288,7 +288,10 @@ impl FutureGraph {
         {
             return Ok(ResponseLookup::Edge(edge));
         }
-        if !self.nodes[node_id].pending_by_direction.contains_key(&direction) {
+        if !self.nodes[node_id]
+            .pending_by_direction
+            .contains_key(&direction)
+        {
             return Ok(ResponseLookup::Exhausted);
         }
         if budget.expired() {
