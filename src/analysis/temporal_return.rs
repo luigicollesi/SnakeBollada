@@ -112,7 +112,7 @@ impl Context<'_> {
             return ReturnProof::NotGuaranteedWithinHorizon;
         }
         let mut unknown_direction = false;
-        for direction in moves {
+        for direction in moves.iter() {
             let mut worst = ReturnProof::VerifiedForFixedFood;
             let mut replies =
                 JointActionGenerator::new(state, MoveMask::single(direction), &mobility);
