@@ -1,6 +1,8 @@
 use std::time::Duration;
 
+use crate::analysis::TemporalTerritory;
 use crate::direction::Direction;
+use crate::evaluation::{evaluate_hobbs_state, HobbsEvaluation, HobbsScoreParams, StateScore};
 use crate::search::actor_priority::line_hunting_search_priority;
 use crate::search::beam::{BeamLine, LineTerminal};
 use crate::search::beam_search::{search_beam, BeamSearchResult};
@@ -83,6 +85,42 @@ impl DecisionEngine {
 
         let result = search_beam(graph, &budget).ok().flatten()?;
         let selected = select_line_with_continuity(graph, &result, incumbent_direction)?.clone();
+        // Shadow validation only: the current decision remains controlled by
+        // the original beam evaluation until the migration is complete.
+        if log::log_enabled!(log::Level::Debug) {
+            let root_state = &graph.node(graph.root()).state;
+            if let Some(actor) = root_state.actor_index(&root_state.our_snake_id) {
+                let params = HobbsScoreParams::STANDARD;
+                let territory =
+                    TemporalTerritory::from_state(root_state, params.fill_cycles, params.cell_weights);
+                let hobbs: HobbsEvaluation =
+                    evaluate_hobbs_state(root_state, &territory, actor, params);
+                let mode = match hobbs.score {
+                    StateScore::Loss => "loss",
+                    StateScore::Tie => "tie",
+                    StateScore::LowHealth { .. } => "low_health",
+                    StateScore::Normal { .. } => "normal",
+                    StateScore::Win => "win",
+                };
+                let head_owner = root_state
+                    .snake_at(actor)
+                    .and_then(|snake| snake.head())
+                    .and_then(|head| territory.owner_at(head))
+                    .map(|owner| owner.as_usize());
+                log::debug!(
+                    target: "search_diagnostics",
+                    "hobbs_shadow turn={} mode={} score={:?} territory_milli={} length_bonus_milli={} health={} head_owner={:?}",
+                    state.turn,
+                    mode,
+                    hobbs.score,
+                    hobbs.territory_milli,
+                    hobbs.length_bonus_milli,
+                    hobbs.health,
+                    head_owner,
+                );
+            }
+        }
+
         if let Some(root_analysis) = graph.node(graph.root()).active_analysis() {
             if let Some(our_actor) = graph
                 .node(graph.root())
