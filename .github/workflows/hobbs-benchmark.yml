@@ -1,5 +1,9 @@
 name: Hovering Hobbs Benchmark (manual, localhost only)
 on:
+  push:
+    branches: [dev]
+    paths:
+      - .github/workflows/hobbs-benchmark.yml
   workflow_dispatch:
     inputs:
       seeds:
@@ -35,7 +39,7 @@ jobs:
           echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
       - name: Play deterministic local-only matches
         env:
-          BENCHMARK_SEEDS: ${{ inputs.seeds }}
+          BENCHMARK_SEEDS: ${{ inputs.seeds || '20261002 20261003 20261004' }}
         run: |
           set -euo pipefail
           read -r -a seeds <<< "$BENCHMARK_SEEDS"
