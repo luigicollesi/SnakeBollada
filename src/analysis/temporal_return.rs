@@ -10,7 +10,10 @@ use std::time::Instant;
 
 use crate::search::budget::SearchBudget;
 use crate::search::forecast::ForecastCertainty;
-use crate::search::graph::{FutureGraph, NodeId, ResponseCoverage, ResponseLookup};
+use crate::direction::Direction;
+use crate::search::graph::{
+    FutureGraph, NodeId, ResponseCoverage, ResponseLookup, SearchError, SearchNode,
+};
 use crate::Coord;
 
 const MAX_GOAL_CELLS: usize = 400;
@@ -69,12 +72,152 @@ pub(crate) fn verify_return(
     deadline: Instant,
     execution: ReturnExecution<'_>,
 ) -> ReturnAnalysis {
+    match execution.expansion {
+        ReturnExpansion::ReadOnly => verify_return_cached(
+            graph,
+            start,
+            destinations,
+            horizon,
+            limit,
+            deadline,
+            execution.budget,
+        ),
+        ReturnExpansion::WithinBudget => {
+            let mut adapter = ExpandingGraph(graph);
+            analyze_return(
+                &mut adapter,
+                start,
+                destinations,
+                horizon,
+                limit,
+                deadline,
+                execution.budget,
+            )
+        }
+    }
+}
+
+/// Immutable entry point used by shadow mode. Neither search-generator state
+/// nor move-ordering hints can be initialized or changed by this call.
+pub(crate) fn verify_return_cached(
+    graph: &FutureGraph,
+    start: NodeId,
+    destinations: &[Coord],
+    horizon: u8,
+    limit: usize,
+    deadline: Instant,
+    budget: &SearchBudget,
+) -> ReturnAnalysis {
+    let mut adapter = CachedGraph(graph);
+    analyze_return(
+        &mut adapter,
+        start,
+        destinations,
+        horizon,
+        limit,
+        deadline,
+        budget,
+    )
+}
+
+trait ReturnGraphAccess {
+    fn node(&self, node: NodeId) -> &SearchNode;
+    fn directions(&mut self, node: NodeId) -> Option<Vec<Direction>>;
+    fn retained(&self, node: NodeId) -> bool;
+    fn known(&self, node: NodeId, direction: Direction) -> Vec<crate::search::graph::SearchEdge>;
+    fn coverage(&self, node: NodeId, direction: Direction) -> ResponseCoverage;
+    fn response(
+        &mut self,
+        node: NodeId,
+        direction: Direction,
+        index: usize,
+        budget: &SearchBudget,
+    ) -> Result<ResponseLookup, SearchError>;
+}
+
+struct CachedGraph<'a>(&'a FutureGraph);
+
+impl ReturnGraphAccess for CachedGraph<'_> {
+    fn node(&self, node: NodeId) -> &SearchNode {
+        self.0.node(node)
+    }
+
+    fn directions(&mut self, node: NodeId) -> Option<Vec<Direction>> {
+        self.0.cached_directions(node)
+    }
+
+    fn retained(&self, node: NodeId) -> bool {
+        self.0.responses_retained_after_decision(node)
+    }
+
+    fn known(&self, node: NodeId, direction: Direction) -> Vec<crate::search::graph::SearchEdge> {
+        self.0.known_responses(node, direction)
+    }
+
+    fn coverage(&self, node: NodeId, direction: Direction) -> ResponseCoverage {
+        self.0.response_coverage(node, direction)
+    }
+
+    fn response(
+        &mut self,
+        _node: NodeId,
+        _direction: Direction,
+        _index: usize,
+        _budget: &SearchBudget,
+    ) -> Result<ResponseLookup, SearchError> {
+        // An unexpanded response must be reported as Unknown, not resolved.
+        Ok(ResponseLookup::Deadline)
+    }
+}
+
+struct ExpandingGraph<'a>(&'a mut FutureGraph);
+
+impl ReturnGraphAccess for ExpandingGraph<'_> {
+    fn node(&self, node: NodeId) -> &SearchNode {
+        self.0.node(node)
+    }
+
+    fn directions(&mut self, node: NodeId) -> Option<Vec<Direction>> {
+        Some(self.0.available_directions(node))
+    }
+
+    fn retained(&self, node: NodeId) -> bool {
+        self.0.responses_retained_after_decision(node)
+    }
+
+    fn known(&self, node: NodeId, direction: Direction) -> Vec<crate::search::graph::SearchEdge> {
+        self.0.known_responses(node, direction)
+    }
+
+    fn coverage(&self, node: NodeId, direction: Direction) -> ResponseCoverage {
+        self.0.response_coverage(node, direction)
+    }
+
+    fn response(
+        &mut self,
+        node: NodeId,
+        direction: Direction,
+        index: usize,
+        budget: &SearchBudget,
+    ) -> Result<ResponseLookup, SearchError> {
+        self.0.next_response(node, direction, index, budget)
+    }
+}
+
+fn analyze_return(
+    graph: &mut impl ReturnGraphAccess,
+    start: NodeId,
+    destinations: &[Coord],
+    horizon: u8,
+    limit: usize,
+    deadline: Instant,
+    budget: &SearchBudget,
+) -> ReturnAnalysis {
     let mut context = Context {
         destinations,
         explored: 0,
         limit,
         deadline,
-        expansion: execution.expansion,
         visited: HashMap::new(),
         provisional_food: false,
     };
@@ -92,7 +235,7 @@ pub(crate) fn verify_return(
             start,
             horizon,
             ForecastCertainty::Deterministic,
-            execution.budget,
+            budget,
         )
     };
     ReturnAnalysis {
@@ -108,7 +251,6 @@ struct Context<'a> {
     explored: usize,
     limit: usize,
     deadline: Instant,
-    expansion: ReturnExpansion,
     // The target region is fixed for the whole query. Node IDs remain stable
     // during append-only expansion; no compact/reroot runs inside the query.
     visited: HashMap<(NodeId, u8, ForecastCertainty), ReturnProof>,
@@ -122,7 +264,7 @@ impl Context<'_> {
 
     fn prove(
         &mut self,
-        graph: &mut FutureGraph,
+        graph: &mut impl ReturnGraphAccess,
         node: NodeId,
         depth: u8,
         certainty: ForecastCertainty,
@@ -143,7 +285,7 @@ impl Context<'_> {
         }
         // Retention prunes sibling actions and may falsely mark their lazy
         // generators exhausted. Do not use such nodes as proof substrates.
-        if graph.responses_retained_after_decision(node) || self.out_of_budget(budget) {
+        if graph.retained(node) || self.out_of_budget(budget) {
             return ReturnProof::Unknown;
         }
         let key = (node, depth, certainty);
@@ -152,7 +294,9 @@ impl Context<'_> {
         }
 
         self.explored += 1;
-        let directions = graph.available_directions(node);
+        let Some(directions) = graph.directions(node) else {
+            return ReturnProof::Unknown;
+        };
         if directions.is_empty() {
             return ReturnProof::NotGuaranteedWithinHorizon;
         }
@@ -161,13 +305,13 @@ impl Context<'_> {
             if self.out_of_budget(budget) {
                 return ReturnProof::Unknown;
             }
-            let known = graph.known_responses(node, direction);
+            let known = graph.known(node, direction);
             let mut index = 0_usize;
             let mut saw_reply = false;
             let mut unknown_reply = false;
             let mut refuted = false;
             let mut exhausted =
-                graph.response_coverage(node, direction) == ResponseCoverage::Complete;
+                graph.coverage(node, direction) == ResponseCoverage::Complete;
 
             loop {
                 if self.out_of_budget(budget) {
@@ -176,10 +320,10 @@ impl Context<'_> {
                 }
                 let edge = if let Some(edge) = known.get(index) {
                     Some(edge.clone())
-                } else if exhausted || self.expansion == ReturnExpansion::ReadOnly {
+                } else if exhausted {
                     None
                 } else {
-                    match graph.next_response(node, direction, index, budget) {
+                    match graph.response(node, direction, index, budget) {
                         Ok(ResponseLookup::Edge(edge)) => Some(edge),
                         Ok(ResponseLookup::Exhausted) => {
                             exhausted = true;
@@ -224,7 +368,7 @@ impl Context<'_> {
             if saw_reply
                 && !unknown_reply
                 && (exhausted
-                    || graph.response_coverage(node, direction) == ResponseCoverage::Complete)
+                    || graph.coverage(node, direction) == ResponseCoverage::Complete)
             {
                 self.visited.insert(key, ReturnProof::VerifiedForFixedFood);
                 return ReturnProof::VerifiedForFixedFood;
