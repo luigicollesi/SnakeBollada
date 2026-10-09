@@ -351,7 +351,7 @@ mod tests {
             2,
             vec![
                 snake("ours", &[(0, 0), (0, 1), (1, 1)]),
-                snake("enemy", &[(1, 0)]),
+                snake("enemy", &[(1, 0), (1, 0)]),
             ],
         );
         // All next squares are blocked, including the optimistic enemy
@@ -362,20 +362,33 @@ mod tests {
     }
 
     #[test]
-    fn food_growth_keeps_old_tail_blocked() {
+    fn food_growth_prevents_stepping_into_the_vacating_tail() {
         let mut s = board(
-            2,
-            2,
+            4,
+            4,
             vec![
-                snake("ours", &[(0, 0), (0, 1), (1, 1)]),
-                snake("enemy", &[(1, 0), (1, 0)]),
+                snake("ours", &[(1, 1), (1, 0), (2, 0), (2, 1)]),
+                snake("enemy", &[(3, 3)]),
             ],
         );
-        // Force first move into an already occupied cell: eating never makes
-        // a retained body segment passable.
-        s.food.push(Coord { x: 0, y: 1 });
-        let o = CorridorOutlook::from_state(&s, "ours", 2).unwrap();
-        assert_eq!(o.continuing_exits, 0);
+        let release = vec![0; 16];
+        let path = ProjectedPath {
+            body: s.snakes[0].body.clone(),
+            health: 90,
+            remaining_food: Vec::new(),
+        };
+        assert!(path
+            .step(crate::direction::Direction::Right, 1, &s, &release, 4, 4)
+            .is_some(), "tail vacates without food");
+
+        s.food.push(Coord { x: 2, y: 1 });
+        let fed = ProjectedPath {
+            remaining_food: s.food.clone(),
+            ..path
+        };
+        assert!(fed
+            .step(crate::direction::Direction::Right, 1, &s, &release, 4, 4)
+            .is_none(), "eating holds the old tail in place");
     }
 
     #[test]
