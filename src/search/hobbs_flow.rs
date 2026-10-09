@@ -336,6 +336,10 @@ fn evaluate_minimax(
                 }
             }
         }
+        // Missing/pruned replies give only partial territorial information.
+        // Use the new heuristic only when every root direction has a sample;
+        // otherwise keep the previous total, transitive ordering intact.
+        let all_directions_sampled = territorial.len() == directions.len();
         directions.sort_by(|left, right| {
             let a = *left;
             let b = *right;
@@ -349,11 +353,17 @@ fn evaluate_minimax(
                 .unwrap_or((0, u8::MAX));
             (left_exits == 0)
                 .cmp(&(right_exits == 0))
-                .then_with(|| match (territorial.get(&a), territorial.get(&b)) {
-                    (Some(left_hint), Some(right_hint)) => {
-                        right_hint.ordering_key().cmp(&left_hint.ordering_key())
+                .then_with(|| {
+                    if all_directions_sampled {
+                        match (territorial.get(&a), territorial.get(&b)) {
+                            (Some(left_hint), Some(right_hint)) => {
+                                right_hint.ordering_key().cmp(&left_hint.ordering_key())
+                            }
+                            _ => Ordering::Equal,
+                        }
+                    } else {
+                        Ordering::Equal
                     }
-                    _ => Ordering::Equal,
                 })
                 .then_with(|| (Some(a) != preferred).cmp(&(Some(b) != preferred)))
                 .then_with(|| right_exits.cmp(&left_exits))
@@ -829,6 +839,7 @@ mod tests {
             ForecastCertainty::Deterministic,
             &budget,
             &mut scored,
+            false,
         )
         .unwrap()
         .unwrap();
