@@ -33,6 +33,7 @@ pub(crate) enum ReturnProof {
 /// Only the root engine may authorize new graph edges, and both modes share
 /// one response enumerator. Shadow uses ReadOnly to avoid consuming search
 /// depth or influencing the persistent search tree after a decision.
+#[cfg(test)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ReturnExpansion {
     ReadOnly,
@@ -42,6 +43,7 @@ pub(crate) enum ReturnExpansion {
 
 /// Execution policy and the shared search budget. The return analyzer cannot
 /// independently allocate an unconstrained simulation budget.
+#[cfg(test)]
 pub(crate) struct ReturnExecution<'a> {
     pub(crate) expansion: ReturnExpansion,
     pub(crate) budget: &'a SearchBudget,
@@ -63,6 +65,7 @@ pub(crate) struct ReturnAnalysis {
 ///
 /// Never infer legal-reply coverage merely from known_responses(). A branch
 /// with a missing rival response cannot establish a verified return.
+#[cfg(test)]
 pub(crate) fn verify_return(
     graph: &mut FutureGraph,
     start: NodeId,
@@ -170,8 +173,10 @@ impl ReturnGraphAccess for CachedGraph<'_> {
     }
 }
 
+#[cfg(test)]
 struct ExpandingGraph<'a>(&'a mut FutureGraph);
 
+#[cfg(test)]
 impl ReturnGraphAccess for ExpandingGraph<'_> {
     fn node(&self, node: NodeId) -> &SearchNode {
         self.0.node(node)
