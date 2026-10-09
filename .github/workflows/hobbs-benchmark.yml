@@ -1,5 +1,5 @@
 name: Hovering Hobbs Benchmark (manual, localhost only)
-# Re-run pinned three-seed local duel with territory diagnostics enabled.
+# Run pinned three-seed native localhost duels (no Docker Hub, no Vercel).
 # Strategic decisions remain unmodified (territorial mode = shadow).
 on:
   push:
@@ -25,16 +25,23 @@ jobs:
       - uses: actions/checkout@v4
       - name: Record SHA
         run: git rev-parse HEAD
-      - name: Build our local server
-        run: docker build -f Dockerfile -t snakebollada:duel .
-      - name: Build pinned Hovering Hobbs
+      - name: Install our Rust toolchain
+        uses: dtolnay/rust-toolchain@1.98.1
+      - name: Build our native local server
+        run: cargo build --release
+      - name: Build pinned Hovering Hobbs without Docker Hub
         run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends cmake protobuf-compiler
           mkdir -p /tmp/battlesnake-rs
           git -C /tmp/battlesnake-rs init
           git -C /tmp/battlesnake-rs remote add origin https://github.com/coreyja/battlesnake-rs.git
           git -C /tmp/battlesnake-rs fetch --depth 1 origin 3775c70676a4add680a19eb810c196d1e4820665
           git -C /tmp/battlesnake-rs checkout --detach FETCH_HEAD
-          docker build -t hovering-hobbs:duel /tmp/battlesnake-rs
+          rustup toolchain install nightly-2026-01-26 --profile minimal
+          cd /tmp/battlesnake-rs
+          cargo build --release --locked --bin web-axum
       - name: Install local Battlesnake CLI
         run: |
           go install github.com/BattlesnakeOfficial/rules/cli/battlesnake@latest
@@ -52,9 +59,10 @@ jobs:
           for seed in "${seeds[@]}" ; do
             [[ "$seed" =~ ^[0-9]+$ ]] || { echo "Bad seed" >&2; exit 1; }
             mkdir -p "runs/$seed"
-            docker rm -f snakebollada hovering-hobbs >/dev/null 2>&1 || true
-            docker run -d --name snakebollada -p 127.0.0.1:8000:8000 -e RUST_LOG=info -e SNAKE_TERRITORY_MODE=shadow snakebollada:duel >/dev/null
-            docker run -d --name hovering-hobbs -p 127.0.0.1:8001:8000 hovering-hobbs:duel >/dev/null
+            RUST_LOG=info ROCKET_ADDRESS=127.0.0.1 ROCKET_PORT=8000 SNAKE_TERRITORY_MODE=shadow ./target/release/snake-bollada > "runs/$seed/snakebollada.log" 2>&1 &
+            snake_pid=$!
+            PORT=8001 JSON_LOGS=1 /tmp/battlesnake-rs/target/release/web-axum > "runs/$seed/hobbs.log" 2>&1 &
+            hobbs_pid=$!
             ready=0
             for attempt in $(seq 1 35); do
               if curl -fsS --max-time 2 http://127.0.0.1:8000/ >/dev/null \
@@ -65,11 +73,12 @@ jobs:
               sleep 1
             done
             if [ "$ready" != 1 ]; then
-              docker logs snakebollada || true
-              docker logs hovering-hobbs || true
+              tail -n 80 "runs/$seed/snakebollada.log" || true
+              tail -n 80 "runs/$seed/hobbs.log" || true
+              kill "$snake_pid" "$hobbs_pid" 2>/dev/null || true
               exit 1
             fi
-            echo "LOCAL_DUEL seed=$seed ports=8000,8001"
+            echo "LOCAL_DUEL seed=$seed ports=8000,8001 mode=shadow runner=native"
             set +e
             timeout 660s battlesnake play \
               --width 11 --height 11 \
@@ -81,10 +90,9 @@ jobs:
             status=$?
             set -e
             echo "$status" > "runs/$seed/cli-exit-code.txt"
-            docker logs snakebollada > "runs/$seed/snakebollada.log" 2>&1 || true
-            docker logs hovering-hobbs > "runs/$seed/hobbs.log" 2>&1 || true
+            kill "$snake_pid" "$hobbs_pid" 2>/dev/null || true
+            wait "$snake_pid" "$hobbs_pid" 2>/dev/null || true
           done
-          docker rm -f snakebollada hovering-hobbs >/dev/null 2>&1 || true
       - name: Summarize match states
         if: always()
         run: |
