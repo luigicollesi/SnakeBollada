@@ -294,28 +294,28 @@ mod tests {
 
     #[test]
     fn open_board_proves_reentry_through_shared_graph() {
-        let board = state(vec![snake("ours", &[(0, 0)])]);
+        let board = state(vec![snake("ours", &[(0, 0)]), snake("enemy", &[(4, 4)])]);
         let result = run(board, Coord { x: 2, y: 0 }, 3, 600);
         assert_eq!(result.result, ReturnProof::VerifiedForFixedFood);
     }
 
     #[test]
     fn no_horizon_is_unknown() {
-        let board = state(vec![snake("ours", &[(0, 0)])]);
+        let board = state(vec![snake("ours", &[(0, 0)]), snake("enemy", &[(4, 4)])]);
         let result = run(board, Coord { x: 2, y: 0 }, 0, 300);
         assert_eq!(result.result, ReturnProof::Unknown);
     }
 
     #[test]
     fn insufficient_horizon_is_not_a_terminal_loss() {
-        let board = state(vec![snake("ours", &[(0, 0)])]);
+        let board = state(vec![snake("ours", &[(0, 0)]), snake("enemy", &[(4, 4)])]);
         let result = run(board, Coord { x: 4, y: 4 }, 2, 600);
         assert_eq!(result.result, ReturnProof::NotGuaranteedWithinHorizon);
     }
 
     #[test]
     fn exhausted_budget_never_claims_a_trap() {
-        let board = state(vec![snake("ours", &[(0, 0)])]);
+        let board = state(vec![snake("ours", &[(0, 0)]), snake("enemy", &[(4, 4)])]);
         let result = run(board, Coord { x: 4, y: 4 }, 6, 0);
         assert_eq!(result.result, ReturnProof::Unknown);
     }
@@ -363,7 +363,10 @@ mod tests {
 
     #[test]
     fn food_growth_is_resolved_by_shared_graph() {
-        let mut board = state(vec![snake("ours", &[(1, 1), (1, 0), (0, 0)])]);
+        let mut board = state(vec![
+            snake("ours", &[(1, 1), (1, 0), (0, 0)]),
+            snake("enemy", &[(4, 4)]),
+        ]);
         board.food.push(Coord { x: 2, y: 1 });
         let result = run(board, Coord { x: 2, y: 1 }, 1, 400);
         assert_eq!(result.result, ReturnProof::VerifiedForFixedFood);
@@ -371,7 +374,7 @@ mod tests {
 
     #[test]
     fn provisional_food_is_propagated_across_graph_edges() {
-        let board = state(vec![snake("ours", &[(1, 1)])]);
+        let board = state(vec![snake("ours", &[(1, 1)]), snake("enemy", &[(4, 4)])]);
         let forecast = FoodForecastPolicy {
             spawn_chance_percent: 10,
             minimum_food: 0,
@@ -429,7 +432,7 @@ mod tests {
 
     #[test]
     fn retained_root_cannot_claim_complete_opponent_coverage() {
-        let board = state(vec![snake("ours", &[(1, 1)])]);
+        let board = state(vec![snake("ours", &[(1, 1)]), snake("enemy", &[(4, 4)])]);
         let mut graph = FutureGraph::new_beam(board);
         graph.retain_chosen_direction(Direction::Right);
         let budget = SearchBudget::for_duration(Duration::from_secs(1));
