@@ -510,10 +510,11 @@ fn corridor_tactics(
     else {
         return (safety, 0);
     };
+    // One projected first exit can still lead to a sustainable circulation.
+    // Penalize only the absence of ANY projected continuation; the existing
+    // structural guard handles one-lane threats from stronger opponents.
     let safety = if ours.continuing_exits == 0 {
         worst_safety(safety, TrapAssessment::ForcedCorridor)
-    } else if ours.continuing_exits == 1 {
-        worst_safety(safety, TrapAssessment::Constrained)
     } else {
         safety
     };
