@@ -122,6 +122,7 @@ fn compare_routes(left: &Route, right: &Route) -> Ordering {
 
 type ScoredCache = HashMap<NodeId, RouteRank>;
 
+#[cfg(test)]
 fn alpha_cuts_reply(incumbent: &Route, worst_so_far: &Route) -> bool {
     // MIN cannot improve its value by inspecting additional replies. Once its
     // upper bound is <= this MAX incumbent, the action cannot win the MAX.
@@ -149,10 +150,7 @@ pub(crate) fn search_hobbs(
             ForecastCertainty::Deterministic,
             &search_budget,
             &mut scored,
-            None,
-            None,
-            TrapAssessment::Viable,
-            root_turn,
+            SearchWindow::root(root_turn),
         )?
         else {
             break;
@@ -215,6 +213,25 @@ pub(crate) fn search_hobbs(
 /// root-relative terminal distance and cumulative structural guard; ancestor
 /// bounds are therefore comparable with descendant values without rewriting
 /// them across edges.
+#[derive(Clone)]
+struct SearchWindow {
+    alpha: Option<Route>,
+    beta: Option<Route>,
+    path_safety: TrapAssessment,
+    root_turn: i32,
+}
+
+impl SearchWindow {
+    fn root(root_turn: i32) -> Self {
+        Self {
+            alpha: None,
+            beta: None,
+            path_safety: TrapAssessment::Viable,
+            root_turn,
+        }
+    }
+}
+
 fn evaluate_minimax(
     graph: &mut FutureGraph,
     node_id: NodeId,
@@ -222,10 +239,7 @@ fn evaluate_minimax(
     certainty: ForecastCertainty,
     budget: &SearchBudget,
     cache: &mut ScoredCache,
-    alpha: Option<Route>,
-    beta: Option<Route>,
-    path_safety: TrapAssessment,
-    root_turn: i32,
+    window: SearchWindow,
 ) -> Result<Option<Route>, SearchError> {
     if budget.expired() {
         return Ok(None);
@@ -234,13 +248,13 @@ fn evaluate_minimax(
         let mut rank = *cache
             .entry(node_id)
             .or_insert_with(|| evaluate_leaf(graph, node_id));
-        rank.safety = worst_safety(path_safety, rank.safety);
+        rank.safety = worst_safety(window.path_safety, rank.safety);
         let terminal_plies = matches!(
             rank.score,
             StateScore::Win | StateScore::Loss | StateScore::Tie
         )
         .then(|| {
-            u16::try_from(graph.node(node_id).state.turn.saturating_sub(root_turn))
+            u16::try_from(graph.node(node_id).state.turn.saturating_sub(window.root_turn))
                 .unwrap_or(u16::MAX)
         });
         return Ok(Some(Route {
@@ -259,7 +273,7 @@ fn evaluate_minimax(
         let mut rank = *cache
             .entry(node_id)
             .or_insert_with(|| evaluate_leaf(graph, node_id));
-        rank.safety = worst_safety(path_safety, rank.safety);
+        rank.safety = worst_safety(window.path_safety, rank.safety);
         return Ok(Some(Route {
             rank,
             path: FuturePath::empty(),
@@ -270,7 +284,7 @@ fn evaluate_minimax(
     }
 
     let mut best: Option<Route> = None;
-    let mut local_alpha = alpha.clone();
+    let mut local_alpha = window.alpha.clone();
     let mut result_kind = SearchBoundKind::Exact;
 
     for direction in directions {
@@ -301,7 +315,7 @@ fn evaluate_minimax(
         let mut old = known.into_iter();
         let mut next_index = count;
         let mut worst: Option<Route> = None;
-        let mut local_beta = beta.clone();
+        let mut local_beta = window.beta.clone();
         let mut cutoff = false;
         loop {
             let edge = if let Some(existing) = old.next() {
@@ -325,7 +339,7 @@ fn evaluate_minimax(
                 forecast_delta,
             } = edge;
             let child_safety =
-                worst_safety(path_safety, assess_survival_state(&graph.node(child).state));
+                worst_safety(window.path_safety, assess_survival_state(&graph.node(child).state));
             let Some(mut candidate) = evaluate_minimax(
                 graph,
                 child,
@@ -333,10 +347,12 @@ fn evaluate_minimax(
                 certainty.after(forecast_delta),
                 budget,
                 cache,
-                local_alpha.clone(),
-                local_beta.clone(),
-                child_safety,
-                root_turn,
+                SearchWindow {
+                    alpha: local_alpha.clone(),
+                    beta: local_beta.clone(),
+                    path_safety: child_safety,
+                    root_turn: window.root_turn,
+                },
             )?
             else {
                 return Ok(None);
@@ -381,7 +397,7 @@ fn evaluate_minimax(
         // MIN can have no exact reply only when every child exceeded an
         // inherited beta bound. This is a valid lower bound for MAX.
         if worst.is_none() {
-            if let Some(limit) = beta.as_ref() {
+            if let Some(limit) = window.beta.as_ref() {
                 if best
                     .as_ref()
                     .is_none_or(|current| compare_routes(limit, current).is_gt())
@@ -409,7 +425,7 @@ fn evaluate_minimax(
             }) {
                 best = Some(worst_response);
             }
-            if let (Some(bound), Some(current)) = (beta.as_ref(), best.as_ref()) {
+            if let (Some(bound), Some(current)) = (window.beta.as_ref(), best.as_ref()) {
                 if !compare_routes(current, bound).is_lt() {
                     result_kind = SearchBoundKind::Lower;
                     break;
@@ -429,10 +445,10 @@ fn evaluate_minimax(
     // When every direction failed low, this is only an upper bound and must
     // not displace an already selected move at an ancestor.
     if best.is_none() {
-        best = alpha.clone();
+        best = window.alpha.clone();
         result_kind = SearchBoundKind::Upper;
     } else if matches!(result_kind, SearchBoundKind::Exact)
-        && alpha.as_ref().is_some_and(|bound| {
+        && window.alpha.as_ref().is_some_and(|bound| {
             best.as_ref()
                 .is_some_and(|current| !compare_routes(current, bound).is_gt())
         })
@@ -716,10 +732,7 @@ mod tests {
             ForecastCertainty::Deterministic,
             &budget,
             &mut scored,
-            None,
-            None,
-            TrapAssessment::Viable,
-            286,
+            SearchWindow::root(286),
         )
         .unwrap()
         .unwrap();
