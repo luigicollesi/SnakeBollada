@@ -54,9 +54,8 @@ impl GameRuntime {
     pub(crate) async fn decide(&self, state: &GameState, started: Instant) -> Decision {
         // The handler has already begun consuming the Battlesnake timeout.
         // Reserve time for JSON serialization, networking, and runtime jitter.
-        let response_deadline = Duration::from_millis(
-            u64::from(state.game.timeout).saturating_sub(100).max(1),
-        );
+        let response_deadline =
+            Duration::from_millis(u64::from(state.game.timeout).saturating_sub(100).max(1));
         let remaining = response_deadline.saturating_sub(started.elapsed());
         if remaining.is_zero() {
             warn!("MOVE {} request already past response deadline", state.turn);
@@ -76,7 +75,10 @@ impl GameRuntime {
         let permit = match self.search_slots.clone().try_acquire_owned() {
             Ok(permit) => permit,
             Err(_) => {
-                warn!("MOVE {} CPU search capacity exhausted; safe fallback", state.turn);
+                warn!(
+                    "MOVE {} CPU search capacity exhausted; safe fallback",
+                    state.turn
+                );
                 return crate::strategy::choose_move_baseline(state);
             }
         };

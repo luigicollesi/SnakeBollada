@@ -49,7 +49,9 @@ impl DecisionEngine {
         request_started: Instant,
     ) -> Option<Decision> {
         let budget = SearchBudget::from_state_with_extra_reserve_at(
-            state, extra_reserve_ms, request_started,
+            state,
+            extra_reserve_ms,
+            request_started,
         );
         graph.reset_performance();
         let hobbs = search_hobbs(graph, &budget).ok().flatten()?;
