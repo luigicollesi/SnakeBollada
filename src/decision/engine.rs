@@ -11,6 +11,7 @@ use crate::strategy::{
     SearchMetadata,
 };
 use crate::GameState;
+use std::time::Instant;
 
 #[derive(Debug, Default, Clone, Copy)]
 pub(crate) struct DecisionEngine;
@@ -37,7 +38,19 @@ impl DecisionEngine {
         graph: &mut FutureGraph,
         extra_reserve_ms: u64,
     ) -> Option<Decision> {
-        let budget = SearchBudget::from_state_with_extra_reserve(state, extra_reserve_ms);
+        self.try_decide_at(state, graph, extra_reserve_ms, Instant::now())
+    }
+
+    pub(crate) fn try_decide_at(
+        &self,
+        state: &GameState,
+        graph: &mut FutureGraph,
+        extra_reserve_ms: u64,
+        request_started: Instant,
+    ) -> Option<Decision> {
+        let budget = SearchBudget::from_state_with_extra_reserve_at(
+            state, extra_reserve_ms, request_started,
+        );
         graph.reset_performance();
         let hobbs = search_hobbs(graph, &budget).ok().flatten()?;
         if !direction_stays_in_bounds(state, hobbs.direction) {

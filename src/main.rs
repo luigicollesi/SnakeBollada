@@ -4,6 +4,7 @@ extern crate rocket;
 use std::collections::HashMap;
 use std::env;
 use std::thread;
+use std::time::Instant;
 
 use log::info;
 use rocket::fairing::AdHoc;
@@ -85,7 +86,8 @@ async fn handle_start(start_req: Json<GameState>, runtime: &State<GameRuntime>) 
 
 #[post("/move", format = "json", data = "<move_req>")]
 async fn handle_move(move_req: Json<GameState>, runtime: &State<GameRuntime>) -> Json<Value> {
-    let decision = runtime.decide(&move_req).await;
+    let request_started = Instant::now();
+    let decision = runtime.decide(&move_req, request_started).await;
 
     let hobbs = decision.search.hobbs;
     info!(
@@ -113,6 +115,11 @@ async fn handle_move(move_req: Json<GameState>, runtime: &State<GameRuntime>) ->
         hobbs.merge_us
     );
 
+    log::debug!(
+        target: "request_timing",
+        "move_handler turn={} elapsed_us={} timeout_ms={}",
+        move_req.turn, request_started.elapsed().as_micros(), move_req.game.timeout,
+    );
     Json(json!({
         "move": decision.direction.as_str(),
         "shout": debug_shout(decision.search.analyzed_depth),

@@ -1,5 +1,6 @@
 //! Per-game FutureGraph reuse. No learned Food/Hunting intention profiles.
 use std::collections::VecDeque;
+use std::time::Instant;
 
 use crate::decision::state_key::StateKey;
 use crate::search::forecast::FoodForecastPolicy;
@@ -41,10 +42,21 @@ pub(crate) struct DecisionState {
     graph: Option<FutureGraph>,
     previous_observed_food: Option<Vec<crate::Coord>>,
     runtime_history: RuntimeHistory,
+    last_turn: Option<i32>,
+    last_decision: Option<Decision>,
 }
 
 impl DecisionState {
-    pub(crate) fn decide(&mut self, state: &GameState) -> Decision {
+    pub(crate) fn decide_with_start(&mut self, state: &GameState, started: Instant) -> Decision {
+        if self.last_turn == Some(state.turn) {
+            if let Some(decision) = self.last_decision.as_ref() {
+                return decision.clone();
+            }
+        } else if self.last_turn.is_some_and(|turn| state.turn < turn) {
+            // Stale requests must never roll back the persistent FutureGraph.
+            return baseline_fallback(state);
+        }
+        let prep_started = Instant::now();
         let runtime_jitter_reserve_ms = self.runtime_history.jitter_reserve_ms();
         let forecast_policy = FoodForecastPolicy::from_game_state(state);
         let normalized = SimulatedGameState::from(state);
@@ -78,12 +90,22 @@ impl DecisionState {
             _ => FutureGraph::new_beam_with_forecast(normalized, forecast_policy),
         };
 
+        let prep_us = prep_started.elapsed().as_micros();
         let decision = DecisionEngine::stateless()
-            .try_decide(state, &mut graph, runtime_jitter_reserve_ms)
+            .try_decide_at(state, &mut graph, runtime_jitter_reserve_ms, started)
             .unwrap_or_else(|| baseline_fallback(state));
 
         graph.retain_chosen_direction(decision.direction);
+        let retained_nodes = graph.node_count();
+        log::debug!(
+            target: "request_timing",
+            "move_compute game={} turn={} prep_us={} search_us={} elapsed_us={} graph_nodes={}",
+            state.game.id, state.turn, prep_us, decision.search.elapsed_us,
+            started.elapsed().as_micros(), retained_nodes,
+        );
         self.graph = Some(graph);
+        self.last_turn = Some(state.turn);
+        self.last_decision = Some(decision.clone());
         self.previous_observed_food = Some(observed_food);
         self.runtime_history.record(
             decision.search.elapsed_us,
@@ -91,6 +113,21 @@ impl DecisionState {
         );
 
         decision
+    }
+
+    /// Runs on a blocking CPU worker, after the response was handed to the
+    /// async HTTP handler. Never charge this O(N) compaction to the move path.
+    pub(crate) fn post_response_maintenance(&mut self) {
+        if let Some(graph) = self.graph.as_mut() {
+            let started = Instant::now();
+            let before = graph.node_count();
+            graph.compact_retained();
+            log::debug!(
+                target: "request_timing",
+                "graph_maintenance before_nodes={} after_nodes={} elapsed_us={}",
+                before, graph.node_count(), started.elapsed().as_micros()
+            );
+        }
     }
 }
 

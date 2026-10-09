@@ -203,6 +203,10 @@ impl FutureGraph {
         self.nodes[root].exhausted_moves = MoveMask::all();
         self.nodes[root].mobility = None;
         self.nodes[root].generators_initialized = true;
+    }
+
+    /// Compaction happens after the reply is handed to the HTTP handler.
+    pub(crate) fn compact_retained(&mut self) {
         self.garbage_collect();
     }
 
@@ -598,6 +602,7 @@ mod tests {
         let original = graph.node(root).children[0].child;
         let key = graph.node(original).key.clone();
         graph.retain_chosen_direction(direction);
+        graph.compact_retained();
         assert_eq!(graph.edge_count(), 1);
         let actual = graph.find_node_by_key(&key).unwrap();
         graph.reroot(actual);
@@ -643,6 +648,7 @@ mod tests {
         );
         graph.record_worst_reply(child, Direction::Left, edge.joint_action.clone());
         graph.retain_chosen_direction(direction);
+        graph.compact_retained();
         let new_id = graph.find_node_by_key(&child_key).unwrap();
         graph.reroot(new_id);
         assert_eq!(
@@ -670,6 +676,7 @@ mod tests {
             .direction_for(actor)
             .unwrap();
         graph.retain_chosen_direction(selected);
+        graph.compact_retained();
         assert!(graph
             .node(graph.root())
             .children

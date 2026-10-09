@@ -16,7 +16,16 @@ pub(crate) struct SearchBudget {
 }
 
 impl SearchBudget {
+    #[cfg(test)]
     pub(crate) fn from_state_with_extra_reserve(state: &GameState, extra_reserve_ms: u64) -> Self {
+        Self::from_state_with_extra_reserve_at(state, extra_reserve_ms, Instant::now())
+    }
+
+    pub(crate) fn from_state_with_extra_reserve_at(
+        state: &GameState,
+        extra_reserve_ms: u64,
+        started: Instant,
+    ) -> Self {
         let timeout_ms = u64::from(state.game.timeout);
         let reported_latency_ms = state.you.latency.parse::<u64>().unwrap_or(0);
         let percentage_reserve = timeout_ms
@@ -29,7 +38,6 @@ impl SearchBudget {
             .saturating_add(extra_reserve_ms)
             .min(timeout_ms.saturating_sub(1));
 
-        let started = Instant::now();
         let safety_reserve = Duration::from_millis(reserve_ms);
         let hard_usable_ms = timeout_ms.saturating_sub(reserve_ms);
         let soft_usable_ms = timeout_ms
