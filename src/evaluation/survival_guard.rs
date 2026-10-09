@@ -21,9 +21,11 @@ pub(crate) fn assess_state(state: &SimulatedGameState) -> TrapAssessment {
     if !ours.alive {
         return TrapAssessment::Unknown;
     }
-    if !state.snakes.iter().any(|snake| {
-        snake.alive && snake.id != state.our_snake_id
-    }) {
+    if !state
+        .snakes
+        .iter()
+        .any(|snake| snake.alive && snake.id != state.our_snake_id)
+    {
         return TrapAssessment::Viable;
     }
 
@@ -72,28 +74,19 @@ mod tests {
 
     #[test]
     fn boxed_head_with_no_vacating_tail_is_proven_trap() {
-        let state = board(
-            vec![(0, 0), (0, 1), (1, 1), (1, 0), (1, 0)],
-            vec![(3, 3)],
-        );
+        let state = board(vec![(0, 0), (0, 1), (1, 1), (1, 0), (1, 0)], vec![(3, 3)]);
         assert_eq!(assess_state(&state), TrapAssessment::ProvenTrap);
     }
 
     #[test]
     fn one_escape_lane_is_not_a_trap() {
-        let state = board(
-            vec![(0, 0), (0, 1), (1, 1), (2, 1), (2, 0)],
-            vec![(3, 3)],
-        );
+        let state = board(vec![(0, 0), (0, 1), (1, 1), (2, 1), (2, 0)], vec![(3, 3)]);
         assert_eq!(assess_state(&state), TrapAssessment::Viable);
     }
 
     #[test]
     fn vacating_tail_preserves_escape() {
-        let state = board(
-            vec![(0, 0), (0, 1), (1, 1), (1, 0)],
-            vec![(3, 3)],
-        );
+        let state = board(vec![(0, 0), (0, 1), (1, 1), (1, 0)], vec![(3, 3)]);
         assert_eq!(assess_state(&state), TrapAssessment::Viable);
     }
 

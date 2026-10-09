@@ -66,7 +66,8 @@ pub(crate) fn search_hobbs(
             ForecastCertainty::Deterministic,
             &search_budget,
             &mut scored,
-        )? else {
+        )?
+        else {
             break;
         };
 
@@ -120,7 +121,8 @@ pub(crate) fn search_hobbs(
         });
         // If the winner/loser is known at an immediate horizon and verified
         // deterministic, continuing cannot change that branch's outcome.
-        if depth > 1 && matches!(route.rank.score, StateScore::Win)
+        if depth > 1
+            && matches!(route.rank.score, StateScore::Win)
             && !route.certainty.is_provisional()
         {
             break;
@@ -141,7 +143,9 @@ fn evaluate_minimax(
         return Ok(None);
     }
     if graph.node(node_id).is_terminal() || depth == 0 {
-        let rank = *cache.entry(node_id).or_insert_with(|| evaluate_leaf(graph, node_id));
+        let rank = *cache
+            .entry(node_id)
+            .or_insert_with(|| evaluate_leaf(graph, node_id));
         return Ok(Some(Route {
             rank,
             path: BeamPath::empty(),
@@ -174,7 +178,9 @@ fn evaluate_minimax(
         }
     }
     if choices.is_empty() {
-        let rank = *cache.entry(node_id).or_insert_with(|| evaluate_leaf(graph, node_id));
+        let rank = *cache
+            .entry(node_id)
+            .or_insert_with(|| evaluate_leaf(graph, node_id));
         return Ok(Some(Route {
             rank,
             path: BeamPath::empty(),
@@ -190,14 +196,9 @@ fn evaluate_minimax(
                 return Ok(None);
             }
             let child_certainty = certainty.after(forecast_delta);
-            let Some(mut candidate) = evaluate_minimax(
-                graph,
-                child,
-                depth - 1,
-                child_certainty,
-                budget,
-                cache,
-            )? else {
+            let Some(mut candidate) =
+                evaluate_minimax(graph, child, depth - 1, child_certainty, budget, cache)?
+            else {
                 return Ok(None);
             };
             candidate.path = candidate.path.prepend(BeamStep {
@@ -205,15 +206,20 @@ fn evaluate_minimax(
                 joint_action,
                 child,
             });
-            if worst.as_ref().is_none_or(|previous| candidate.rank < previous.rank) {
+            if worst
+                .as_ref()
+                .is_none_or(|previous| candidate.rank < previous.rank)
+            {
                 worst = Some(candidate);
             }
         }
         if let Some(worst_response) = worst {
             if best.as_ref().is_none_or(|previous| {
-                worst_response.rank > previous.rank ||
-                (worst_response.rank == previous.rank &&
-                 direction.rank() < direction_of_first(graph, node_id, &previous.path).map_or(u8::MAX, Direction::rank))
+                worst_response.rank > previous.rank
+                    || (worst_response.rank == previous.rank
+                        && direction.rank()
+                            < direction_of_first(graph, node_id, &previous.path)
+                                .map_or(u8::MAX, Direction::rank))
             }) {
                 best = Some(worst_response);
             }
@@ -222,11 +228,7 @@ fn evaluate_minimax(
     Ok(best)
 }
 
-fn direction_of_first(
-    graph: &FutureGraph,
-    node: NodeId,
-    path: &BeamPath,
-) -> Option<Direction> {
+fn direction_of_first(graph: &FutureGraph, node: NodeId, path: &BeamPath) -> Option<Direction> {
     let state = &graph.node(node).state;
     let our_actor = state.actor_index(&state.our_snake_id)?;
     path.first()?.joint_action.direction_for(our_actor)
@@ -241,8 +243,7 @@ fn evaluate_leaf(graph: &FutureGraph, node_id: NodeId) -> RouteRank {
         };
     };
     let params = HobbsScoreParams::STANDARD;
-    let territory =
-        TemporalTerritory::from_state(state, params.fill_cycles, params.cell_weights);
+    let territory = TemporalTerritory::from_state(state, params.fill_cycles, params.cell_weights);
     let score = evaluate_hobbs_state(state, &territory, actor, params).score;
     let survival = assess_survival_state(state);
     RouteRank {
@@ -294,9 +295,12 @@ mod tests {
         assert!(result.completed_depth >= 1);
         assert!(result.root_directions >= 2);
         assert_eq!(
-            result.path.first().unwrap().joint_action.direction_for(
-                graph.node(graph.root()).state.actor_index("ours").unwrap()
-            ),
+            result
+                .path
+                .first()
+                .unwrap()
+                .joint_action
+                .direction_for(graph.node(graph.root()).state.actor_index("ours").unwrap()),
             Some(result.direction)
         );
     }
