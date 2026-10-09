@@ -246,7 +246,9 @@ fn evaluate_minimax(
                 let root_state = &graph.node(node_id).state;
                 if node_id == graph.root()
                     && root_state.width == 11
-                    && root_state.snake(&root_state.our_snake_id).and_then(|s| s.head())
+                    && root_state
+                        .snake(&root_state.our_snake_id)
+                        .and_then(|s| s.head())
                         .is_some_and(|p| (p.x == 9 && p.y == 10) || (p.x == 2 && p.y == 9))
                 {
                     eprintln!(
