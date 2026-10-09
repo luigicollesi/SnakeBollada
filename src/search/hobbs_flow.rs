@@ -8,8 +8,12 @@
 use std::cmp::Ordering;
 use std::collections::HashMap;
 
-use crate::analysis::{adversarial_order, AdversarialCorridorOrder, TemporalTerritory};
+use crate::analysis::{
+    adversarial_order, AdversarialCorridorOrder, CorridorOutlook, TemporalTerritory,
+    CORRIDOR_HORIZON,
+};
 use crate::direction::Direction;
+use crate::simulation::mobility::MobilityAnalysis;
 use crate::evaluation::{
     assess_survival_state, evaluate_hobbs_state, HobbsScoreParams, StateScore, TrapAssessment,
 };
@@ -37,6 +41,9 @@ pub(crate) struct HobbsSearchResult {
 struct RouteRank {
     score: StateScore,
     safety: TrapAssessment,
+    // Tactical pressure is only a secondary, non-terminal ordering criterion.
+    // It can never turn an optimistic corridor forecast into a proven win.
+    pressure: u8,
 }
 
 impl RouteRank {
@@ -67,6 +74,7 @@ impl Ord for RouteRank {
     fn cmp(&self, other: &Self) -> Ordering {
         self.tier()
             .cmp(&other.tier())
+            .then_with(|| self.pressure.cmp(&other.pressure))
             .then_with(|| self.score.cmp(&other.score))
             .then_with(|| self.safety_rank().cmp(&other.safety_rank()))
     }
@@ -118,7 +126,36 @@ fn compare_routes(left: &Route, right: &Route) -> Ordering {
     }
 }
 
-type ScoredCache = HashMap<NodeId, RouteRank>;
+/// Search-scoped caches stay valid across iterative-deepening iterations.
+#[derive(Default)]
+struct ScoredCache {
+    leaf_ranks: HashMap<NodeId, RouteRank>,
+    corridor_orders: HashMap<NodeId, AdversarialCorridorOrder>,
+}
+
+impl ScoredCache {
+    fn new() -> Self {
+        Self::default()
+    }
+
+    fn entry(
+        &mut self,
+        id: NodeId,
+    ) -> std::collections::hash_map::Entry<'_, NodeId, RouteRank> {
+        self.leaf_ranks.entry(id)
+    }
+
+    fn get(&self, id: &NodeId) -> Option<&RouteRank> {
+        self.leaf_ranks.get(id)
+    }
+
+    fn corridor(&mut self, graph: &FutureGraph, node: NodeId) -> AdversarialCorridorOrder {
+        *self
+            .corridor_orders
+            .entry(node)
+            .or_insert_with(|| adversarial_order(&graph.node(node).state))
+    }
+}
 
 fn alpha_cuts_reply(incumbent: &Route, worst_so_far: &Route) -> bool {
     // MIN cannot improve its value by inspecting additional replies. Once its
@@ -245,7 +282,7 @@ fn evaluate_minimax(
             let mut worst_ours = u8::MAX;
             let mut best_enemy = 0_u8;
             for edge in known {
-                let forecast = adversarial_order(&graph.node(edge.child).state);
+                let forecast = cache.corridor(graph, edge.child);
                 worst_ours = worst_ours.min(forecast.our_continuations());
                 best_enemy = best_enemy.max(forecast.enemy_continuations());
             }
@@ -257,9 +294,9 @@ fn evaluate_minimax(
                 .copied()
                 .unwrap_or((0, u8::MAX));
             (
-                Some(*direction) != preferred,
                 std::cmp::Reverse(our_exits),
                 their_exits,
+                Some(*direction) != preferred,
                 direction.rank(),
             )
         });
@@ -290,7 +327,7 @@ fn evaluate_minimax(
         let corridor_hints = if node_id == graph.root() {
             known
                 .iter()
-                .map(|edge| (edge.child, adversarial_order(&graph.node(edge.child).state)))
+                .map(|edge| (edge.child, cache.corridor(graph, edge.child)))
                 .collect::<HashMap<NodeId, AdversarialCorridorOrder>>()
         } else {
             HashMap::new()
@@ -424,16 +461,77 @@ fn evaluate_leaf(graph: &FutureGraph, node_id: NodeId) -> RouteRank {
         return RouteRank {
             score: StateScore::Loss,
             safety: TrapAssessment::Unknown,
+            pressure: 0,
         };
     };
     let params = HobbsScoreParams::STANDARD;
     let territory = TemporalTerritory::from_state(state, params.fill_cycles, params.cell_weights);
     let score = evaluate_hobbs_state(state, &territory, actor, params).score;
     let survival = assess_survival_state(state);
+    let (safety, pressure) = corridor_tactics(state, score, survival);
     RouteRank {
         score,
-        safety: survival,
+        safety,
+        pressure,
     }
+}
+
+/// Only verify expensive local continuations on positions where at least
+/// one living snake has at most two immediately safe directions. Exact MIN
+/// responses remain responsible for proving whether an opponent can escape.
+fn corridor_tactics(
+    state: &crate::simulation::state::SimulatedGameState,
+    score: StateScore,
+    safety: TrapAssessment,
+) -> (TrapAssessment, u8) {
+    if !matches!(score, StateScore::Normal { .. })
+        || matches!(safety, TrapAssessment::ProvenTrap)
+    {
+        return (safety, 0);
+    }
+    let mobility = MobilityAnalysis::from_state(state);
+    if !state
+        .snakes
+        .iter()
+        .filter(|snake| snake.alive)
+        .any(|snake| mobility.deterministic_moves_for(state, &snake.id).len() <= 2)
+    {
+        return (safety, 0);
+    }
+
+    let Some(ours) =
+        CorridorOutlook::from_state(state, &state.our_snake_id, CORRIDOR_HORIZON)
+    else {
+        return (safety, 0);
+    };
+    let safety = if ours.continuing_exits == 0 {
+        worst_safety(safety, TrapAssessment::ForcedCorridor)
+    } else if ours.continuing_exits == 1 {
+        worst_safety(safety, TrapAssessment::Constrained)
+    } else {
+        safety
+    };
+    // A prospective enemy restriction only matters if we maintain more than
+    // one possible route ourselves. No tactical forecast implies a forced win.
+    let pressure = if ours.continuing_exits >= 2 {
+        state
+            .snakes
+            .iter()
+            .filter(|snake| snake.alive && snake.id != state.our_snake_id)
+            .filter_map(|enemy| {
+                CorridorOutlook::from_state(state, &enemy.id, CORRIDOR_HORIZON)
+                    .map(|outlook| match outlook.continuing_exits {
+                        0 => 2,
+                        1 => 1,
+                        _ => 0,
+                    })
+            })
+            .max()
+            .unwrap_or(0)
+    } else {
+        0
+    };
+    (safety, pressure)
 }
 
 #[cfg(test)]
@@ -471,7 +569,7 @@ mod tests {
 
     fn route(score: StateScore, safety: TrapAssessment, terminal_plies: Option<u16>) -> Route {
         Route {
-            rank: RouteRank { score, safety },
+            rank: RouteRank { score, safety, pressure: 0 },
             path: FuturePath::empty(),
             certainty: ForecastCertainty::Deterministic,
             terminal_plies,
@@ -682,6 +780,7 @@ mod tests {
         let forced = RouteRank {
             score: StateScore::Loss,
             safety: TrapAssessment::ForcedCorridor,
+            pressure: 0,
         };
         assert!(less_restricted > forced);
     }
@@ -703,12 +802,14 @@ mod tests {
         let win = RouteRank {
             score: StateScore::Win,
             safety: TrapAssessment::Unknown,
+            pressure: 0,
         };
         let normal = RouteRank {
             score: StateScore::Normal {
                 utility_milli: 2000,
             },
             safety: TrapAssessment::Viable,
+            pressure: 0,
         };
         assert!(win > normal);
     }
@@ -720,12 +821,14 @@ mod tests {
                 utility_milli: 1000,
             },
             safety: TrapAssessment::Constrained,
+            pressure: 0,
         };
         let viable = RouteRank {
             score: StateScore::Normal {
                 utility_milli: -200,
             },
             safety: TrapAssessment::Viable,
+            pressure: 0,
         };
         assert!(viable > constrained);
         assert!(
@@ -733,6 +836,7 @@ mod tests {
                 > RouteRank {
                     score: StateScore::Tie,
                     safety: TrapAssessment::Unknown,
+            pressure: 0,
                 }
         );
     }
