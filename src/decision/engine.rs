@@ -448,10 +448,11 @@ mod tests {
     }
 
     #[test]
-    fn territorial_mode_defaults_to_off_and_requires_explicit_shadow() {
+    fn territorial_mode_requires_explicit_shadow_or_ordering() {
         assert_eq!(TerritorialMode::parse(""), TerritorialMode::Off);
         assert_eq!(TerritorialMode::parse("guarded"), TerritorialMode::Off);
-        assert_eq!(TerritorialMode::parse("ordering"), TerritorialMode::Off);
+        assert_eq!(TerritorialMode::parse("ordering"), TerritorialMode::Ordering);
+        assert_eq!(TerritorialMode::parse(" Ordering "), TerritorialMode::Ordering);
         assert_eq!(TerritorialMode::parse("shadow"), TerritorialMode::Shadow);
         assert_eq!(TerritorialMode::parse(" Shadow "), TerritorialMode::Shadow);
     }
