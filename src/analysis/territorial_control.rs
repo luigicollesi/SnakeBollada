@@ -160,6 +160,94 @@ pub(crate) fn analyze(
     })
 }
 
+/// An immediate territorial partition after a fully resolved joint turn.
+/// This is a *trigger* for temporal analysis, not a proof of a fatal trap.
+/// Cells are destinations in the region previously reachable but not reachable
+/// in the new immediate connectivity graph.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct TerritorialPartition {
+    pub(crate) before: u16,
+    pub(crate) after: u16,
+    pub(crate) lost_access: u16,
+    pub(crate) target_region: Vec<Coord>,
+    pub(crate) self_blocked_gateways: Vec<Coord>,
+}
+
+pub(crate) fn partition_after(
+    before: &SimulatedGameState,
+    after: &SimulatedGameState,
+    snake_id: &str,
+) -> Option<TerritorialPartition> {
+    if before.width != after.width || before.height != after.height {
+        return None;
+    }
+    let width = usize::try_from(before.width).ok()?;
+    let height = usize::try_from(before.height).ok()?;
+    let size = width.checked_mul(height)?;
+    if size == 0 || size > MAX_CELLS {
+        return None;
+    }
+    let before_head = before.snake(snake_id).filter(|s| s.alive)?.head()?;
+    let after_head = after.snake(snake_id).filter(|s| s.alive)?.head()?;
+    let before_open = immediate_open(before, width, height);
+    let after_open = immediate_open(after, width, height);
+    let before_root = index(before_head, width, height)?;
+    let after_root = index(after_head, width, height)?;
+    let mut before_passable = before_open;
+    let mut after_passable = after_open;
+    before_passable[before_root] = true;
+    after_passable[after_root] = true;
+    let before_connected = region(before_root, &before_passable, width, height, None);
+    let after_connected = region(after_root, &after_passable, width, height, None);
+    let before_size = count(&before_connected);
+    let after_size = count(&after_connected);
+
+    // Compare genuinely open cells. Otherwise a cell newly blocked by our
+    // head could masquerade as a large, permanently lost territorial region.
+    let target_region: Vec<Coord> = (0..size)
+        .filter(|&i| before_connected[i] && !after_connected[i] && after_passable[i])
+        .map(|i| Coord {
+            x: (i % width) as i32,
+            y: (i / width) as i32,
+        })
+        .collect();
+    let lost_access = u16::try_from(target_region.len()).unwrap_or(u16::MAX);
+    // Do not treat a tail temporarily occupying the doorway as permanently
+    // blocked: the precise return prover simulates its later release.
+    let self_blocked_gateways = after
+        .snake(snake_id)?
+        .body
+        .iter()
+        .copied()
+        .filter(|&pos| {
+            index(pos, width, height)
+                .is_some_and(|i| before_connected[i] && !after_passable[i])
+        })
+        .collect();
+    if before_size < 12 || after_size >= before_size / 2 || lost_access < 8 {
+        return None;
+    }
+    Some(TerritorialPartition {
+        before: before_size,
+        after: after_size,
+        lost_access,
+        target_region,
+        self_blocked_gateways,
+    })
+}
+
+fn immediate_open(state: &SimulatedGameState, width: usize, height: usize) -> Vec<bool> {
+    let mut release = vec![0_usize; width * height];
+    for snake in state.snakes.iter().filter(|snake| snake.alive) {
+        for (segment, &pos) in snake.body.iter().enumerate() {
+            if let Some(cell) = index(pos, width, height) {
+                release[cell] = release[cell].max(snake.body.len().saturating_sub(segment));
+            }
+        }
+    }
+    release.iter().map(|&turns| turns <= 1).collect()
+}
+
 fn count(cells: &[bool]) -> u16 {
     u16::try_from(cells.iter().filter(|&&cell| cell).count()).unwrap_or(u16::MAX)
 }
