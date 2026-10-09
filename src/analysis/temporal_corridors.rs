@@ -377,18 +377,22 @@ mod tests {
             health: 90,
             remaining_food: Vec::new(),
         };
-        assert!(path
-            .step(crate::direction::Direction::Right, 1, &s, &release, 4, 4)
-            .is_some(), "tail vacates without food");
+        assert!(
+            path.step(crate::direction::Direction::Right, 1, &s, &release, 4, 4)
+                .is_some(),
+            "tail vacates without food"
+        );
 
         s.food.push(Coord { x: 2, y: 1 });
         let fed = ProjectedPath {
             remaining_food: s.food.clone(),
             ..path
         };
-        assert!(fed
-            .step(crate::direction::Direction::Right, 1, &s, &release, 4, 4)
-            .is_none(), "eating holds the old tail in place");
+        assert!(
+            fed.step(crate::direction::Direction::Right, 1, &s, &release, 4, 4)
+                .is_none(),
+            "eating holds the old tail in place"
+        );
     }
 
     #[test]
