@@ -775,6 +775,7 @@ mod tests {
         let less_restricted = RouteRank {
             score: StateScore::Loss,
             safety: TrapAssessment::Constrained,
+            pressure: 0,
         };
         let forced = RouteRank {
             score: StateScore::Loss,
@@ -838,6 +839,32 @@ mod tests {
                     pressure: 0,
                 }
         );
+    }
+
+    #[test]
+    fn corridor_pressure_is_a_tactical_tiebreaker_not_a_proven_win() {
+        let safe = RouteRank {
+            score: StateScore::Normal { utility_milli: 500 },
+            safety: TrapAssessment::Viable,
+            pressure: 0,
+        };
+        let threatening = RouteRank {
+            score: StateScore::Normal { utility_milli: 450 },
+            safety: TrapAssessment::Viable,
+            pressure: 2,
+        };
+        let unsafe_attack = RouteRank {
+            score: StateScore::Normal { utility_milli: 1000 },
+            safety: TrapAssessment::ForcedCorridor,
+            pressure: 2,
+        };
+        assert!(threatening > safe);
+        assert!(safe > unsafe_attack);
+        assert!(RouteRank {
+            score: StateScore::Win,
+            safety: TrapAssessment::Unknown,
+            pressure: 0,
+        } > threatening);
     }
 
     #[test]
