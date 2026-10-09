@@ -323,7 +323,9 @@ fn evaluate_minimax(
         if territory_ordering && depth >= 2 && !budget.expired() {
             let expires = Instant::now() + Duration::from_millis(2);
             for direction in &directions {
-                if Instant::now() >= expires { break; }
+                if Instant::now() >= expires {
+                    break;
+                }
                 if let Some(sample) = TerritoryDirectionSample::from_cached_replies(
                     graph,
                     *direction,
@@ -338,13 +340,19 @@ fn evaluate_minimax(
             let a = *left;
             let b = *right;
             let (left_exits, left_enemy) = corridor_by_direction
-                .get(&a).copied().unwrap_or((0, u8::MAX));
+                .get(&a)
+                .copied()
+                .unwrap_or((0, u8::MAX));
             let (right_exits, right_enemy) = corridor_by_direction
-                .get(&b).copied().unwrap_or((0, u8::MAX));
-            (left_exits == 0).cmp(&(right_exits == 0))
+                .get(&b)
+                .copied()
+                .unwrap_or((0, u8::MAX));
+            (left_exits == 0)
+                .cmp(&(right_exits == 0))
                 .then_with(|| match (territorial.get(&a), territorial.get(&b)) {
-                    (Some(left_hint), Some(right_hint)) =>
-                        right_hint.ordering_key().cmp(&left_hint.ordering_key()),
+                    (Some(left_hint), Some(right_hint)) => {
+                        right_hint.ordering_key().cmp(&left_hint.ordering_key())
+                    }
                     _ => Ordering::Equal,
                 })
                 .then_with(|| (Some(a) != preferred).cmp(&(Some(b) != preferred)))
@@ -427,8 +435,15 @@ fn evaluate_minimax(
                 forecast_delta,
             } = edge;
             let child_certainty = certainty.after(forecast_delta);
-            let Some(mut candidate) =
-                evaluate_minimax(graph, child, depth - 1, child_certainty, budget, cache, territory_ordering)?
+            let Some(mut candidate) = evaluate_minimax(
+                graph,
+                child,
+                depth - 1,
+                child_certainty,
+                budget,
+                cache,
+                territory_ordering,
+            )?
             else {
                 return Ok(None);
             };
