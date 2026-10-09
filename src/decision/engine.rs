@@ -3,7 +3,7 @@
 
 use crate::analysis::{
     analyze_territorial_control, detect_territorial_partition, verify_territorial_return,
-    ReturnExpansion, ReturnProof, TerritorialControlAnalysis,
+    ReturnExecution, ReturnExpansion, ReturnProof, TerritorialControlAnalysis,
 };
 use crate::direction::Direction;
 use crate::evaluation::StateScore;
@@ -225,8 +225,10 @@ fn trace_territory_shadow(
                         5,
                         120,
                         expires,
-                        ReturnExpansion::ReadOnly,
-                        budget,
+                        ReturnExecution {
+                            expansion: ReturnExpansion::ReadOnly,
+                            budget,
+                        },
                     );
                     return_checks += 1;
                     match report.result {
