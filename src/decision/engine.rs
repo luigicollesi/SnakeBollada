@@ -3,19 +3,22 @@
 
 use crate::analysis::{
     analyze_territorial_control, detect_territorial_partition, verify_territorial_return_cached,
-    ReturnProof, TerritorialControlAnalysis,
+    ReturnProof, TerritorialControlAnalysis, TerritoryTrajectory,
 };
 use crate::direction::Direction;
 use crate::evaluation::StateScore;
 use crate::search::budget::SearchBudget;
+use crate::search::forecast::ForecastCertainty;
 use crate::search::graph::FutureGraph;
 use crate::search::hobbs_flow::search_hobbs;
+use crate::search::path::FuturePath;
 use crate::simulation::state::{SimulatedGameState, SimulationSupport};
 use crate::strategy::{
     choose_move_baseline, direction_stays_in_bounds, Decision, DecisionReason, HobbsSearchMetadata,
     SearchMetadata,
 };
 use crate::GameState;
+use std::collections::HashMap;
 use std::sync::OnceLock;
 use std::time::{Duration, Instant};
 
@@ -62,7 +65,14 @@ impl DecisionEngine {
         graph.reset_performance();
         let hobbs = search_hobbs(graph, &budget).ok().flatten()?;
         if TerritorialMode::configured() == TerritorialMode::Shadow {
-            trace_territory_shadow(state, graph, &budget, hobbs.direction);
+            trace_territory_shadow(
+                state,
+                graph,
+                &budget,
+                hobbs.direction,
+                &hobbs.path,
+                hobbs.certainty,
+            );
         }
         if !direction_stays_in_bounds(state, hobbs.direction) {
             return None;
@@ -156,6 +166,8 @@ fn trace_territory_shadow(
     graph: &FutureGraph,
     budget: &SearchBudget,
     selected: Direction,
+    pessimistic_path: &FuturePath,
+    certainty: ForecastCertainty,
 ) {
     const SHADOW_LIMIT: Duration = Duration::from_millis(12);
     let request_timeout = Duration::from_millis(u64::from(state.game.timeout));
@@ -170,6 +182,29 @@ fn trace_territory_shadow(
         return;
     }
     let expires = Instant::now() + SHADOW_LIMIT;
+    // The route already contains the actual joint-turn sequence chosen by
+    // MAX/MIN. This snapshot-only pass cannot change the graph or the move.
+    let mut territory_cache = HashMap::new();
+    if let Some(trajectory) = TerritoryTrajectory::from_graph_path(
+        graph,
+        pessimistic_path,
+        certainty,
+        expires,
+        &mut territory_cache,
+    ) {
+        log::info!(
+            target: "territorial_control",
+            "territory_forecast turn={} selected={:?} samples={} initial_margin={} final_margin={} min_margin={} mean_margin={} food_provisional={} evidence=chosen_maxmin_path",
+            state.turn,
+            selected,
+            trajectory.samples,
+            trajectory.first_margin_milli,
+            trajectory.last_margin_milli,
+            trajectory.minimum_margin_milli,
+            trajectory.mean_margin_milli,
+            trajectory.certainty.is_provisional(),
+        );
+    }
     let root = graph.root();
     let root_state = &graph.node(root).state;
     if let Some(snapshot) = analyze_territorial_control(root_state, &root_state.our_snake_id) {
