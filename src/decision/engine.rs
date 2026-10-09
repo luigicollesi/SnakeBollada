@@ -8,8 +8,8 @@ use crate::search::graph::FutureGraph;
 use crate::search::hobbs_flow::search_hobbs;
 use crate::simulation::state::{SimulatedGameState, SimulationSupport};
 use crate::strategy::{
-    choose_move_baseline, direction_stays_in_bounds, Decision, DecisionReason,
-    HobbsSearchMetadata, SearchMetadata,
+    choose_move_baseline, direction_stays_in_bounds, Decision, DecisionReason, HobbsSearchMetadata,
+    SearchMetadata,
 };
 use crate::GameState;
 
@@ -47,8 +47,7 @@ impl DecisionEngine {
 
         let root = &graph.node(graph.root()).state;
         let mobility = crate::simulation::mobility::MobilityAnalysis::from_state(root);
-        let reachable_cells =
-            mobility.reachable_space(root, &root.our_snake_id, hobbs.direction);
+        let reachable_cells = mobility.reachable_space(root, &root.our_snake_id, hobbs.direction);
         let perf = graph.performance();
         log::debug!(
             target: "search_diagnostics",
@@ -85,8 +84,10 @@ impl DecisionEngine {
                     guard: Some(hobbs.survival),
                     root_directions: hobbs.root_directions.try_into().unwrap_or(u8::MAX),
                     forecast_provisional: hobbs.certainty.is_provisional(),
-                    terminal_confirmed: matches!(hobbs.score, StateScore::Win | StateScore::Loss | StateScore::Tie)
-                        && !hobbs.certainty.is_provisional(),
+                    terminal_confirmed: matches!(
+                        hobbs.score,
+                        StateScore::Win | StateScore::Loss | StateScore::Tie
+                    ) && !hobbs.certainty.is_provisional(),
                     action_batches: perf.action_batches,
                     parallel_action_batches: perf.parallel_action_batches,
                     resolved_actions: perf.resolved_actions,
@@ -102,7 +103,10 @@ impl DecisionEngine {
 
 fn baseline_fallback(state: &GameState) -> Decision {
     let mut decision = choose_move_baseline(state);
-    if !matches!(decision.reason, DecisionReason::OnlyLegalMove | DecisionReason::NoSafeMove) {
+    if !matches!(
+        decision.reason,
+        DecisionReason::OnlyLegalMove | DecisionReason::NoSafeMove
+    ) {
         decision.reason = DecisionReason::BaselineFallback;
     }
     decision
@@ -137,13 +141,16 @@ mod tests {
                 width: 7,
                 height: 7,
                 food: vec![Coord { x: 3, y: 3 }],
-                snakes: vec![ours.clone(), Battlesnake {
-                    id: "enemy".into(),
-                    name: "enemy".into(),
-                    head: Coord { x: 5, y: 5 },
-                    body: vec![Coord { x: 5, y: 5 }, Coord { x: 5, y: 4 }],
-                    ..ours.clone()
-                }],
+                snakes: vec![
+                    ours.clone(),
+                    Battlesnake {
+                        id: "enemy".into(),
+                        name: "enemy".into(),
+                        head: Coord { x: 5, y: 5 },
+                        body: vec![Coord { x: 5, y: 5 }, Coord { x: 5, y: 4 }],
+                        ..ours.clone()
+                    },
+                ],
                 hazards: vec![],
             },
             you: ours,

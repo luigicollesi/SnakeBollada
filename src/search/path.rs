@@ -1,7 +1,7 @@
 //! Persistent path representation for state-based Hobbs search.
-use std::sync::Arc;
-use crate::simulation::joint_action::JointAction;
 use super::graph::NodeId;
+use crate::simulation::joint_action::JointAction;
+use std::sync::Arc;
 
 pub(crate) const MAX_SEARCH_DEPTH: u8 = 21;
 
@@ -110,14 +110,21 @@ fn collect_steps<'a>(node: &'a FuturePathNode, steps: &mut Vec<&'a FutureStep>) 
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
     #[test]
     fn persistent_path_concatenates_without_copying_moves() {
-        let first = FuturePath::single(FutureStep { node: 1, joint_action: JointAction::new(), child: 2 });
-        let second = FuturePath::single(FutureStep { node: 2, joint_action: JointAction::new(), child: 3 });
+        let first = FuturePath::single(FutureStep {
+            node: 1,
+            joint_action: JointAction::new(),
+            child: 2,
+        });
+        let second = FuturePath::single(FutureStep {
+            node: 2,
+            joint_action: JointAction::new(),
+            child: 3,
+        });
         let combined = first.concat(&second);
         assert_eq!(combined.len(), 2);
         assert_eq!(combined.first().unwrap().node, 1);

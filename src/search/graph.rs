@@ -227,7 +227,6 @@ impl FutureGraph {
         self.edge_count = edge_count;
     }
 
-
     /// Expand all legal joint responses for a node. Incomplete expansion is
     /// never reported as an exact minimax depth.
     pub(crate) fn expand_one(
@@ -440,14 +439,18 @@ impl FutureGraph {
     }
 }
 
-
 fn duration_us(duration: Duration) -> u64 {
     duration.as_micros().try_into().unwrap_or(u64::MAX)
 }
 
 fn is_terminal_state(state: &SimulatedGameState) -> bool {
-    let ours_alive = state.snake(&state.our_snake_id).is_some_and(|snake| snake.alive);
-    let living_enemies = state.snakes.iter().any(|snake| snake.alive && snake.id != state.our_snake_id);
+    let ours_alive = state
+        .snake(&state.our_snake_id)
+        .is_some_and(|snake| snake.alive);
+    let living_enemies = state
+        .snakes
+        .iter()
+        .any(|snake| snake.alive && snake.id != state.our_snake_id);
     !ours_alive || !living_enemies
 }
 
@@ -481,11 +484,25 @@ mod tests {
             food: vec![Coord { x: 3, y: 3 }],
             hazards: vec![],
             snakes: vec![
-                SimulatedSnake { id: "ours".into(), health: 100, body: vec![Coord { x: 1, y: 2 }, Coord { x: 1, y: 1 }], alive: true },
-                SimulatedSnake { id: "enemy".into(), health: 100, body: vec![Coord { x: 5, y: 5 }, Coord { x: 5, y: 4 }], alive: true },
+                SimulatedSnake {
+                    id: "ours".into(),
+                    health: 100,
+                    body: vec![Coord { x: 1, y: 2 }, Coord { x: 1, y: 1 }],
+                    alive: true,
+                },
+                SimulatedSnake {
+                    id: "enemy".into(),
+                    health: 100,
+                    body: vec![Coord { x: 5, y: 5 }, Coord { x: 5, y: 4 }],
+                    alive: true,
+                },
             ],
             our_snake_id: "ours".into(),
-            rules: RulesContext { name: "standard".into(), max_health: 100, hazard_damage_per_turn: 0 },
+            rules: RulesContext {
+                name: "standard".into(),
+                max_health: 100,
+                hazard_damage_per_turn: 0,
+            },
         }
     }
 
@@ -496,7 +513,11 @@ mod tests {
         assert!(graph.expand_one(graph.root(), &budget).unwrap());
         assert!(graph.edge_count() >= 3);
         assert!(graph.node_count() >= 2);
-        assert!(graph.node(graph.root()).children.iter().all(|edge| edge.child != graph.root()));
+        assert!(graph
+            .node(graph.root())
+            .children
+            .iter()
+            .all(|edge| edge.child != graph.root()));
     }
 
     #[test]
@@ -505,10 +526,16 @@ mod tests {
         let budget = SearchBudget::for_duration(Duration::from_secs(4));
         assert!(graph.expand_one(graph.root(), &budget).unwrap());
         let actor = graph.node(graph.root()).state.actor_index("ours").unwrap();
-        let selected = graph.node(graph.root()).children[0].joint_action.direction_for(actor).unwrap();
+        let selected = graph.node(graph.root()).children[0]
+            .joint_action
+            .direction_for(actor)
+            .unwrap();
         graph.retain_chosen_direction(selected);
-        assert!(graph.node(graph.root()).children.iter().all(|edge|
-            edge.joint_action.direction_for(actor) == Some(selected)));
+        assert!(graph
+            .node(graph.root())
+            .children
+            .iter()
+            .all(|edge| edge.joint_action.direction_for(actor) == Some(selected)));
         let child = graph.node(graph.root()).children[0].child;
         let key = graph.node(child).key.clone();
         let found = graph.find_node_by_key(&key).unwrap();

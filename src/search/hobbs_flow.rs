@@ -15,10 +15,10 @@ use crate::evaluation::{
 };
 use crate::simulation::joint_action::JointAction;
 
-use super::path::{FuturePath, FutureStep, MAX_SEARCH_DEPTH};
 use super::budget::SearchBudget;
 use super::forecast::{ForecastCertainty, ForecastDelta};
 use super::graph::{FutureGraph, NodeId, SearchError};
+use super::path::{FuturePath, FutureStep, MAX_SEARCH_DEPTH};
 
 #[derive(Debug, Clone)]
 pub(crate) struct HobbsSearchResult {

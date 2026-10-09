@@ -57,9 +57,10 @@ impl DecisionState {
 
         let actual_key = StateKey::from_beam_state(&normalized);
         let observed_food = normalized_food(&normalized.food);
-        let food_spawned = self.previous_observed_food.as_ref().is_some_and(|previous| {
-            contains_new_food(previous, &observed_food)
-        });
+        let food_spawned = self
+            .previous_observed_food
+            .as_ref()
+            .is_some_and(|previous| contains_new_food(previous, &observed_food));
 
         let mut graph = match self.graph.take() {
             Some(mut graph)
@@ -95,7 +96,10 @@ impl DecisionState {
 
 fn baseline_fallback(state: &GameState) -> Decision {
     let mut decision = choose_move_baseline(state);
-    if !matches!(decision.reason, DecisionReason::OnlyLegalMove | DecisionReason::NoSafeMove) {
+    if !matches!(
+        decision.reason,
+        DecisionReason::OnlyLegalMove | DecisionReason::NoSafeMove
+    ) {
         decision.reason = DecisionReason::BaselineFallback;
     }
     decision
@@ -126,7 +130,9 @@ fn normalized_food(food: &[crate::Coord]) -> Vec<crate::Coord> {
 }
 
 fn contains_new_food(previous: &[crate::Coord], actual: &[crate::Coord]) -> bool {
-    actual.iter().any(|food| previous.binary_search(food).is_err())
+    actual
+        .iter()
+        .any(|food| previous.binary_search(food).is_err())
 }
 
 #[cfg(test)]
@@ -157,7 +163,11 @@ mod tests {
     #[test]
     fn food_order_and_duplicates_do_not_change_comparison() {
         let a = vec![Coord { x: 2, y: 2 }, Coord { x: 1, y: 1 }];
-        let b = vec![Coord { x: 1, y: 1 }, Coord { x: 2, y: 2 }, Coord { x: 2, y: 2 }];
+        let b = vec![
+            Coord { x: 1, y: 1 },
+            Coord { x: 2, y: 2 },
+            Coord { x: 2, y: 2 },
+        ];
         assert_eq!(normalized_food(&a), normalized_food(&b));
     }
 }

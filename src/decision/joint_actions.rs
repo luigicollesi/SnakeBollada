@@ -12,13 +12,27 @@ pub(crate) struct JointActionGenerator {
 }
 
 impl JointActionGenerator {
-    pub(crate) fn new(state: &SimulatedGameState, our_moves: MoveMask, mobility: &MobilityAnalysis) -> Self {
+    pub(crate) fn new(
+        state: &SimulatedGameState,
+        our_moves: MoveMask,
+        mobility: &MobilityAnalysis,
+    ) -> Self {
         let Some(our_actor) = state.actor_index(&state.our_snake_id) else {
-            return Self { options: Vec::new(), indices: Vec::new(), done: true };
+            return Self {
+                options: Vec::new(),
+                indices: Vec::new(),
+                done: true,
+            };
         };
-        let mut options = vec![(our_actor, normalized_moves(our_moves).iter().collect::<Vec<_>>())];
+        let mut options = vec![(
+            our_actor,
+            normalized_moves(our_moves).iter().collect::<Vec<_>>(),
+        )];
 
-        let mut enemies = state.snakes.iter().enumerate()
+        let mut enemies = state
+            .snakes
+            .iter()
+            .enumerate()
             .filter(|(_, snake)| snake.alive && snake.id != state.our_snake_id)
             .filter_map(|(index, snake)| ActorIndex::new(index).map(|actor| (actor, snake)))
             .collect::<Vec<_>>();
@@ -34,7 +48,11 @@ impl JointActionGenerator {
             options.push((actor, normalized_moves(moves).iter().collect()));
         }
 
-        Self { indices: vec![0; options.len()], options, done: false }
+        Self {
+            indices: vec![0; options.len()],
+            options,
+            done: false,
+        }
     }
 
     fn advance(&mut self) {
@@ -66,7 +84,11 @@ impl Iterator for JointActionGenerator {
 }
 
 fn normalized_moves(moves: MoveMask) -> MoveMask {
-    if moves.is_empty() { MoveMask::all() } else { moves }
+    if moves.is_empty() {
+        MoveMask::all()
+    } else {
+        moves
+    }
 }
 
 #[cfg(test)]
@@ -77,13 +99,31 @@ mod tests {
 
     fn state() -> SimulatedGameState {
         SimulatedGameState {
-            turn: 1, width: 7, height: 7, food: Vec::new(), hazards: Vec::new(),
+            turn: 1,
+            width: 7,
+            height: 7,
+            food: Vec::new(),
+            hazards: Vec::new(),
             snakes: vec![
-                SimulatedSnake { id: "ours".into(), health: 100, body: vec![Coord {x:1,y:1}], alive: true },
-                SimulatedSnake { id: "enemy".into(), health: 100, body: vec![Coord {x:5,y:5}], alive: true },
+                SimulatedSnake {
+                    id: "ours".into(),
+                    health: 100,
+                    body: vec![Coord { x: 1, y: 1 }],
+                    alive: true,
+                },
+                SimulatedSnake {
+                    id: "enemy".into(),
+                    health: 100,
+                    body: vec![Coord { x: 5, y: 5 }],
+                    alive: true,
+                },
             ],
             our_snake_id: "ours".into(),
-            rules: RulesContext { name: "standard".into(), max_health: 100, hazard_damage_per_turn: 0 },
+            rules: RulesContext {
+                name: "standard".into(),
+                max_health: 100,
+                hazard_damage_per_turn: 0,
+            },
         }
     }
 
@@ -97,7 +137,9 @@ mod tests {
         let our_actor = board.actor_index("ours").unwrap();
         let opponent = board.actor_index("enemy").unwrap();
         assert_eq!(all.len(), 8);
-        assert!(all.iter().all(|joint|
-            joint.direction_for(our_actor).is_some() && joint.direction_for(opponent).is_some()));
+        assert!(all
+            .iter()
+            .all(|joint| joint.direction_for(our_actor).is_some()
+                && joint.direction_for(opponent).is_some()));
     }
 }
