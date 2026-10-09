@@ -221,7 +221,7 @@ pub(crate) fn partition_after(
         .copied()
         .filter(|&pos| {
             index(pos, width, height)
-                .is_some_and(|i| before_connected[i] && !after_passable[i])
+                .is_some_and(|i| before_connected[i] && before_passable[i] && !after_passable[i])
         })
         .collect();
     if before_size < 12 || after_size >= before_size / 2 || lost_access < 8 {
@@ -559,6 +559,40 @@ mod tests {
         );
         assert_eq!(left_access.independent_regions, 2);
         assert_eq!(up_access.independent_regions, 2);
+    }
+
+    #[test]
+    fn actual_turn_241_right_separates_a_large_region() {
+        use crate::analysis::replay_fixtures;
+        let before = replay_fixtures::state(241);
+        let after = replay_fixtures::state(242);
+        let cut = partition_after(&before, &after, "ours")
+            .expect("the recorded right turn cut access to the large connected region");
+        assert!(cut.before >= 65, "before={}", cut.before);
+        assert!(cut.after <= 15, "after={}", cut.after);
+        assert!(cut.lost_access >= 40, "cut={cut:?}");
+        assert!(
+            cut.self_blocked_gateways.contains(&Coord { x: 6, y: 3 }),
+            "the old head becomes part of the barrier when Right is chosen",
+        );
+    }
+
+    #[test]
+    fn actual_turn_231_is_a_candidate_but_turn_235_recovers_access() {
+        use crate::analysis::replay_fixtures;
+        let before = replay_fixtures::state(231);
+        let boxed = replay_fixtures::state(232);
+        let freed = replay_fixtures::state(235);
+        assert!(
+            partition_after(&before, &boxed, "ours").is_some(),
+            "temporary tail corridors must also trigger analysis",
+        );
+        let boxed_now = analyze(&boxed, "ours").unwrap().accessible_now;
+        let freed_now = analyze(&freed, "ours").unwrap().accessible_now;
+        assert!(
+            freed_now > boxed_now.saturating_mul(3),
+            "an actual recovery must not be mislabeled a permanently lost area",
+        );
     }
 
     #[test]
