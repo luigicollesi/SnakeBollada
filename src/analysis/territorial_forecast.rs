@@ -8,6 +8,8 @@
 use std::collections::HashMap;
 use std::time::Instant;
 
+use crate::direction::Direction;
+use crate::search::graph::ResponseCoverage;
 use crate::evaluation::HobbsScoreParams;
 use crate::search::forecast::ForecastCertainty;
 use crate::search::graph::{FutureGraph, NodeId};
@@ -133,6 +135,113 @@ impl TerritoryTrajectory {
             samples.push(snapshot);
         }
         Self::summarize(&samples, certainty)
+    }
+}
+
+/// Small, explicitly sampled ranking hint for a root move. It is NOT a
+/// certificate: alpha-beta may have left other enemy responses unexplored.
+/// MAX/MIN still evaluates every reply required to finish a search depth.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct TerritoryDirectionSample {
+    pub(crate) worst_mean_margin_milli: i64,
+    pub(crate) worst_minimum_margin_milli: i64,
+    pub(crate) examined_replies: u8,
+    pub(crate) max_sampled_depth: u8,
+    pub(crate) coverage: ResponseCoverage,
+}
+
+impl TerritoryDirectionSample {
+    pub(crate) const MAX_NEW_SNAPSHOTS: usize = 24;
+    const MAX_REPLIES_PER_DIRECTION: usize = 2;
+    const MAX_CACHED_PLIES: usize = 4;
+
+    /// A bounded, immutable root-level comparison of cached enemy replies.
+    /// Follows only the continuation/reply hints previously recorded by
+    /// minimax; an absent continuation terminates the observation.
+    pub(crate) fn from_cached_replies(
+        graph: &FutureGraph,
+        direction: Direction,
+        cache: &mut HashMap<NodeId, TerritorySnapshot>,
+        deadline: Instant,
+    ) -> Option<Self> {
+        let root = graph.root();
+        let mut edges = graph.known_responses(root, direction);
+        if edges.is_empty() {
+            return None;
+        }
+        if let Some(reply) = graph.node(root).preferred_reply.get(&direction) {
+            edges.sort_by_key(|edge| edge.joint_action != *reply);
+        }
+        let mut result: Option<Self> = None;
+        for edge in edges.iter().take(Self::MAX_REPLIES_PER_DIRECTION) {
+            let mut chain = vec![root, edge.child];
+            let mut current = edge.child;
+            for _ in 1..Self::MAX_CACHED_PLIES {
+                let node = graph.node(current);
+                let Some(preferred) = node.preferred_direction else {
+                    break;
+                };
+                let Some(joint) = node.preferred_reply.get(&preferred) else {
+                    break;
+                };
+                let Some(next) = graph
+                    .known_responses(current, preferred)
+                    .into_iter()
+                    .find(|cached| cached.joint_action == *joint)
+                else {
+                    break;
+                };
+                if chain.contains(&next.child) {
+                    break; // Transpositions can form loops; don't resample forever.
+                }
+                current = next.child;
+                chain.push(current);
+            }
+
+            let mut snapshots = Vec::with_capacity(chain.len());
+            for &id in &chain {
+                if Instant::now() >= deadline {
+                    return result;
+                }
+                let snapshot = if let Some(&cached) = cache.get(&id) {
+                    cached
+                } else {
+                    if cache.len() >= Self::MAX_NEW_SNAPSHOTS {
+                        return result;
+                    }
+                    let snapshot = TerritorySnapshot::from_state(&graph.node(id).state)?;
+                    cache.insert(id, snapshot);
+                    snapshot
+                };
+                snapshots.push(snapshot);
+            }
+            let trajectory =
+                TerritoryTrajectory::summarize(&snapshots, ForecastCertainty::Deterministic)?;
+            let depth = trajectory.samples.saturating_sub(1);
+            let sample = result.get_or_insert(Self {
+                worst_mean_margin_milli: trajectory.mean_margin_milli,
+                worst_minimum_margin_milli: trajectory.minimum_margin_milli,
+                examined_replies: 0,
+                max_sampled_depth: 0,
+                coverage: graph.response_coverage(root, direction),
+            });
+            sample.examined_replies = sample.examined_replies.saturating_add(1);
+            sample.max_sampled_depth = sample.max_sampled_depth.max(depth);
+            sample.worst_mean_margin_milli =
+                sample.worst_mean_margin_milli.min(trajectory.mean_margin_milli);
+            sample.worst_minimum_margin_milli = sample
+                .worst_minimum_margin_milli
+                .min(trajectory.minimum_margin_milli);
+        }
+        result
+    }
+
+    /// The sample is an ordering hint, not a new Hobbs score or MAX/MIN bound.
+    pub(crate) fn ordering_key(self) -> (i64, i64) {
+        (
+            self.worst_mean_margin_milli,
+            self.worst_minimum_margin_milli,
+        )
     }
 }
 
