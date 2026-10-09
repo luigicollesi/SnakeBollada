@@ -291,6 +291,9 @@ mod tests {
         for y in (0..=2).chain(4..=5) {
             divider.push((3, y));
         }
+        // Place the vacating tail away from the wall: the final segment
+        // must not open a second doorway on the first projected cycle.
+        divider.push((1, 6));
         // Consecutive body segments are intentionally irrelevant to the
         // static known-release diagnostic; physical validity is handled by MIN.
         let state = board(
