@@ -2,11 +2,9 @@
 //! Physical Battlesnake turn resolution is shared with the standard simulator.
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::Arc;
-use std::time::Duration;
-
-use rayon::prelude::*;
 
 use crate::decision::joint_actions::JointActionGenerator;
+use crate::direction::{Direction, MoveMask};
 use crate::decision::state_key::StateKey;
 use crate::simulation::joint_action::JointAction;
 use crate::simulation::mobility::MobilityAnalysis;
@@ -17,10 +15,6 @@ use super::budget::SearchBudget;
 use super::forecast::{FoodForecastPolicy, ForecastDelta};
 
 pub(crate) type NodeId = usize;
-
-const MAX_PARALLEL_ACTION_BATCH: usize = 8;
-const INITIAL_BATCH_ESTIMATE: Duration = Duration::from_millis(2);
-const BATCH_DEADLINE_RESERVE: Duration = Duration::from_millis(1);
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub(crate) struct GraphPerfStats {
@@ -40,10 +34,11 @@ pub(crate) struct SearchEdge {
     pub(crate) child: NodeId,
 }
 
-struct ResolvedCandidate {
-    joint_action: JointAction,
-    state: Option<SimulatedGameState>,
-    key: Arc<StateKey>,
+#[derive(Debug, Clone)]
+pub(crate) enum ResponseLookup {
+    Edge(SearchEdge),
+    Exhausted,
+    Deadline,
 }
 
 #[derive(Debug, Clone)]
@@ -51,8 +46,8 @@ pub(crate) struct SearchNode {
     pub(crate) state: SimulatedGameState,
     pub(crate) key: Arc<StateKey>,
     pub(crate) children: Vec<SearchEdge>,
-    expansion_complete: bool,
-    pending_actions: Option<JointActionGenerator>,
+    generators_initialized: bool,
+    pending_by_direction: HashMap<Direction, JointActionGenerator>,
 }
 
 impl SearchNode {
@@ -80,7 +75,6 @@ pub(crate) struct FutureGraph {
     transposition_hits: u32,
     edge_count: u32,
     forecast_policy: FoodForecastPolicy,
-    action_batch_estimate: Duration,
     perf_stats: GraphPerfStats,
 }
 
@@ -103,7 +97,6 @@ impl FutureGraph {
             transposition_hits: 0,
             edge_count: 0,
             forecast_policy,
-            action_batch_estimate: INITIAL_BATCH_ESTIMATE,
             perf_stats: GraphPerfStats::default(),
         }
     }
@@ -147,23 +140,20 @@ impl FutureGraph {
             .any(|edge| self.nodes[edge.child].key.food() == actual_key.food())
     }
 
-    pub(crate) fn retain_chosen_direction(&mut self, direction: crate::direction::Direction) {
-        if !self.nodes[self.root].expansion_complete {
-            self.nodes[self.root].children.clear();
-            self.nodes[self.root].pending_actions = None;
-            self.garbage_collect();
-            return;
+    pub(crate) fn retain_chosen_direction(&mut self, direction: Direction) {
+        // Alpha-Beta can stop with incomplete opponent alternatives.
+        // Preserve matching edges without retaining generators for unchosen moves.
+        let root = self.root;
+        let state = &self.nodes[root].state;
+        if let Some(actor) = state.actor_index(&state.our_snake_id) {
+            self.nodes[root]
+                .children
+                .retain(|edge| edge.joint_action.direction_for(actor) == Some(direction));
+        } else {
+            self.nodes[root].children.clear();
         }
-
-        let root_state = &self.nodes[self.root].state;
-        let Some(our_actor) = root_state.actor_index(&root_state.our_snake_id) else {
-            self.nodes[self.root].children.clear();
-            self.garbage_collect();
-            return;
-        };
-        self.nodes[self.root]
-            .children
-            .retain(|edge| edge.joint_action.direction_for(our_actor) == Some(direction));
+        self.nodes[root].pending_by_direction.clear();
+        self.nodes[root].generators_initialized = true;
         self.garbage_collect();
     }
 
@@ -227,211 +217,141 @@ impl FutureGraph {
         self.edge_count = edge_count;
     }
 
-    /// Expand all legal joint responses for a node. Incomplete expansion is
-    /// never reported as an exact minimax depth.
+    fn initialize_generators(&mut self, node_id: NodeId) {
+        if self.nodes[node_id].generators_initialized || self.is_terminal(node_id) {
+            return;
+        }
+        let state = &self.nodes[node_id].state;
+        let mobility = MobilityAnalysis::from_state(state);
+        let deterministic = mobility.deterministic_moves_for(state, &state.our_snake_id);
+        let our_moves = if deterministic.is_empty() {
+            mobility.in_bounds_moves_for(state, &state.our_snake_id)
+        } else {
+            deterministic
+        };
+        let mut generators = HashMap::new();
+        for direction in our_moves.iter() {
+            generators.insert(
+                direction,
+                JointActionGenerator::new(state, MoveMask::single(direction), &mobility),
+            );
+        }
+        self.nodes[node_id].pending_by_direction = generators;
+        self.nodes[node_id].generators_initialized = true;
+    }
+
+    /// Directions generated for this state, including previously cached edges.
+    pub(crate) fn available_directions(&mut self, node_id: NodeId) -> Vec<Direction> {
+        self.initialize_generators(node_id);
+        let node = &self.nodes[node_id];
+        let actor = node.state.actor_index(&node.state.our_snake_id);
+        Direction::ALL
+            .into_iter()
+            .filter(|direction| {
+                node.pending_by_direction.contains_key(direction)
+                    || actor.is_some_and(|actor| {
+                        node.children.iter().any(|edge| {
+                            edge.joint_action.direction_for(actor) == Some(*direction)
+                        })
+                    })
+            })
+            .collect()
+    }
+
+    /// Return already resolved responses for BestFirst ordering.
+    pub(crate) fn known_responses(&self, node_id: NodeId, direction: Direction) -> Vec<SearchEdge> {
+        let node = &self.nodes[node_id];
+        let Some(actor) = node.state.actor_index(&node.state.our_snake_id) else {
+            return Vec::new();
+        };
+        node.children
+            .iter()
+            .filter(|edge| edge.joint_action.direction_for(actor) == Some(direction))
+            .cloned()
+            .collect()
+    }
+
+    /// Resolve at most one new simultaneous action, leaving other replies
+    /// pending when Alpha-Beta cuts off a direction.
+    pub(crate) fn next_response(
+        &mut self,
+        node_id: NodeId,
+        direction: Direction,
+        response_index: usize,
+        budget: &SearchBudget,
+    ) -> Result<ResponseLookup, SearchError> {
+        self.initialize_generators(node_id);
+        if let Some(edge) = self
+            .known_responses(node_id, direction)
+            .into_iter()
+            .nth(response_index)
+        {
+            return Ok(ResponseLookup::Edge(edge));
+        }
+        if !self.nodes[node_id].pending_by_direction.contains_key(&direction) {
+            return Ok(ResponseLookup::Exhausted);
+        }
+        if budget.expired() {
+            return Ok(ResponseLookup::Deadline);
+        }
+        let action = self.nodes[node_id]
+            .pending_by_direction
+            .get_mut(&direction)
+            .and_then(Iterator::next);
+        let Some(action) = action else {
+            self.nodes[node_id].pending_by_direction.remove(&direction);
+            return Ok(ResponseLookup::Exhausted);
+        };
+
+        let started = std::time::Instant::now();
+        let resolved = resolve_turn(&self.nodes[node_id].state, &action)?;
+        let resolve_us = duration_us(started.elapsed());
+        let merge_started = std::time::Instant::now();
+        let key = Arc::new(StateKey::from_beam_state(&resolved.state));
+        let child = if let Some(&existing) = self.transpositions.get(key.as_ref()) {
+            self.transposition_hits = self.transposition_hits.saturating_add(1);
+            existing
+        } else {
+            let child = self.nodes.len();
+            self.transpositions.insert(Arc::clone(&key), child);
+            self.nodes.push(build_node_with_key(resolved.state, key));
+            self.perf_stats.new_nodes_built = self.perf_stats.new_nodes_built.saturating_add(1);
+            child
+        };
+        let edge = SearchEdge {
+            joint_action: action,
+            forecast_delta: self.forecast_policy.delta_after(&self.nodes[child].state),
+            child,
+        };
+        self.nodes[node_id].children.push(edge.clone());
+        self.edge_count = self.edge_count.saturating_add(1);
+        self.perf_stats.action_batches = self.perf_stats.action_batches.saturating_add(1);
+        self.perf_stats.resolved_actions = self.perf_stats.resolved_actions.saturating_add(1);
+        self.perf_stats.resolve_us = self.perf_stats.resolve_us.saturating_add(resolve_us);
+        self.perf_stats.merge_us = self
+            .perf_stats
+            .merge_us
+            .saturating_add(duration_us(merge_started.elapsed()));
+        Ok(ResponseLookup::Edge(edge))
+    }
+
+    #[cfg(test)]
     pub(crate) fn expand_one(
         &mut self,
         node_id: NodeId,
         budget: &SearchBudget,
     ) -> Result<bool, SearchError> {
-        self.expand_node_budgeted(node_id, Some(budget))
-    }
-
-    fn expand_node_budgeted(
-        &mut self,
-        node_id: NodeId,
-        budget: Option<&SearchBudget>,
-    ) -> Result<bool, SearchError> {
-        if self.nodes[node_id].expansion_complete || self.is_terminal(node_id) {
-            return Ok(true);
-        }
-
-        let state = self.nodes[node_id].state.clone();
-        let mobility = MobilityAnalysis::from_state(&state);
-        let deterministic_moves = mobility.deterministic_moves_for(&state, &state.our_snake_id);
-        let our_moves = if deterministic_moves.is_empty() {
-            mobility.in_bounds_moves_for(&state, &state.our_snake_id)
-        } else {
-            deterministic_moves
-        };
-
-        let mut actions = self.nodes[node_id]
-            .pending_actions
-            .take()
-            .unwrap_or_else(|| JointActionGenerator::new(&state, our_moves, &mobility));
-
-        loop {
-            if budget.is_some_and(SearchBudget::expired) {
-                self.nodes[node_id].pending_actions = Some(actions);
-                return Ok(false);
-            }
-
-            let batch_size = self.action_batch_size(budget);
-            let mut batch_actions = Vec::with_capacity(batch_size);
-            for _ in 0..batch_size {
-                let Some(joint_action) = actions.next() else {
-                    break;
-                };
-                batch_actions.push(joint_action);
-            }
-
-            if batch_actions.is_empty() {
-                self.nodes[node_id].pending_actions = None;
-                self.nodes[node_id].expansion_complete = true;
-                return Ok(true);
-            }
-
-            let batch_started = std::time::Instant::now();
-            let resolve_started = std::time::Instant::now();
-            let resolved = batch_actions
-                .into_par_iter()
-                .map(|joint_action| {
-                    resolve_turn(&state, &joint_action).map(|resolution| {
-                        let key = Arc::new(StateKey::from_beam_state(&resolution.state));
-                        ResolvedCandidate {
-                            joint_action,
-                            state: Some(resolution.state),
-                            key,
-                        }
-                    })
-                })
-                .collect::<Result<Vec<_>, ResolveError>>()?;
-            let resolve_elapsed = resolve_started.elapsed();
-
-            let mut unique_indices = Vec::new();
-            let mut seen_new = HashSet::<&StateKey>::new();
-            let mut batch_transposition_hits = 0_u32;
-
-            for (index, candidate) in resolved.iter().enumerate() {
-                if self.transpositions.contains_key(&candidate.key) {
-                    batch_transposition_hits = batch_transposition_hits.saturating_add(1);
-                } else if seen_new.insert(candidate.key.as_ref()) {
-                    unique_indices.push(index);
-                } else {
-                    batch_transposition_hits = batch_transposition_hits.saturating_add(1);
+        for direction in self.available_directions(node_id) {
+            let mut index = 0;
+            loop {
+                match self.next_response(node_id, direction, index, budget)? {
+                    ResponseLookup::Edge(_) => index += 1,
+                    ResponseLookup::Exhausted => break,
+                    ResponseLookup::Deadline => return Ok(false),
                 }
             }
-            drop(seen_new);
-
-            let mut resolved = resolved;
-            let unique_new = unique_indices
-                .into_iter()
-                .map(|index| {
-                    let candidate = &mut resolved[index];
-                    let state = candidate
-                        .state
-                        .take()
-                        .expect("new resolved state must still be owned by candidate");
-                    (Arc::clone(&candidate.key), state)
-                })
-                .collect::<Vec<_>>();
-
-            for candidate in &mut resolved {
-                candidate.state = None;
-            }
-
-            let node_build_started = std::time::Instant::now();
-            let built_nodes = unique_new
-                .into_par_iter()
-                .map(|(key, state)| build_node_with_key(state, key))
-                .collect::<Vec<_>>();
-            let node_build_elapsed = node_build_started.elapsed();
-            let built_node_count = built_nodes.len().try_into().unwrap_or(u32::MAX);
-
-            let merge_started = std::time::Instant::now();
-            for node in built_nodes {
-                if self.transpositions.contains_key(node.key.as_ref()) {
-                    batch_transposition_hits = batch_transposition_hits.saturating_add(1);
-                    continue;
-                }
-                let child = self.nodes.len();
-                self.transpositions.insert(Arc::clone(&node.key), child);
-                self.nodes.push(node);
-            }
-            self.transposition_hits = self
-                .transposition_hits
-                .saturating_add(batch_transposition_hits);
-
-            let child_ids = resolved
-                .iter()
-                .map(|candidate| {
-                    self.transpositions
-                        .get(&candidate.key)
-                        .copied()
-                        .expect("resolved child must exist after deterministic merge")
-                })
-                .collect::<Vec<_>>();
-            let merge_elapsed = merge_started.elapsed();
-
-            let nodes = &self.nodes;
-            let forecast = self.forecast_policy;
-            let prepared_edges = resolved
-                .into_par_iter()
-                .zip(child_ids.into_par_iter())
-                .map(|(candidate, child)| SearchEdge {
-                    joint_action: candidate.joint_action,
-                    forecast_delta: forecast.delta_after(&nodes[child].state),
-                    child,
-                })
-                .collect::<Vec<_>>();
-
-            let edge_count = prepared_edges.len().try_into().unwrap_or(u32::MAX);
-            self.nodes[node_id].children.extend(prepared_edges);
-            self.edge_count = self.edge_count.saturating_add(edge_count);
-
-            self.perf_stats.action_batches = self.perf_stats.action_batches.saturating_add(1);
-            if edge_count > 1 {
-                self.perf_stats.parallel_action_batches =
-                    self.perf_stats.parallel_action_batches.saturating_add(1);
-            }
-            self.perf_stats.resolved_actions =
-                self.perf_stats.resolved_actions.saturating_add(edge_count);
-            self.perf_stats.new_nodes_built = self
-                .perf_stats
-                .new_nodes_built
-                .saturating_add(built_node_count);
-            self.perf_stats.resolve_us = self
-                .perf_stats
-                .resolve_us
-                .saturating_add(duration_us(resolve_elapsed));
-            self.perf_stats.node_build_us = self
-                .perf_stats
-                .node_build_us
-                .saturating_add(duration_us(node_build_elapsed));
-            self.perf_stats.merge_us = self
-                .perf_stats
-                .merge_us
-                .saturating_add(duration_us(merge_elapsed));
-
-            self.observe_action_batch(batch_started.elapsed());
         }
-    }
-
-    fn action_batch_size(&self, budget: Option<&SearchBudget>) -> usize {
-        let parallelism = rayon::current_num_threads().clamp(1, MAX_PARALLEL_ACTION_BATCH);
-        if parallelism == 1 {
-            return 1;
-        }
-
-        let estimated = self
-            .action_batch_estimate
-            .saturating_add(BATCH_DEADLINE_RESERVE);
-        if budget.is_some_and(|budget| !budget.can_afford_hard(estimated)) {
-            1
-        } else {
-            parallelism
-        }
-    }
-
-    fn observe_action_batch(&mut self, observed: Duration) {
-        let previous = self.action_batch_estimate.as_micros();
-        let observed = observed.as_micros();
-        let smoothed = previous
-            .saturating_mul(3)
-            .saturating_add(observed)
-            .saturating_div(4)
-            .min(u128::from(u64::MAX));
-        self.action_batch_estimate = Duration::from_micros(smoothed as u64);
+        Ok(true)
     }
 
     fn is_terminal(&self, node_id: NodeId) -> bool {
@@ -439,7 +359,7 @@ impl FutureGraph {
     }
 }
 
-fn duration_us(duration: Duration) -> u64 {
+fn duration_us(duration: std::time::Duration) -> u64 {
     duration.as_micros().try_into().unwrap_or(u64::MAX)
 }
 
@@ -464,8 +384,8 @@ fn build_node_with_key(state: SimulatedGameState, key: Arc<StateKey>) -> SearchN
         state,
         key,
         children: Vec::new(),
-        expansion_complete: false,
-        pending_actions: None,
+        generators_initialized: false,
+        pending_by_direction: HashMap::new(),
     }
 }
 

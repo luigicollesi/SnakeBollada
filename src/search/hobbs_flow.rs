@@ -16,8 +16,8 @@ use crate::evaluation::{
 use crate::simulation::joint_action::JointAction;
 
 use super::budget::SearchBudget;
-use super::forecast::{ForecastCertainty, ForecastDelta};
-use super::graph::{FutureGraph, NodeId, SearchError};
+use super::forecast::ForecastCertainty;
+use super::graph::{FutureGraph, NodeId, ResponseLookup, SearchEdge, SearchError};
 use super::path::{FuturePath, FutureStep, MAX_SEARCH_DEPTH};
 
 #[derive(Debug, Clone)]
@@ -239,33 +239,10 @@ fn evaluate_minimax(
         }));
     }
 
-    if !graph.expand_one(node_id, budget)? {
-        return Ok(None);
-    }
-
-    let node = graph.node(node_id);
-    let Some(our_actor) = node.state.actor_index(&node.state.our_snake_id) else {
-        return Ok(None);
-    };
-
-    // Copy only the lightweight descriptors; we must release the graph
-    // borrow before exploring descendants mutably.
-    let mut choices = Vec::<(Direction, Vec<(JointAction, NodeId, ForecastDelta)>)>::new();
-    for direction in Direction::ALL {
-        let alternatives = node
-            .children
-            .iter()
-            .filter(|edge| edge.joint_action.direction_for(our_actor) == Some(direction))
-            .map(|edge| (edge.joint_action.clone(), edge.child, edge.forecast_delta))
-            .collect::<Vec<_>>();
-        if !alternatives.is_empty() {
-            choices.push((direction, alternatives));
-        }
-    }
+    let mut directions = graph.available_directions(node_id);
     let preferred = ordering.best_direction.get(&node_id).copied();
-    choices.sort_by_key(|(direction, _)| (Some(*direction) != preferred, direction.rank()));
-
-    if choices.is_empty() {
+    directions.sort_by_key(|direction| (Some(*direction) != preferred, direction.rank()));
+    if directions.is_empty() {
         let rank = *cache
             .entry(node_id)
             .or_insert_with(|| evaluate_leaf(graph, node_id));
@@ -282,27 +259,49 @@ fn evaluate_minimax(
     }
 
     let mut best: Option<Route> = None;
-    for (direction, mut responses) in choices {
+    for direction in directions {
+        let mut known = graph.known_responses(node_id, direction);
+        let known_count = known.len();
         let preferred_response = ordering
             .worst_response
             .get(&(node_id, direction.rank()))
             .copied();
-        responses.sort_by(|a, b| {
-            (Some(b.1) == preferred_response)
-                .cmp(&(Some(a.1) == preferred_response))
-                .then_with(|| match (cache.get(&a.1), cache.get(&b.1)) {
+        known.sort_by(|a, b| {
+            (Some(b.child) == preferred_response)
+                .cmp(&(Some(a.child) == preferred_response))
+                .then_with(|| match (cache.get(&a.child), cache.get(&b.child)) {
                     (Some(ra), Some(rb)) => ra.cmp(rb),
                     (Some(_), None) => Ordering::Less,
                     (None, Some(_)) => Ordering::Greater,
                     (None, None) => Ordering::Equal,
                 })
         });
+
+        let mut cached = known.into_iter();
+        let mut next_index = known_count;
         let mut worst: Option<Route> = None;
         let mut pruned = false;
-        for (joint_action, child, forecast_delta) in responses {
+        loop {
+            let edge = if let Some(existing) = cached.next() {
+                existing
+            } else {
+                match graph.next_response(node_id, direction, next_index, budget)? {
+                    ResponseLookup::Edge(new_edge) => {
+                        next_index += 1;
+                        new_edge
+                    }
+                    ResponseLookup::Exhausted => break,
+                    ResponseLookup::Deadline => return Ok(None),
+                }
+            };
             if budget.expired() {
                 return Ok(None);
             }
+            let SearchEdge {
+                joint_action,
+                child,
+                forecast_delta,
+            } = edge;
             let child_certainty = certainty.after(forecast_delta);
             let Some(mut candidate) = evaluate_minimax(
                 graph,
@@ -316,12 +315,9 @@ fn evaluate_minimax(
             else {
                 return Ok(None);
             };
-            // The terminal distance is relative to this parent, not the leaf.
             candidate.terminal_plies = candidate
                 .terminal_plies
                 .map(|steps| steps.saturating_add(1));
-            // Preserve structural exposure encountered along the entire
-            // forecast path; otherwise a deep leaf can hide an earlier pin.
             let immediate_safety = assess_survival_state(&graph.node(child).state);
             candidate.rank.safety = worst_safety(candidate.rank.safety, immediate_safety);
             candidate.path = candidate.path.prepend(FutureStep {
@@ -348,8 +344,6 @@ fn evaluate_minimax(
                     .worst_response
                     .insert((node_id, direction.rank()), first.child);
             }
-            // A pruned response is an upper bound, not an exact alternative.
-            // Never replace the incumbent with it, even on an apparent tie.
             if pruned {
                 continue;
             }
