@@ -212,7 +212,7 @@ fn trace_territory_shadow(
         }
         log::info!(
             target: "territorial_control",
-            "territory_shadow turn={} direction={:?} selected={} known_replies={} sampled={} unknown={} complete_known={} min_access={} min_future={} min_regions={} min_largest_branch={} max_gate_exposure={} max_contested_gate={} evidence=optimistic",
+            "territory_shadow turn={} direction={:?} selected={} known_replies={} sampled={} unknown={} complete_known={} min_access={:?} min_future={:?} min_regions={:?} min_largest_branch={:?} max_gate_exposure={} max_contested_gate={} evidence=optimistic",
             state.turn,
             direction,
             direction == selected,
