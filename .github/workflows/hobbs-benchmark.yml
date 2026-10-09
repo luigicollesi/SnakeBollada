@@ -127,6 +127,10 @@ jobs:
               depth=sorted(int(x) for x,_ in metrics)
               territory_root_logs=sum('territory_shadow' in line and 'scope=root' in line for line in logs.splitlines())
               territory_direction_logs=sum('territory_shadow' in line and 'known_replies=' in line for line in logs.splitlines())
+              territory_return_logs=sum('territory_return turn=' in line for line in logs.splitlines())
+              territory_return_verified=sum('territory_return turn=' in line and 'proof=VerifiedForFixedFood' in line for line in logs.splitlines())
+              territory_return_unknown=sum('territory_return turn=' in line and 'proof=Unknown' in line for line in logs.splitlines())
+              territory_return_not_guaranteed=sum('territory_return turn=' in line and 'proof=NotGuaranteedWithinHorizon' in line for line in logs.splitlines())
               cli_path=d/"cli-exit-code.txt"
               cli_exit=int(cli_path.read_text().strip()) if cli_path.exists() else None
               console=(d/"game-console.log").read_text(errors="replace") if (d/"game-console.log").exists() else ""
@@ -138,6 +142,8 @@ jobs:
                   larger_turns=sum(length(s,"SnakeBollada")>length(s,"Hovering Hobbs") for s in alive),
                   decisions=len(metrics),median_depth=depth[len(depth)//2] if depth else None,
                   territory_root_logs=territory_root_logs,territory_direction_logs=territory_direction_logs,
+                  territory_return_logs=territory_return_logs,territory_return_verified=territory_return_verified,
+                  territory_return_unknown=territory_return_unknown,territory_return_not_guaranteed=territory_return_not_guaranteed,
                   p95_latency_ms=round(latency[int(.95*(len(latency)-1))],2) if latency else None))
           Path("summary.json").write_text(json.dumps(output,indent=2))
           Path("endgame_traces.json").write_text(json.dumps(endgame_traces,indent=2))
@@ -145,7 +151,7 @@ jobs:
           print(json.dumps(output,indent=2))
           print("ENDGAME_TRACES_JSON")
           print(json.dumps(endgame_traces,indent=2))
-          print("BASELINE_20261002 previous dev lost at turn 132, max ours=8 max Hobbs=13")
+          print("TARGET_20261002=win TARGET_20261003=win TARGET_20261004=win")
           PY
       - name: Upload local match evidence
         if: always()
