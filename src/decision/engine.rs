@@ -209,21 +209,14 @@ fn trace_territory_shadow(
             // Analyze only partitions that lose a substantial connected
             // region. These counters are sampled, not an exhaustive
             // assessment of replies pruned by minimax.
-            if let Some(cut) = detect_territorial_partition(
-                root_state,
-                child,
-                &root_state.our_snake_id,
-            ) {
+            if let Some(cut) =
+                detect_territorial_partition(root_state, child, &root_state.our_snake_id)
+            {
                 cut_candidates += 1;
                 largest_partition = largest_partition.max(cut.lost_access);
                 if return_checks < 1 && Instant::now() < expires {
-                    let report = verify_territorial_return(
-                        child,
-                        &cut.target_region,
-                        5,
-                        120,
-                        expires,
-                    );
+                    let report =
+                        verify_territorial_return(child, &cut.target_region, 5, 120, expires);
                     return_checks += 1;
                     match report.result {
                         ReturnProof::VerifiedForFixedFood => return_verified += 1,
