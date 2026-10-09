@@ -92,9 +92,11 @@ impl GameRuntime {
                     .lock()
                     .unwrap_or_else(std::sync::PoisonError::into_inner);
                 // A delayed queued request must not run an obsolete search.
-                if started.elapsed() >= Duration::from_millis(
-                    u64::from(owned.game.timeout).saturating_sub(100).max(1),
-                ) {
+                if started.elapsed()
+                    >= Duration::from_millis(
+                        u64::from(owned.game.timeout).saturating_sub(100).max(1),
+                    )
+                {
                     let _ = tx.send(crate::strategy::choose_move_baseline(&owned));
                     return;
                 }
@@ -257,7 +259,10 @@ mod tests {
         let before = Instant::now();
         let decision = runtime.decide(&board, started).await;
         assert!(before.elapsed() < Duration::from_millis(100));
-        assert!(crate::strategy::direction_stays_in_bounds(&board, decision.direction));
+        assert!(crate::strategy::direction_stays_in_bounds(
+            &board,
+            decision.direction
+        ));
     }
 
     #[tokio::test]
@@ -269,7 +274,10 @@ mod tests {
         let count = slots.available_permits();
         let _held = slots.acquire_many_owned(count as u32).await.unwrap();
         let decision = runtime.decide(&board, Instant::now()).await;
-        assert!(crate::strategy::direction_stays_in_bounds(&board, decision.direction));
+        assert!(crate::strategy::direction_stays_in_bounds(
+            &board,
+            decision.direction
+        ));
     }
 
     #[tokio::test]

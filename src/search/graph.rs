@@ -678,12 +678,18 @@ mod tests {
             .direction_for(actor)
             .unwrap();
         graph.retain_chosen_direction(chosen);
-        assert_eq!(graph.node_count(), count_before, "retention must not compact");
+        assert_eq!(
+            graph.node_count(),
+            count_before,
+            "retention must not compact"
+        );
         graph.compact_retained();
         assert!(graph.node_count() <= count_before);
-        assert!(graph.node(graph.root()).children.iter().all(|edge| {
-            edge.joint_action.direction_for(actor) == Some(chosen)
-        }));
+        assert!(graph
+            .node(graph.root())
+            .children
+            .iter()
+            .all(|edge| { edge.joint_action.direction_for(actor) == Some(chosen) }));
     }
 
     #[test]
