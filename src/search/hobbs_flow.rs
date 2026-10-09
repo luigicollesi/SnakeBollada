@@ -91,9 +91,16 @@ fn compare_routes(left: &Route, right: &Route) -> Ordering {
         (StateScore::Loss, StateScore::Loss)
             if left.terminal_plies.is_some() && right.terminal_plies.is_some() =>
         {
-            left.terminal_plies
-                .cmp(&right.terminal_plies)
+            // Avoid an immediate collision before comparing other losing lines.
+            // Otherwise keep the structural guard's escape preference: a path
+            // with more freedom must not lose merely because a forecast delays
+            // its eventual terminal outcome by one speculative turn.
+            let left_immediate = left.terminal_plies == Some(1);
+            let right_immediate = right.terminal_plies == Some(1);
+            right_immediate
+                .cmp(&left_immediate)
                 .then_with(|| left.rank.cmp(&right.rank))
+                .then_with(|| left.terminal_plies.cmp(&right.terminal_plies))
         }
         // Among forced wins, complete the win earlier.
         (StateScore::Win, StateScore::Win)
@@ -384,6 +391,13 @@ mod tests {
         let collision = route(StateScore::Loss, TrapAssessment::Viable, Some(1));
         let delayed = route(StateScore::Loss, TrapAssessment::ForcedCorridor, Some(4));
         assert!(compare_routes(&delayed, &collision).is_gt());
+    }
+
+    #[test]
+    fn losing_corner_line_does_not_beat_safer_route_on_delay_alone() {
+        let safer = route(StateScore::Loss, TrapAssessment::Viable, Some(3));
+        let corner = route(StateScore::Loss, TrapAssessment::ForcedCorridor, Some(5));
+        assert!(compare_routes(&safer, &corner).is_gt());
     }
 
     #[test]
