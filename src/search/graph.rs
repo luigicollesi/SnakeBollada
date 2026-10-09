@@ -47,6 +47,9 @@ pub(crate) struct SearchNode {
     pub(crate) key: Arc<StateKey>,
     pub(crate) children: Vec<SearchEdge>,
     generators_initialized: bool,
+    legal_moves: MoveMask,
+    exhausted_moves: MoveMask,
+    mobility: Option<MobilityAnalysis>,
     pending_by_direction: HashMap<Direction, JointActionGenerator>,
 }
 
@@ -153,6 +156,9 @@ impl FutureGraph {
             self.nodes[root].children.clear();
         }
         self.nodes[root].pending_by_direction.clear();
+        self.nodes[root].legal_moves = MoveMask::empty();
+        self.nodes[root].exhausted_moves = MoveMask::all();
+        self.nodes[root].mobility = None;
         self.nodes[root].generators_initialized = true;
         self.garbage_collect();
     }
@@ -229,14 +235,10 @@ impl FutureGraph {
         } else {
             deterministic
         };
-        let mut generators = HashMap::new();
-        for direction in our_moves.iter() {
-            generators.insert(
-                direction,
-                JointActionGenerator::new(state, MoveMask::single(direction), &mobility),
-            );
-        }
-        self.nodes[node_id].pending_by_direction = generators;
+        // Only calculate deterministic legal moves here. Building four
+        // Cartesian products eagerly defeats the purpose of lazy expansion.
+        self.nodes[node_id].legal_moves = our_moves;
+        self.nodes[node_id].mobility = Some(mobility);
         self.nodes[node_id].generators_initialized = true;
     }
 
@@ -248,7 +250,8 @@ impl FutureGraph {
         Direction::ALL
             .into_iter()
             .filter(|direction| {
-                node.pending_by_direction.contains_key(direction)
+                (node.legal_moves.contains(*direction)
+                    && !node.exhausted_moves.contains(*direction))
                     || actor.is_some_and(|actor| {
                         node.children
                             .iter()
@@ -294,14 +297,26 @@ impl FutureGraph {
         }) {
             return Ok(ResponseLookup::Edge(edge));
         }
-        if !self.nodes[node_id]
-            .pending_by_direction
-            .contains_key(&direction)
+        if self.nodes[node_id].exhausted_moves.contains(direction)
+            || !self.nodes[node_id].legal_moves.contains(direction)
         {
             return Ok(ResponseLookup::Exhausted);
         }
         if budget.expired() {
             return Ok(ResponseLookup::Deadline);
+        }
+        if !self.nodes[node_id].pending_by_direction.contains_key(&direction) {
+            let state = &self.nodes[node_id].state;
+            let mobility = self.nodes[node_id]
+                .mobility
+                .as_ref()
+                .expect("initialized node has a mobility analysis");
+            let actions = JointActionGenerator::new(
+                state,
+                MoveMask::single(direction),
+                mobility,
+            );
+            self.nodes[node_id].pending_by_direction.insert(direction, actions);
         }
         let action = self.nodes[node_id]
             .pending_by_direction
@@ -309,6 +324,7 @@ impl FutureGraph {
             .and_then(Iterator::next);
         let Some(action) = action else {
             self.nodes[node_id].pending_by_direction.remove(&direction);
+            self.nodes[node_id].exhausted_moves.insert(direction);
             return Ok(ResponseLookup::Exhausted);
         };
 
@@ -394,6 +410,9 @@ fn build_node_with_key(state: SimulatedGameState, key: Arc<StateKey>) -> SearchN
         key,
         children: Vec::new(),
         generators_initialized: false,
+        legal_moves: MoveMask::empty(),
+        exhausted_moves: MoveMask::empty(),
+        mobility: None,
         pending_by_direction: HashMap::new(),
     }
 }
