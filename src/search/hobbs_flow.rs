@@ -13,12 +13,12 @@ use crate::analysis::{
     CORRIDOR_HORIZON,
 };
 use crate::direction::Direction;
-use crate::simulation::mobility::MobilityAnalysis;
 use crate::evaluation::{
     assess_survival_state, evaluate_hobbs_state, HobbsScoreParams, StateScore, TrapAssessment,
 };
 #[cfg(test)]
 use crate::simulation::joint_action::JointAction;
+use crate::simulation::mobility::MobilityAnalysis;
 
 use super::budget::SearchBudget;
 use super::forecast::ForecastCertainty;
@@ -138,10 +138,7 @@ impl ScoredCache {
         Self::default()
     }
 
-    fn entry(
-        &mut self,
-        id: NodeId,
-    ) -> std::collections::hash_map::Entry<'_, NodeId, RouteRank> {
+    fn entry(&mut self, id: NodeId) -> std::collections::hash_map::Entry<'_, NodeId, RouteRank> {
         self.leaf_ranks.entry(id)
     }
 
@@ -484,9 +481,7 @@ fn corridor_tactics(
     score: StateScore,
     safety: TrapAssessment,
 ) -> (TrapAssessment, u8) {
-    if !matches!(score, StateScore::Normal { .. })
-        || matches!(safety, TrapAssessment::ProvenTrap)
-    {
+    if !matches!(score, StateScore::Normal { .. }) || matches!(safety, TrapAssessment::ProvenTrap) {
         return (safety, 0);
     }
     let mobility = MobilityAnalysis::from_state(state);
@@ -499,8 +494,7 @@ fn corridor_tactics(
         return (safety, 0);
     }
 
-    let Some(ours) =
-        CorridorOutlook::from_state(state, &state.our_snake_id, CORRIDOR_HORIZON)
+    let Some(ours) = CorridorOutlook::from_state(state, &state.our_snake_id, CORRIDOR_HORIZON)
     else {
         return (safety, 0);
     };
@@ -519,12 +513,13 @@ fn corridor_tactics(
             .iter()
             .filter(|snake| snake.alive && snake.id != state.our_snake_id)
             .filter_map(|enemy| {
-                CorridorOutlook::from_state(state, &enemy.id, CORRIDOR_HORIZON)
-                    .map(|outlook| match outlook.continuing_exits {
+                CorridorOutlook::from_state(state, &enemy.id, CORRIDOR_HORIZON).map(|outlook| {
+                    match outlook.continuing_exits {
                         0 => 2,
                         1 => 1,
                         _ => 0,
-                    })
+                    }
+                })
             })
             .max()
             .unwrap_or(0)
@@ -569,7 +564,11 @@ mod tests {
 
     fn route(score: StateScore, safety: TrapAssessment, terminal_plies: Option<u16>) -> Route {
         Route {
-            rank: RouteRank { score, safety, pressure: 0 },
+            rank: RouteRank {
+                score,
+                safety,
+                pressure: 0,
+            },
             path: FuturePath::empty(),
             certainty: ForecastCertainty::Deterministic,
             terminal_plies,
@@ -836,7 +835,7 @@ mod tests {
                 > RouteRank {
                     score: StateScore::Tie,
                     safety: TrapAssessment::Unknown,
-            pressure: 0,
+                    pressure: 0,
                 }
         );
     }
