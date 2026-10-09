@@ -1,6 +1,5 @@
 use serde::{Deserialize, Serialize};
 
-use crate::analysis::DominationPhase;
 use crate::direction::Direction;
 use crate::navigation::{reachable_after_move, NavigationMap};
 use crate::GameState;
@@ -8,30 +7,20 @@ use crate::GameState;
 #[derive(Deserialize, Serialize, Debug, Clone, Copy, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum DecisionReason {
-    SurvivalCritical,
-    FutureMobility,
-    FoodStrategic,
-    HuntingTactical,
-    BeamUtility,
-    ReservedEscape,
-    DeterministicTieBreak,
+    HobbsSearch,
     BaselineFallback,
     OnlyLegalMove,
     NoSafeMove,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub(crate) struct BeamShadowMetadata {
-    pub(crate) enabled: bool,
-    pub(crate) completed: bool,
+pub(crate) struct HobbsSearchMetadata {
     pub(crate) direction: Option<Direction>,
-    pub(crate) agreed_with_legacy: bool,
-    pub(crate) completed_depth: u8,
-    pub(crate) selected_depth: u8,
-    pub(crate) attempted_depth: u8,
-    pub(crate) line_count: u8,
-    pub(crate) best_value: i64,
-    pub(crate) elapsed_us: u64,
+    pub(crate) score: Option<crate::evaluation::StateScore>,
+    pub(crate) guard: Option<crate::evaluation::TrapAssessment>,
+    pub(crate) root_directions: u8,
+    pub(crate) forecast_provisional: bool,
+    pub(crate) terminal_confirmed: bool,
     pub(crate) action_batches: u32,
     pub(crate) parallel_action_batches: u32,
     pub(crate) resolved_actions: u32,
@@ -39,36 +28,6 @@ pub(crate) struct BeamShadowMetadata {
     pub(crate) resolve_us: u64,
     pub(crate) node_build_us: u64,
     pub(crate) merge_us: u64,
-    pub(crate) edge_score_us: u64,
-    pub(crate) root_domination_progress_milli: u16,
-    pub(crate) frontier_domination_target: Option<u8>,
-    pub(crate) frontier_domination_progress_milli: u16,
-    pub(crate) frontier_domination_phase: DominationPhase,
-    pub(crate) frontier_domination_territory_milli: i16,
-    pub(crate) frontier_domination_length_milli: i16,
-    pub(crate) frontier_domination_mobility_milli: i16,
-    pub(crate) frontier_domination_escape_milli: i16,
-    pub(crate) our_food_utility: i64,
-    pub(crate) our_hunting_utility: i64,
-    pub(crate) our_frontier_hunting_utility: i64,
-    pub(crate) our_frontier_territory: i64,
-    pub(crate) our_frontier_length: i64,
-    pub(crate) our_frontier_constriction: i64,
-    pub(crate) our_frontier_escape: i64,
-    pub(crate) our_frontier_survival_availability_milli: u16,
-    pub(crate) our_survival_utility: i64,
-    pub(crate) our_terminal_utility: i64,
-    pub(crate) opponent_food_utility: i64,
-    pub(crate) opponent_hunting_utility: i64,
-    pub(crate) opponent_frontier_hunting_utility: i64,
-    pub(crate) opponent_frontier_territory: i64,
-    pub(crate) opponent_frontier_length: i64,
-    pub(crate) opponent_frontier_constriction: i64,
-    pub(crate) opponent_frontier_escape: i64,
-    pub(crate) opponent_survival_utility: i64,
-    pub(crate) opponent_terminal_utility: i64,
-    pub(crate) forecast_provisional: bool,
-    pub(crate) terminal_confirmed: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -81,7 +40,7 @@ pub(crate) struct SearchMetadata {
     pub(crate) elapsed_us: u64,
     pub(crate) safety_reserve_us: u64,
     pub(crate) runtime_jitter_reserve_us: u64,
-    pub(crate) beam_shadow: BeamShadowMetadata,
+    pub(crate) hobbs: HobbsSearchMetadata,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -264,7 +223,7 @@ mod tests {
 
         let decision = choose_move(&state);
 
-        assert_eq!(decision.reason, DecisionReason::BeamUtility);
+        assert_eq!(decision.reason, DecisionReason::HobbsSearch);
         assert!(Direction::ALL.contains(&decision.direction));
         assert!(decision.search.completed_depth >= 1);
     }
@@ -298,7 +257,7 @@ mod tests {
 
         let decision = choose_move(&state);
 
-        assert_eq!(decision.reason, DecisionReason::BeamUtility);
+        assert_eq!(decision.reason, DecisionReason::HobbsSearch);
         assert_eq!(decision.direction, Direction::Left);
     }
 
@@ -336,7 +295,7 @@ mod tests {
 
         let decision = choose_move(&state);
 
-        assert_eq!(decision.reason, DecisionReason::BeamUtility);
+        assert_eq!(decision.reason, DecisionReason::HobbsSearch);
         assert_eq!(decision.direction, Direction::Left);
     }
 
@@ -376,7 +335,7 @@ mod tests {
 
         let decision = choose_move(&state);
 
-        assert_eq!(decision.reason, DecisionReason::BeamUtility);
+        assert_eq!(decision.reason, DecisionReason::HobbsSearch);
         assert_eq!(decision.direction, Direction::Left);
     }
 
@@ -430,7 +389,7 @@ mod tests {
 
         let decision = choose_move(&state);
 
-        assert_eq!(decision.reason, DecisionReason::BeamUtility);
+        assert_eq!(decision.reason, DecisionReason::HobbsSearch);
         assert_eq!(
             decision.direction,
             Direction::Left,
@@ -501,7 +460,7 @@ mod tests {
 
         let decision = choose_move(&state);
 
-        assert_eq!(decision.reason, DecisionReason::BeamUtility);
+        assert_eq!(decision.reason, DecisionReason::HobbsSearch);
         assert_ne!(
             decision.direction,
             Direction::Down,
@@ -596,7 +555,7 @@ mod tests {
 
         let decision = choose_move(&state);
 
-        assert_eq!(decision.reason, DecisionReason::BeamUtility);
+        assert_eq!(decision.reason, DecisionReason::HobbsSearch);
         assert_eq!(
             decision.direction,
             Direction::Up,
@@ -667,7 +626,7 @@ mod tests {
 
         let decision = choose_move(&state);
 
-        assert_eq!(decision.reason, DecisionReason::BeamUtility);
+        assert_eq!(decision.reason, DecisionReason::HobbsSearch);
         assert_eq!(
             decision.direction,
             Direction::Right,
@@ -732,7 +691,7 @@ mod tests {
 
         let decision = choose_move(&state);
 
-        assert_eq!(decision.reason, DecisionReason::BeamUtility);
+        assert_eq!(decision.reason, DecisionReason::HobbsSearch);
         assert_eq!(
             decision.direction,
             Direction::Up,
@@ -795,7 +754,7 @@ mod tests {
 
         let decision = choose_move(&state);
 
-        assert_eq!(decision.reason, DecisionReason::BeamUtility);
+        assert_eq!(decision.reason, DecisionReason::HobbsSearch);
         assert_eq!(
             decision.direction,
             Direction::Left,
@@ -833,7 +792,7 @@ mod tests {
 
         let decision = choose_move(&state);
 
-        assert_eq!(decision.reason, DecisionReason::BeamUtility);
+        assert_eq!(decision.reason, DecisionReason::HobbsSearch);
         assert_ne!(decision.direction, Direction::Right);
     }
 

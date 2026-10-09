@@ -1,36 +1,17 @@
-use std::time::Duration;
+//! Single authoritative move decision flow: FutureGraph + Hobbs minimax.
+//! No strategic Food/Hunting mode and no legacy decision switch.
 
-use crate::analysis::TemporalTerritory;
 use crate::direction::Direction;
-use crate::evaluation::{evaluate_hobbs_state, HobbsEvaluation, HobbsScoreParams, StateScore};
-use crate::search::actor_priority::line_hunting_search_priority;
-use crate::search::beam::{BeamLine, LineTerminal};
-use crate::search::beam_search::{search_beam, BeamSearchResult};
+use crate::evaluation::StateScore;
 use crate::search::budget::SearchBudget;
-use crate::search::forecast::{FoodForecastPolicy, ForecastCertainty, PROVISIONAL_TERMINAL_VALUE};
 use crate::search::graph::FutureGraph;
 use crate::search::hobbs_flow::search_hobbs;
-use crate::search::maximin::hunting_frontier_breakdown;
 use crate::simulation::state::{SimulatedGameState, SimulationSupport};
 use crate::strategy::{
-    choose_move_baseline, direction_stays_in_bounds, BeamShadowMetadata, Decision, DecisionReason,
-    SearchMetadata,
+    choose_move_baseline, direction_stays_in_bounds, Decision, DecisionReason,
+    HobbsSearchMetadata, SearchMetadata,
 };
 use crate::GameState;
-
-const ABSOLUTE_SWITCH_MARGIN: i64 = 150;
-const RELATIVE_SWITCH_MARGIN_PERCENT: i64 = 8;
-const IMMEDIATE_GROWTH_PRESSURE_THRESHOLD_MILLI: u16 = 750;
-const IMMEDIATE_SAFE_FOOD_REGRET: i64 = 1_500;
-const FORCED_CORRIDOR_VALUE_REGRET: i64 = 5_000;
-const FORCED_CORRIDOR_OUR_UTILITY_REGRET: i64 = 1_000;
-const HUNTING_CONTINUITY_PRIORITY_MARGIN: i64 = 300;
-
-#[derive(Debug, Clone)]
-pub(crate) struct BeamDecisionOutcome {
-    pub(crate) decision: Decision,
-    pub(crate) selected_line: BeamLine,
-}
 
 #[derive(Debug, Default, Clone, Copy)]
 pub(crate) struct DecisionEngine;
@@ -42,109 +23,50 @@ impl DecisionEngine {
 
     pub(crate) fn decide(&self, state: &GameState) -> Decision {
         let normalized = SimulatedGameState::from(state);
-
         if normalized.rules.simulation_support() != SimulationSupport::StandardLike {
             return baseline_fallback(state);
         }
-
-        let has_living_enemy = normalized
-            .snakes
-            .iter()
-            .any(|snake| snake.alive && snake.id != normalized.our_snake_id);
-        if !has_living_enemy {
-            return choose_move_baseline(state);
-        }
-
-        let forecast_policy = FoodForecastPolicy::from_game_state(state);
-        let mut beam_graph = FutureGraph::new_beam_with_forecast(normalized, forecast_policy);
-        if let Some(decision) = self.try_decide_beam_with_graph(state, &mut beam_graph, 0) {
-            return decision;
-        }
-
-        baseline_fallback(state)
+        let policy = crate::search::forecast::FoodForecastPolicy::from_game_state(state);
+        let mut graph = FutureGraph::new_beam_with_forecast(normalized, policy);
+        self.try_decide(state, &mut graph, 0)
+            .unwrap_or_else(|| baseline_fallback(state))
     }
 
-    pub(crate) fn try_decide_beam_with_graph(
+    pub(crate) fn try_decide(
         &self,
         state: &GameState,
         graph: &mut FutureGraph,
         extra_reserve_ms: u64,
     ) -> Option<Decision> {
-        self.try_decide_beam_with_continuity(state, graph, extra_reserve_ms, None)
-            .map(|outcome| outcome.decision)
-    }
-
-    pub(crate) fn try_decide_beam_with_continuity(
-        &self,
-        state: &GameState,
-        graph: &mut FutureGraph,
-        extra_reserve_ms: u64,
-        incumbent_direction: Option<Direction>,
-    ) -> Option<BeamDecisionOutcome> {
         let budget = SearchBudget::from_state_with_extra_reserve(state, extra_reserve_ms);
         graph.reset_performance();
+        let hobbs = search_hobbs(graph, &budget).ok().flatten()?;
+        if !direction_stays_in_bounds(state, hobbs.direction) {
+            return None;
+        }
 
-        // The state-based Hobbs flow is now the default. Preserve the former
-        // engine behind an explicit opt-in only while its telemetry and
-        // integration tests are migrated.
-        if std::env::var("SNAKE_DECISION_FLOW").as_deref() != Ok("legacy") {
-            let hobbs = search_hobbs(graph, &budget).ok().flatten()?;
-            if !direction_stays_in_bounds(state, hobbs.direction) {
-                return None;
-            }
+        let root = &graph.node(graph.root()).state;
+        let mobility = crate::simulation::mobility::MobilityAnalysis::from_state(root);
+        let reachable_cells =
+            mobility.reachable_space(root, &root.our_snake_id, hobbs.direction);
+        let perf = graph.performance();
+        log::debug!(
+            target: "search_diagnostics",
+            "hobbs_selected turn={} direction={:?} score={:?} guard={:?} depth={} root_directions={} provisional={}",
+            state.turn,
+            hobbs.direction,
+            hobbs.score,
+            hobbs.survival,
+            hobbs.completed_depth,
+            hobbs.root_directions,
+            hobbs.certainty.is_provisional()
+        );
 
-            let root = graph.node(graph.root());
-            let reachable_cells = root.active_analysis().map_or(0, |analysis| {
-                analysis.mobility.reachable_space(
-                    &root.state,
-                    &root.state.our_snake_id,
-                    hobbs.direction,
-                )
-            });
-            let terminal = match hobbs.score {
-                StateScore::Win => LineTerminal::Won,
-                StateScore::Loss | StateScore::Tie => LineTerminal::Lost,
-                _ => LineTerminal::Running,
-            };
-            let mut selected_line =
-                BeamLine::exact(0, hobbs.direction, hobbs.completed_depth, 0, 0, terminal);
-            selected_line.path = hobbs.path;
-            selected_line.certainty = hobbs.certainty;
-
-            log::debug!(
-                target: "search_diagnostics",
-                "hobbs_selected turn={} direction={:?} score={:?} survival={:?} depth={} root_directions={} certainty={:?}",
-                state.turn,
-                hobbs.direction,
-                hobbs.score,
-                hobbs.survival,
-                hobbs.completed_depth,
-                hobbs.root_directions,
-                hobbs.certainty,
-            );
-            let performance = graph.performance();
-            let mut metadata = BeamShadowMetadata {
-                enabled: true,
-                completed: true,
-                direction: Some(hobbs.direction),
-                completed_depth: hobbs.completed_depth,
-                selected_depth: hobbs.completed_depth,
-                attempted_depth: hobbs.completed_depth,
-                line_count: hobbs.root_directions.try_into().unwrap_or(u8::MAX),
-                forecast_provisional: hobbs.certainty.is_provisional(),
-                terminal_confirmed: terminal != LineTerminal::Running
-                    && !hobbs.certainty.is_provisional(),
-                ..BeamShadowMetadata::default()
-            };
-            metadata.action_batches = performance.action_batches;
-            metadata.parallel_action_batches = performance.parallel_action_batches;
-            metadata.resolved_actions = performance.resolved_actions;
-            metadata.new_nodes_built = performance.new_nodes_built;
-            metadata.resolve_us = performance.resolve_us;
-            metadata.node_build_us = performance.node_build_us;
-            metadata.merge_us = performance.merge_us;
-            metadata.edge_score_us = performance.edge_score_us;
-            let search = SearchMetadata {
+        Some(Decision {
+            direction: hobbs.direction,
+            reason: DecisionReason::HobbsSearch,
+            reachable_cells,
+            search: SearchMetadata {
                 completed_depth: hobbs.completed_depth,
                 analyzed_depth: hobbs.completed_depth,
                 nodes: graph.node_count().try_into().unwrap_or(u32::MAX),
@@ -157,710 +79,30 @@ impl DecisionEngine {
                     .try_into()
                     .unwrap_or(u64::MAX),
                 runtime_jitter_reserve_us: extra_reserve_ms.saturating_mul(1000),
-                beam_shadow: metadata,
-            };
-            return Some(BeamDecisionOutcome {
-                decision: Decision {
-                    direction: hobbs.direction,
-                    reason: DecisionReason::BeamUtility,
-                    reachable_cells,
-                    search,
+                hobbs: HobbsSearchMetadata {
+                    direction: Some(hobbs.direction),
+                    score: Some(hobbs.score),
+                    guard: Some(hobbs.survival),
+                    root_directions: hobbs.root_directions.try_into().unwrap_or(u8::MAX),
+                    forecast_provisional: hobbs.certainty.is_provisional(),
+                    terminal_confirmed: matches!(hobbs.score, StateScore::Win | StateScore::Loss | StateScore::Tie)
+                        && !hobbs.certainty.is_provisional(),
+                    action_batches: perf.action_batches,
+                    parallel_action_batches: perf.parallel_action_batches,
+                    resolved_actions: perf.resolved_actions,
+                    new_nodes_built: perf.new_nodes_built,
+                    resolve_us: perf.resolve_us,
+                    node_build_us: perf.node_build_us,
+                    merge_us: perf.merge_us,
                 },
-                selected_line,
-            });
-        }
-
-        let result = search_beam(graph, &budget).ok().flatten()?;
-        let selected = select_line_with_continuity(graph, &result, incumbent_direction)?.clone();
-        // Shadow validation only: the current decision remains controlled by
-        // the original beam evaluation until the migration is complete.
-        if log::log_enabled!(log::Level::Debug) {
-            let root_state = &graph.node(graph.root()).state;
-            if let Some(actor) = root_state.actor_index(&root_state.our_snake_id) {
-                let params = HobbsScoreParams::STANDARD;
-                let territory = TemporalTerritory::from_state(
-                    root_state,
-                    params.fill_cycles,
-                    params.cell_weights,
-                );
-                let hobbs: HobbsEvaluation =
-                    evaluate_hobbs_state(root_state, &territory, actor, params);
-                let mode = match hobbs.score {
-                    StateScore::Loss => "loss",
-                    StateScore::Tie => "tie",
-                    StateScore::LowHealth { .. } => "low_health",
-                    StateScore::Normal { .. } => "normal",
-                    StateScore::Win => "win",
-                };
-                let head_owner = root_state
-                    .snake_at(actor)
-                    .and_then(|snake| snake.head())
-                    .and_then(|head| territory.owner_at(head))
-                    .map(|owner| owner.as_usize());
-                log::debug!(
-                    target: "search_diagnostics",
-                    "hobbs_shadow turn={} mode={} score={:?} territory_milli={} length_bonus_milli={} health={} head_owner={:?}",
-                    state.turn,
-                    mode,
-                    hobbs.score,
-                    hobbs.territory_milli,
-                    hobbs.length_bonus_milli,
-                    hobbs.health,
-                    head_owner,
-                );
-            }
-        }
-
-        if let Some(root_analysis) = graph.node(graph.root()).active_analysis() {
-            if let Some(our_actor) = graph
-                .node(graph.root())
-                .state
-                .actor_index(&graph.node(graph.root()).state.our_snake_id)
-            {
-                if let Some(snapshot) = root_analysis.actor_snapshot(our_actor) {
-                    log::debug!(
-                        target: "search_diagnostics",
-                        "root turn={} weights={}/{}/{} metrics moves={} space={} territory={} growth={} size_security={} enclosure={} border_struct={} border_pin={} border_escape={} starvation={} health={}",
-                        state.turn,
-                        snapshot.weights.food,
-                        snapshot.weights.hunting,
-                        snapshot.weights.survival,
-                        snapshot.metrics.safe_non_reverse_moves,
-                        snapshot.metrics.space_capacity_milli,
-                        snapshot.metrics.territory_control_milli,
-                        snapshot.metrics.growth_pressure_milli,
-                        snapshot.metrics.size_security_milli,
-                        snapshot.metrics.enclosure_risk,
-                        snapshot.metrics.border_structural_risk_milli,
-                        snapshot.metrics.border_pin_risk_milli,
-                        snapshot.metrics.border_escape_pressure_milli,
-                        snapshot.metrics.food_survival_pressure_milli,
-                        snapshot.metrics.health_pressure_milli
-                    );
-                }
-            }
-        }
-        let root_state_for_trace = &graph.node(graph.root()).state;
-        let our_actor_for_trace =
-            root_state_for_trace.actor_index(&root_state_for_trace.our_snake_id);
-        let enemy_actors_for_trace = root_state_for_trace
-            .snakes
-            .iter()
-            .enumerate()
-            .filter(|(_, snake)| snake.alive && snake.id != root_state_for_trace.our_snake_id)
-            .filter_map(|(index, snake)| {
-                crate::simulation::state::ActorIndex::new(index)
-                    .map(|actor| (snake.id.clone(), actor))
-            })
-            .collect::<Vec<_>>();
-        let first_responses = result
-            .checkpoint
-            .lines
-            .iter()
-            .map(|line| {
-                let first = line.path.first();
-                let enemy = enemy_actors_for_trace
-                    .iter()
-                    .map(|(id, actor)| {
-                        format!(
-                            "{}:{:?}",
-                            id,
-                            first.and_then(|step| step.joint_action.direction_for(*actor))
-                        )
-                    })
-                    .collect::<Vec<_>>()
-                    .join(",");
-                format!("{:?}=>{}", line.root_direction, enemy)
-            })
-            .collect::<Vec<_>>()
-            .join("|");
-        let selected_path = selected
-            .path
-            .steps()
-            .iter()
-            .enumerate()
-            .map(|(ply, step)| {
-                let ours =
-                    our_actor_for_trace.and_then(|actor| step.joint_action.direction_for(actor));
-                let enemy = enemy_actors_for_trace
-                    .iter()
-                    .map(|(id, actor)| {
-                        format!("{}:{:?}", id, step.joint_action.direction_for(*actor))
-                    })
-                    .collect::<Vec<_>>()
-                    .join(",");
-                format!("{}:{:?}[{}]", ply + 1, ours, enemy)
-            })
-            .collect::<Vec<_>>()
-            .join(">");
-        log::debug!(
-            target: "search_diagnostics",
-            "responses turn={} first={} selected_terminal={:?} selected_cert={:?} selected_path={}",
-            state.turn,
-            first_responses,
-            selected.terminal,
-            selected.certainty,
-            selected_path
-        );
-        log::debug!(
-            target: "search_diagnostics",
-            "decision turn={} completed_depth={} attempted_depth={} lines={} selected={:?}",
-            state.turn,
-            result.completed_depth(),
-            result.deepening.attempted_depth,
-            result
-                .checkpoint
-                .lines
-                .iter()
-                .map(|line| format!(
-                    "{:?}:v={} ours={} opp={} F={}/{} H={}/{} S={}/{} T={}/{} depth={} term={:?} cert={:?}",
-                    line.root_direction,
-                    line.value,
-                    line.our_utility_total,
-                    line.opponent_utility_total,
-                    line.breakdown.food.benefit,
-                    line.breakdown.food.harm,
-                    line.breakdown.hunting.benefit,
-                    line.breakdown.hunting.harm,
-                    line.breakdown.survival.benefit,
-                    line.breakdown.survival.harm,
-                    line.breakdown.terminal.benefit,
-                    line.breakdown.terminal.harm,
-                    line.depth,
-                    line.terminal,
-                    line.certainty
-                ))
-                .collect::<Vec<_>>()
-                .join("|"),
-            selected.root_direction
-        );
-        let direction = selected.root_direction;
-        if !direction_stays_in_bounds(state, direction) {
-            return None;
-        }
-
-        let root = graph.node(graph.root());
-        let reachable_cells = root.active_analysis().map_or(0, |analysis| {
-            analysis
-                .mobility
-                .reachable_space(&root.state, &root.state.our_snake_id, direction)
-        });
-        let beam_metadata = beam_metadata_for_line(graph, &result, &selected, budget.elapsed());
-
-        let search = SearchMetadata {
-            completed_depth: result.completed_depth(),
-            analyzed_depth: selected.depth,
-            nodes: graph.node_count().try_into().unwrap_or(u32::MAX),
-            edges: graph.edge_count(),
-            transposition_hits: graph.transposition_hits(),
-            elapsed_us: budget.elapsed().as_micros().try_into().unwrap_or(u64::MAX),
-            safety_reserve_us: budget
-                .safety_reserve()
-                .as_micros()
-                .try_into()
-                .unwrap_or(u64::MAX),
-            runtime_jitter_reserve_us: extra_reserve_ms.saturating_mul(1000),
-            beam_shadow: beam_metadata,
-        };
-
-        Some(BeamDecisionOutcome {
-            decision: Decision {
-                direction,
-                reason: DecisionReason::BeamUtility,
-                reachable_cells,
-                search,
             },
-            selected_line: selected,
         })
     }
-}
-
-fn select_line_with_continuity<'a>(
-    graph: &FutureGraph,
-    result: &'a BeamSearchResult,
-    incumbent_direction: Option<Direction>,
-) -> Option<&'a BeamLine> {
-    let best = result.best_line()?;
-    if let Some(surviving_line) = avoid_provisional_terminal_loss(&result.checkpoint.lines, best) {
-        log::debug!(
-            target: "search_diagnostics",
-            "override turn={} reason=provisional_terminal_loss best={:?}:{} selected={:?}:{}",
-            graph.node(graph.root()).state.turn,
-            best.root_direction,
-            best.value,
-            surviving_line.root_direction,
-            surviving_line.value
-        );
-        return Some(surviving_line);
-    }
-    if let Some(safer_line) = avoid_immediate_forced_corridor(graph, result, best) {
-        log::debug!(
-            target: "search_diagnostics",
-            "override turn={} reason=forced_corridor best={:?}:{} selected={:?}:{}",
-            graph.node(graph.root()).state.turn,
-            best.root_direction,
-            best.value,
-            safer_line.root_direction,
-            safer_line.value
-        );
-        return Some(safer_line);
-    }
-    if let Some(food_claim) = immediate_safe_growth_claim(graph, result, best) {
-        log::debug!(
-            target: "search_diagnostics",
-            "override turn={} reason=safe_growth_claim best={:?}:{} selected={:?}:{}",
-            graph.node(graph.root()).state.turn,
-            best.root_direction,
-            best.value,
-            food_claim.root_direction,
-            food_claim.value
-        );
-        return Some(food_claim);
-    }
-
-    let Some(direction) = incumbent_direction else {
-        return Some(best);
-    };
-    let Some(incumbent) = result
-        .checkpoint
-        .lines
-        .iter()
-        .find(|line| line.root_direction == direction && line.is_viable())
-    else {
-        return Some(best);
-    };
-
-    if incumbent.root_direction == best.root_direction {
-        return Some(best);
-    }
-
-    let selected =
-        select_incumbent_or_challenger(graph, best, incumbent, root_has_survival_emergency(graph));
-    if selected.root_direction != best.root_direction {
-        log::debug!(
-            target: "search_diagnostics",
-            "override turn={} reason=continuity best={:?}:{} selected={:?}:{}",
-            graph.node(graph.root()).state.turn,
-            best.root_direction,
-            best.value,
-            selected.root_direction,
-            selected.value
-        );
-    }
-    Some(selected)
-}
-
-fn avoid_provisional_terminal_loss<'a>(
-    lines: &'a [BeamLine],
-    best: &'a BeamLine,
-) -> Option<&'a BeamLine> {
-    if best.terminal != LineTerminal::Lost || !best.certainty.is_provisional() {
-        return None;
-    }
-
-    lines
-        .iter()
-        .filter(|line| line.is_viable() && line.terminal != LineTerminal::Lost)
-        .max_by(|left, right| {
-            left.value
-                .cmp(&right.value)
-                .then_with(|| left.our_utility_total.cmp(&right.our_utility_total))
-                .then_with(|| right.root_direction.rank().cmp(&left.root_direction.rank()))
-        })
-}
-
-fn avoid_immediate_forced_corridor<'a>(
-    graph: &FutureGraph,
-    result: &'a BeamSearchResult,
-    best: &'a BeamLine,
-) -> Option<&'a BeamLine> {
-    if best.is_confirmed_win() {
-        return None;
-    }
-
-    let root = graph.node(graph.root());
-    let our_actor = root.state.actor_index(&root.state.our_snake_id)?;
-    let root_snapshot = root.active_analysis()?.actor_snapshot(our_actor)?;
-    let best_mobility = line_first_child_mobility(graph, best, our_actor)?;
-    let required_alternative_mobility = match best_mobility {
-        0 => 1,
-        1 if root_snapshot.metrics.safe_non_reverse_moves > 1 => 2,
-        _ => return None,
-    };
-
-    result
-        .checkpoint
-        .lines
-        .iter()
-        .filter(|line| line.is_viable())
-        .filter(|line| {
-            line_first_child_mobility(graph, line, our_actor)
-                .is_some_and(|moves| moves >= required_alternative_mobility)
-        })
-        .filter(|line| {
-            best_mobility == 0
-                || (line.value.saturating_add(FORCED_CORRIDOR_VALUE_REGRET) >= best.value
-                    && line
-                        .our_utility_total
-                        .saturating_add(FORCED_CORRIDOR_OUR_UTILITY_REGRET)
-                        >= best.our_utility_total)
-        })
-        .max_by(|left, right| {
-            left.value
-                .cmp(&right.value)
-                .then_with(|| left.our_utility_total.cmp(&right.our_utility_total))
-                .then_with(|| right.root_direction.rank().cmp(&left.root_direction.rank()))
-        })
-}
-
-fn line_first_child_mobility(
-    graph: &FutureGraph,
-    line: &BeamLine,
-    our_actor: crate::simulation::state::ActorIndex,
-) -> Option<u8> {
-    let step = line.path.first()?;
-    if step.node != graph.root() {
-        return None;
-    }
-
-    graph
-        .node(step.child)
-        .active_analysis()
-        .and_then(|analysis| analysis.actor_snapshot(our_actor))
-        .map(|snapshot| snapshot.metrics.safe_non_reverse_moves)
-}
-
-fn immediate_safe_growth_claim<'a>(
-    graph: &FutureGraph,
-    result: &'a BeamSearchResult,
-    best: &'a BeamLine,
-) -> Option<&'a BeamLine> {
-    let root = graph.node(graph.root());
-    let our_actor = root.state.actor_index(&root.state.our_snake_id)?;
-    let snapshot = root.active_analysis()?.actor_snapshot(our_actor)?;
-    if snapshot.metrics.growth_pressure_milli < IMMEDIATE_GROWTH_PRESSURE_THRESHOLD_MILLI {
-        return None;
-    }
-
-    result
-        .checkpoint
-        .lines
-        .iter()
-        .filter(|line| {
-            line.is_viable() && line.value.saturating_add(IMMEDIATE_SAFE_FOOD_REGRET) >= best.value
-        })
-        .filter(|line| line_immediately_claims_safe_food(graph, line, our_actor))
-        .max_by(|left, right| {
-            left.value
-                .cmp(&right.value)
-                .then_with(|| right.root_direction.rank().cmp(&left.root_direction.rank()))
-        })
-}
-
-fn line_immediately_claims_safe_food(
-    graph: &FutureGraph,
-    line: &BeamLine,
-    our_actor: crate::simulation::state::ActorIndex,
-) -> bool {
-    let root = graph.node(graph.root());
-    let Some(step) = line.path.first() else {
-        return false;
-    };
-    if step.node != graph.root() {
-        return false;
-    }
-    let Some(edge) = root
-        .children
-        .iter()
-        .find(|edge| edge.child == step.child && edge.joint_action == step.joint_action)
-    else {
-        return false;
-    };
-    let child = graph.node(edge.child);
-    let Some(our_snake) = child.state.snake_at(our_actor) else {
-        return false;
-    };
-    if !our_snake.alive {
-        return false;
-    }
-    let Some(head) = our_snake.head() else {
-        return false;
-    };
-    if !root.state.food.contains(&head) {
-        return false;
-    }
-
-    child
-        .active_analysis()
-        .and_then(|analysis| analysis.actor_snapshot(our_actor))
-        .is_some_and(|snapshot| snapshot.metrics.safe_non_reverse_moves > 0)
-}
-
-fn select_incumbent_or_challenger<'a>(
-    graph: &FutureGraph,
-    challenger: &'a BeamLine,
-    incumbent: &'a BeamLine,
-    emergency: bool,
-) -> &'a BeamLine {
-    if emergency
-        || incumbent.is_confirmed_loss()
-        || (challenger.is_confirmed_win() && !incumbent.is_confirmed_win())
-    {
-        return challenger;
-    }
-
-    let challenger_hunting = line_hunting_search_priority(graph, challenger);
-    let incumbent_hunting = line_hunting_search_priority(graph, incumbent);
-    if challenger_hunting > incumbent_hunting.saturating_add(HUNTING_CONTINUITY_PRIORITY_MARGIN) {
-        return challenger;
-    }
-
-    let relative_margin = incumbent
-        .value
-        .saturating_abs()
-        .saturating_mul(RELATIVE_SWITCH_MARGIN_PERCENT)
-        .saturating_div(100);
-    let margin = ABSOLUTE_SWITCH_MARGIN.max(relative_margin);
-
-    if challenger.value > incumbent.value.saturating_add(margin) {
-        challenger
-    } else {
-        incumbent
-    }
-}
-
-fn root_has_survival_emergency(graph: &FutureGraph) -> bool {
-    let root = graph.node(graph.root());
-    let Some(analysis) = root.active_analysis() else {
-        return true;
-    };
-    let Some(actor) = root.state.actor_index(&root.state.our_snake_id) else {
-        return true;
-    };
-    let Some(snapshot) = analysis.actor_snapshot(actor) else {
-        return true;
-    };
-
-    snapshot.metrics.space_capacity_milli <= 100
-        || snapshot.metrics.enclosure_risk >= 3
-        || snapshot.metrics.border_escape_pressure_milli >= 850
-        || snapshot.metrics.food_survival_pressure_milli >= 900
-        || snapshot.metrics.health_pressure_milli >= 900
-}
-
-fn beam_metadata_for_line(
-    graph: &FutureGraph,
-    result: &BeamSearchResult,
-    selected: &BeamLine,
-    elapsed: Duration,
-) -> BeamShadowMetadata {
-    let perf = graph.performance();
-    let mut metadata = BeamShadowMetadata {
-        enabled: true,
-        completed: true,
-        completed_depth: result.completed_depth(),
-        selected_depth: selected.depth,
-        attempted_depth: result.deepening.attempted_depth,
-        line_count: result.checkpoint.lines.len().try_into().unwrap_or(u8::MAX),
-        elapsed_us: elapsed.as_micros().try_into().unwrap_or(u64::MAX),
-        action_batches: perf.action_batches,
-        parallel_action_batches: perf.parallel_action_batches,
-        resolved_actions: perf.resolved_actions,
-        new_nodes_built: perf.new_nodes_built,
-        resolve_us: perf.resolve_us,
-        node_build_us: perf.node_build_us,
-        merge_us: perf.merge_us,
-        edge_score_us: perf.edge_score_us,
-        ..BeamShadowMetadata::default()
-    };
-
-    metadata.direction = Some(selected.root_direction);
-    metadata.best_value = selected.value;
-    metadata.forecast_provisional = selected.certainty.is_provisional();
-    metadata.terminal_confirmed = selected.is_confirmed_win() || selected.is_confirmed_loss();
-
-    let root_node = graph.node(graph.root());
-    if let Some(root_actor) = root_node.state.actor_index(&root_node.state.our_snake_id) {
-        if let Some(domination) = root_node
-            .active_analysis()
-            .and_then(|analysis| analysis.best_domination_target(&root_node.state, root_actor))
-        {
-            metadata.root_domination_progress_milli = domination.progress_milli;
-        }
-    }
-
-    if let Some(tip) = selected.path.last().map(|step| step.child) {
-        let tip_node = graph.node(tip);
-        if let Some(our_actor) = tip_node.state.actor_index(&tip_node.state.our_snake_id) {
-            if let Some(domination) = tip_node
-                .active_analysis()
-                .and_then(|analysis| analysis.best_domination_target(&tip_node.state, our_actor))
-            {
-                metadata.frontier_domination_target = domination.target.as_usize().try_into().ok();
-                metadata.frontier_domination_progress_milli = domination.progress_milli;
-                metadata.frontier_domination_phase = domination.phase;
-                metadata.frontier_domination_territory_milli = domination.territory_advantage_milli;
-                metadata.frontier_domination_length_milli = domination.length_security_milli;
-                metadata.frontier_domination_mobility_milli = domination.mobility_pressure_milli;
-                metadata.frontier_domination_escape_milli = domination.escape_pressure_milli;
-            }
-        }
-
-        for (index, snake) in tip_node
-            .state
-            .snakes
-            .iter()
-            .enumerate()
-            .filter(|(_, snake)| snake.alive)
-        {
-            let Some(actor) = crate::simulation::state::ActorIndex::new(index) else {
-                continue;
-            };
-            let frontier = hunting_frontier_breakdown(tip_node, actor);
-            if snake.id == tip_node.state.our_snake_id {
-                metadata.our_frontier_hunting_utility = frontier.weighted;
-                metadata.our_frontier_territory = frontier.territory_dominance;
-                metadata.our_frontier_length = frontier.length_security;
-                metadata.our_frontier_constriction = frontier.constriction_asymmetry;
-                metadata.our_frontier_escape = frontier.escape_asymmetry;
-                metadata.our_frontier_survival_availability_milli =
-                    frontier.survival_availability_milli;
-            } else {
-                metadata.opponent_frontier_hunting_utility = metadata
-                    .opponent_frontier_hunting_utility
-                    .saturating_add(frontier.weighted);
-                metadata.opponent_frontier_territory = metadata
-                    .opponent_frontier_territory
-                    .saturating_add(frontier.territory_dominance);
-                metadata.opponent_frontier_length = metadata
-                    .opponent_frontier_length
-                    .saturating_add(frontier.length_security);
-                metadata.opponent_frontier_constriction = metadata
-                    .opponent_frontier_constriction
-                    .saturating_add(frontier.constriction_asymmetry);
-                metadata.opponent_frontier_escape = metadata
-                    .opponent_frontier_escape
-                    .saturating_add(frontier.escape_asymmetry);
-            }
-        }
-    }
-
-    let root_state = &graph.node(graph.root()).state;
-    let our_index = root_state.actor_index(&root_state.our_snake_id);
-    let mut certainty = ForecastCertainty::Deterministic;
-    for step in selected.path.steps() {
-        let Some(edge) = graph
-            .node(step.node)
-            .children
-            .iter()
-            .find(|edge| edge.child == step.child && edge.joint_action == step.joint_action)
-        else {
-            continue;
-        };
-
-        for (actor, score) in edge.transition.actors.iter() {
-            let food = score.food_benefit.saturating_sub(score.food_harm);
-            let hunting = score.hunting_benefit.saturating_sub(score.hunting_harm);
-            let survival = score.survival_benefit.saturating_sub(score.survival_harm);
-            let raw_terminal = score.terminal_benefit.saturating_sub(score.terminal_harm);
-            let terminal = if raw_terminal != 0 && certainty.is_provisional() {
-                raw_terminal
-                    .signum()
-                    .saturating_mul(PROVISIONAL_TERMINAL_VALUE)
-            } else {
-                raw_terminal
-            };
-
-            if Some(actor) == our_index {
-                log::debug!(
-                    target: "search_diagnostics",
-                    "hunt_step turn={} depth={} target={:?} threat={:?} raw_net={} weighted_net={} search_priority={} territory={}/{} length={}/{} mobility={}/{} escape={}/{} domination={}/{} counter_domination={}/{} phase={}/{} capture={} kill={}",
-                    graph.node(graph.root()).state.turn,
-                    metadata.selected_depth,
-                    score.hunting.target.map(|target| target.as_usize()),
-                    score.hunting.threat.map(|threat| threat.as_usize()),
-                    score.hunting.net,
-                    hunting,
-                    score.hunting.search_priority,
-                    score.hunting.territory_benefit,
-                    score.hunting.territory_harm,
-                    score.hunting.length_benefit,
-                    score.hunting.length_harm,
-                    score.hunting.mobility_benefit,
-                    score.hunting.mobility_harm,
-                    score.hunting.escape_benefit,
-                    score.hunting.escape_harm,
-                    score.hunting.domination_benefit,
-                    score.hunting.domination_harm,
-                    score.hunting.counter_domination_benefit,
-                    score.hunting.counter_domination_harm,
-                    score.hunting.phase_benefit,
-                    score.hunting.phase_harm,
-                    score.hunting.capture_benefit,
-                    score.hunting.kill_benefit
-                );
-                metadata.our_food_utility = metadata.our_food_utility.saturating_add(food);
-                metadata.our_hunting_utility = metadata.our_hunting_utility.saturating_add(hunting);
-                metadata.our_survival_utility =
-                    metadata.our_survival_utility.saturating_add(survival);
-                metadata.our_terminal_utility =
-                    metadata.our_terminal_utility.saturating_add(terminal);
-            } else {
-                metadata.opponent_food_utility =
-                    metadata.opponent_food_utility.saturating_add(food);
-                metadata.opponent_hunting_utility =
-                    metadata.opponent_hunting_utility.saturating_add(hunting);
-                metadata.opponent_survival_utility =
-                    metadata.opponent_survival_utility.saturating_add(survival);
-                metadata.opponent_terminal_utility =
-                    metadata.opponent_terminal_utility.saturating_add(terminal);
-            }
-        }
-
-        if !graph.node(edge.child).is_terminal() {
-            certainty = certainty.after(edge.forecast_delta);
-        }
-    }
-
-    if let Some(root_actor) = graph
-        .node(graph.root())
-        .state
-        .actor_index(&graph.node(graph.root()).state.our_snake_id)
-    {
-        for (step_index, step) in selected.path.steps().into_iter().enumerate() {
-            let node = graph.node(step.child);
-            let Some(domination) = node
-                .active_analysis()
-                .and_then(|analysis| analysis.best_domination_target(&node.state, root_actor))
-            else {
-                continue;
-            };
-            log::debug!(
-                target: "search_diagnostics",
-                "dom_path turn={} step={} depth={} target={} progress={} phase={} territory={} length={} mobility={} escape={}",
-                graph.node(graph.root()).state.turn,
-                step_index.saturating_add(1),
-                step_index.saturating_add(1),
-                domination.target.as_usize(),
-                domination.progress_milli,
-                domination.phase.as_str(),
-                domination.territory_advantage_milli,
-                domination.length_security_milli,
-                domination.mobility_pressure_milli,
-                domination.escape_pressure_milli
-            );
-        }
-    }
-
-    metadata
 }
 
 fn baseline_fallback(state: &GameState) -> Decision {
     let mut decision = choose_move_baseline(state);
-    if !matches!(
-        decision.reason,
-        DecisionReason::OnlyLegalMove | DecisionReason::NoSafeMove
-    ) {
+    if !matches!(decision.reason, DecisionReason::OnlyLegalMove | DecisionReason::NoSafeMove) {
         decision.reason = DecisionReason::BaselineFallback;
     }
     decision
@@ -868,170 +110,57 @@ fn baseline_fallback(state: &GameState) -> Decision {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashMap;
-
-    use crate::search::beam::LineTerminal;
-
-    use serde_json::json;
-
     use super::*;
     use crate::{Battlesnake, Board, Coord, Game};
+    use serde_json::json;
+    use std::collections::HashMap;
 
-    fn snake(id: &str, body: Vec<Coord>) -> Battlesnake {
-        Battlesnake {
-            id: id.to_string(),
-            name: id.to_string(),
+    fn board(ruleset: &str) -> GameState {
+        let ours = Battlesnake {
+            id: "ours".into(),
+            name: "ours".into(),
             health: 100,
-            head: body[0],
-            length: body.len() as u32,
-            body,
+            head: Coord { x: 1, y: 1 },
+            body: vec![Coord { x: 1, y: 1 }, Coord { x: 1, y: 0 }],
+            length: 2,
             latency: String::new(),
             shout: None,
-        }
-    }
-
-    fn state(ruleset: &str) -> GameState {
-        let ours = snake(
-            "ours",
-            vec![
-                Coord { x: 2, y: 2 },
-                Coord { x: 2, y: 1 },
-                Coord { x: 2, y: 0 },
-            ],
-        );
-        let enemy = snake("enemy", vec![Coord { x: 5, y: 5 }, Coord { x: 5, y: 4 }]);
-
+        };
         GameState {
             game: Game {
-                id: "beam-authority".to_string(),
-                ruleset: HashMap::from([("name".to_string(), json!(ruleset))]),
+                id: "hobbs-decision".into(),
+                ruleset: HashMap::from([("name".into(), json!(ruleset))]),
                 timeout: 500,
             },
-            turn: 2,
+            turn: 0,
             board: Board {
                 width: 7,
                 height: 7,
-                food: vec![Coord { x: 4, y: 2 }],
-                snakes: vec![ours.clone(), enemy],
+                food: vec![Coord { x: 3, y: 3 }],
+                snakes: vec![ours.clone(), Battlesnake {
+                    id: "enemy".into(),
+                    name: "enemy".into(),
+                    head: Coord { x: 5, y: 5 },
+                    body: vec![Coord { x: 5, y: 5 }, Coord { x: 5, y: 4 }],
+                    ..ours.clone()
+                }],
                 hazards: vec![],
             },
             you: ours,
         }
     }
 
-    fn line(id: u32, direction: Direction, value: i64) -> BeamLine {
-        BeamLine::exact(
-            id,
-            direction,
-            3,
-            value.max(0),
-            value.max(0).saturating_sub(value),
-            LineTerminal::Running,
-        )
+    #[test]
+    fn standard_ruleset_uses_hobbs_as_sole_search() {
+        let decision = DecisionEngine::stateless().decide(&board("standard"));
+        assert_eq!(decision.reason, DecisionReason::HobbsSearch);
+        assert!(decision.search.completed_depth >= 1);
+        assert_eq!(decision.search.hobbs.direction, Some(decision.direction));
     }
 
     #[test]
-    fn provisional_terminal_loss_does_not_beat_running_line() {
-        let mut dying = line(1, Direction::Right, 5_000);
-        dying.terminal = LineTerminal::Lost;
-        dying.certainty = ForecastCertainty::FoodProvisional;
-        let running = line(2, Direction::Up, 1_000);
-        let lines = vec![dying, running];
-
-        let chosen = avoid_provisional_terminal_loss(&lines, &lines[0])
-            .expect("a still-running route must replace a provisional death");
-
-        assert_eq!(chosen.root_direction, Direction::Up);
-        assert_eq!(chosen.terminal, LineTerminal::Running);
-    }
-
-    fn continuity_graph() -> FutureGraph {
-        FutureGraph::new(SimulatedGameState::from(&state("standard")))
-    }
-
-    #[test]
-    fn marginal_challenger_does_not_replace_incumbent() {
-        let incumbent = line(1, Direction::Right, 4_000);
-        let challenger = line(2, Direction::Up, 4_100);
-
-        let chosen =
-            select_incumbent_or_challenger(&continuity_graph(), &challenger, &incumbent, false);
-
-        assert_eq!(chosen.root_direction, Direction::Right);
-    }
-
-    #[test]
-    fn meaningful_challenger_gain_replaces_incumbent() {
-        let incumbent = line(1, Direction::Right, 4_000);
-        let challenger = line(2, Direction::Up, 4_500);
-
-        let chosen =
-            select_incumbent_or_challenger(&continuity_graph(), &challenger, &incumbent, false);
-
-        assert_eq!(chosen.root_direction, Direction::Up);
-    }
-
-    #[test]
-    fn survival_emergency_bypasses_switch_margin() {
-        let incumbent = line(1, Direction::Right, 4_000);
-        let challenger = line(2, Direction::Up, 4_001);
-
-        let chosen =
-            select_incumbent_or_challenger(&continuity_graph(), &challenger, &incumbent, true);
-
-        assert_eq!(chosen.root_direction, Direction::Up);
-    }
-
-    #[test]
-    fn standard_ruleset_uses_beam_authority() {
-        let state = state("standard");
-        let decision = DecisionEngine::stateless().decide(&state);
-
-        assert!(crate::direction::Direction::ALL.contains(&decision.direction));
-        assert_eq!(decision.reason, DecisionReason::BeamUtility);
-        assert!(decision.search.beam_shadow.completed);
-        assert_eq!(
-            decision.search.beam_shadow.direction,
-            Some(decision.direction)
-        );
-        assert!(decision.reachable_cells > 0);
-    }
-
-    #[test]
-    fn persistent_beam_graph_uses_lean_analysis() {
-        let state = state("standard");
-        let normalized = SimulatedGameState::from(&state);
-        let mut graph = FutureGraph::new_beam(normalized);
-
-        let decision = DecisionEngine::stateless()
-            .try_decide_beam_with_graph(&state, &mut graph, 0)
-            .expect("standard search should produce a beam decision");
-
-        assert_eq!(decision.reason, DecisionReason::BeamUtility);
-        assert!(decision.search.beam_shadow.completed);
-        assert_eq!(
-            decision.search.completed_depth,
-            decision.search.beam_shadow.completed_depth
-        );
-        let analysis = graph
-            .node(graph.root())
-            .active_analysis()
-            .expect("beam root must keep actor-relative analysis");
-        assert!(!analysis.actor_snapshots.is_empty());
-        assert!(analysis
-            .territory
-            .for_snake(&graph.node(graph.root()).state.our_snake_id)
-            .is_some());
-    }
-
-    #[test]
-    fn unsupported_ruleset_uses_baseline() {
-        let state = state("constrictor");
-
-        let decision = DecisionEngine::stateless().decide(&state);
-        let baseline = choose_move_baseline(&state);
-
-        assert_eq!(decision.direction, baseline.direction);
+    fn unsupported_ruleset_uses_safe_baseline() {
+        let decision = DecisionEngine::stateless().decide(&board("royale"));
         assert_eq!(decision.reason, DecisionReason::BaselineFallback);
     }
 }
