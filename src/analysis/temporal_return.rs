@@ -1,36 +1,42 @@
-//! Bounded adversarial verification of access to a previously connected region.
+//! Goal-specific return verification using the persistent FutureGraph.
 //!
-//! The analyzer uses the SAME simultaneous joint-turn resolver as FutureGraph.
-//! It proves existence of a strategy for a fixed-food horizon (MAX over ours,
-//! MIN over all currently legal replies), not victory or permanent safety.
-//! Unknown/missing responses are never silently treated as harmless.
-//! No strategic score or move changes depend on this module.
+//! The analysis explores the SAME joint-action edges as the main Minimax;
+//! it never owns a second simulation tree, resolver, or transposition index.
+//! The result is conditional on the graph's known-food forecast and is NOT
+//! proof of game survival, permanent territory ownership, or eventual victory.
 
 use std::collections::HashMap;
 use std::time::Instant;
 
-use crate::decision::joint_actions::JointActionGenerator;
-use crate::decision::state_key::StateKey;
-use crate::direction::MoveMask;
-use crate::simulation::mobility::MobilityAnalysis;
-use crate::simulation::resolver::resolve_turn;
-use crate::simulation::state::SimulatedGameState;
+use crate::search::budget::SearchBudget;
+use crate::search::forecast::ForecastCertainty;
+use crate::search::graph::{
+    FutureGraph, NodeId, ResponseCoverage, ResponseLookup,
+};
 use crate::Coord;
 
 const MAX_GOAL_CELLS: usize = 400;
 
-/// All proofs are conditional on known food at each projected turn: unknown
-/// future food spawns are intentionally not treated as deterministic.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ReturnProof {
-    /// One adaptive policy reaches the former territory within the horizon
-    /// against every enumerated legal rival reply.
+    /// An adaptive strategy reaches the region for every legal simultaneous
+    /// enemy response *within the simulated, fixed-food scenario*.
     VerifiedForFixedFood,
-    /// A complete search found no guaranteed return within the horizon.
-    /// This does NOT imply eventual death or rule out a later return.
+    /// Complete reasoning refutes a guaranteed return within this horizon.
+    /// This does NOT imply death, or even failure to return after the horizon.
     NotGuaranteedWithinHorizon,
-    /// Search was incomplete: deadline, node limit, or unsupported state.
+    /// Partial expansion, unavailable time/nodes, or otherwise incomplete.
     Unknown,
+}
+
+/// Only the root engine may authorize new graph edges, and both modes share
+/// one response enumerator. Shadow uses ReadOnly to avoid consuming search
+/// depth or influencing the persistent search tree after a decision.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ReturnExpansion {
+    ReadOnly,
+    #[cfg_attr(not(test), allow(dead_code))]
+    WithinBudget,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -38,39 +44,58 @@ pub(crate) struct ReturnAnalysis {
     pub(crate) result: ReturnProof,
     pub(crate) explored: usize,
     pub(crate) horizon: u8,
+    /// A simulated transition may omit food spawned randomly in the future;
+    /// an affirmative result is consequently always conditional.
+    pub(crate) provisional_food: bool,
 }
 
-/// For each speculative state, decide whether there is an adaptive sequence of
-/// our actions guaranteed to put the head into one of the lost territorial
-/// cells by the requested horizon. This method is diagnostic only.
+/// Assess whether our head has a guaranteed route to any destination cell.
+/// Reuses already-expanded FutureGraph edges and can optionally request
+/// additional edges via FutureGraph::next_response under a bounded budget.
+///
+/// Never infer legal-reply coverage merely from known_responses(). A branch
+/// with a missing rival response cannot establish a verified return.
 pub(crate) fn verify_return(
-    state: &SimulatedGameState,
+    graph: &mut FutureGraph,
+    start: NodeId,
     destinations: &[Coord],
     horizon: u8,
     limit: usize,
     deadline: Instant,
+    expansion: ReturnExpansion,
+    budget: &SearchBudget,
 ) -> ReturnAnalysis {
-    let mut ctx = Context {
+    let mut context = Context {
         destinations,
         explored: 0,
         limit,
         deadline,
+        expansion,
         visited: HashMap::new(),
+        provisional_food: false,
     };
+    let state = &graph.node(start).state;
     let result = if horizon == 0
         || destinations.is_empty()
         || destinations.len() > MAX_GOAL_CELLS
         || state.width.saturating_mul(state.height) > MAX_GOAL_CELLS as u32
-        || state.snakes.iter().filter(|s| s.alive).count() > 2
+        || state.snakes.iter().filter(|snake| snake.alive).count() > 2
     {
         ReturnProof::Unknown
     } else {
-        ctx.prove(state, horizon)
+        context.prove(
+            graph,
+            start,
+            horizon,
+            ForecastCertainty::Deterministic,
+            budget,
+        )
     };
     ReturnAnalysis {
         result,
-        explored: ctx.explored,
+        explored: context.explored,
         horizon,
+        provisional_food: context.provisional_food,
     }
 }
 
@@ -79,12 +104,28 @@ struct Context<'a> {
     explored: usize,
     limit: usize,
     deadline: Instant,
-    visited: HashMap<(StateKey, u8), ReturnProof>,
+    expansion: ReturnExpansion,
+    // The target region is fixed for the whole query. Node IDs remain stable
+    // during append-only expansion; no compact/reroot runs inside the query.
+    visited: HashMap<(NodeId, u8, ForecastCertainty), ReturnProof>,
+    provisional_food: bool,
 }
 
 impl Context<'_> {
-    fn prove(&mut self, state: &SimulatedGameState, depth: u8) -> ReturnProof {
-        let Some(ours) = state.snake(&state.our_snake_id).filter(|s| s.alive) else {
+    fn out_of_budget(&self, budget: &SearchBudget) -> bool {
+        self.explored >= self.limit || Instant::now() >= self.deadline || budget.expired()
+    }
+
+    fn prove(
+        &mut self,
+        graph: &mut FutureGraph,
+        node: NodeId,
+        depth: u8,
+        certainty: ForecastCertainty,
+        budget: &SearchBudget,
+    ) -> ReturnProof {
+        let state = &graph.node(node).state;
+        let Some(ours) = state.snake(&state.our_snake_id).filter(|snake| snake.alive) else {
             return ReturnProof::NotGuaranteedWithinHorizon;
         };
         if ours
@@ -93,66 +134,102 @@ impl Context<'_> {
         {
             return ReturnProof::VerifiedForFixedFood;
         }
-        if depth == 0 {
+        if depth == 0 || graph.node(node).is_terminal() {
             return ReturnProof::NotGuaranteedWithinHorizon;
         }
-        if self.explored >= self.limit || Instant::now() >= self.deadline {
+        // Retention prunes sibling actions and may falsely mark their lazy
+        // generators exhausted. Do not use such nodes as proof substrates.
+        if graph.responses_retained_after_decision(node) || self.out_of_budget(budget) {
             return ReturnProof::Unknown;
         }
-        let key = (StateKey::from_beam_state(state), depth);
+        let key = (node, depth, certainty);
         if let Some(&cached) = self.visited.get(&key) {
             return cached;
         }
+
         self.explored += 1;
-        let mobility = MobilityAnalysis::from_state(state);
-        let moves = mobility.deterministic_moves_for(state, &state.our_snake_id);
-        // Do not allow speculative suicidal wall moves to count as safe
-        // continuations, even when there are no deterministic alternatives.
-        if moves.is_empty() {
+        let directions = graph.available_directions(node);
+        if directions.is_empty() {
             return ReturnProof::NotGuaranteedWithinHorizon;
         }
         let mut unknown_direction = false;
-        for direction in moves.iter() {
-            let mut worst = ReturnProof::VerifiedForFixedFood;
-            let mut replies =
-                JointActionGenerator::new(state, MoveMask::single(direction), &mobility);
+        for direction in directions {
+            if self.out_of_budget(budget) {
+                return ReturnProof::Unknown;
+            }
+            let known = graph.known_responses(node, direction);
+            let mut index = 0_usize;
             let mut saw_reply = false;
-            for joint in &mut replies {
-                saw_reply = true;
-                if self.explored >= self.limit || Instant::now() >= self.deadline {
-                    worst = ReturnProof::Unknown;
+            let mut unknown_reply = false;
+            let mut refuted = false;
+            let mut exhausted = graph.response_coverage(node, direction)
+                == ResponseCoverage::Complete;
+
+            loop {
+                if self.out_of_budget(budget) {
+                    unknown_reply = true;
                     break;
                 }
-                let child = match resolve_turn(state, &joint) {
-                    Ok(resolved) => resolved.state,
-                    Err(_) => {
-                        worst = ReturnProof::Unknown;
-                        break;
+                let edge = if let Some(edge) = known.get(index) {
+                    Some(edge.clone())
+                } else if exhausted || self.expansion == ReturnExpansion::ReadOnly {
+                    None
+                } else {
+                    match graph.next_response(node, direction, index, budget) {
+                        Ok(ResponseLookup::Edge(edge)) => Some(edge),
+                        Ok(ResponseLookup::Exhausted) => {
+                            exhausted = true;
+                            None
+                        }
+                        Ok(ResponseLookup::Deadline) | Err(_) => {
+                            unknown_reply = true;
+                            None
+                        }
                     }
                 };
-                match self.prove(&child, depth - 1) {
+                let Some(edge) = edge else {
+                    break;
+                };
+                index += 1;
+                saw_reply = true;
+                let child_certainty = certainty.after(edge.forecast_delta);
+                if child_certainty.is_provisional() {
+                    self.provisional_food = true;
+                }
+                match self.prove(graph, edge.child, depth - 1, child_certainty, budget) {
                     ReturnProof::VerifiedForFixedFood => {}
                     ReturnProof::NotGuaranteedWithinHorizon => {
-                        worst = ReturnProof::NotGuaranteedWithinHorizon;
+                        // A single refuting enemy reply is sufficient even if
+                        // other replies have not been expanded.
+                        refuted = true;
                         break;
                     }
                     ReturnProof::Unknown => {
-                        worst = ReturnProof::Unknown;
-                        // An unknown rival reply prevents proof but another
-                        // unexamined reply may definitively refute this
-                        // direction. Conservatively stop the branch.
+                        // Another reply may refute this direction, but budget
+                        // and node limits make this branch inconclusive.
+                        unknown_reply = true;
                         break;
                     }
                 }
             }
-            if saw_reply && worst == ReturnProof::VerifiedForFixedFood {
-                self.visited.insert(key, worst);
-                return worst;
+            if refuted {
+                continue;
             }
-            if worst == ReturnProof::Unknown || !saw_reply {
-                unknown_direction = true;
+            // The lazy generator is *complete only after Exhausted*. Observing
+            // all cached replies is not enough to certify a guaranteed return.
+            if saw_reply
+                && !unknown_reply
+                && (exhausted
+                    || graph.response_coverage(node, direction)
+                        == ResponseCoverage::Complete)
+            {
+                self.visited
+                    .insert(key, ReturnProof::VerifiedForFixedFood);
+                return ReturnProof::VerifiedForFixedFood;
             }
+            unknown_direction = true;
         }
+
         let result = if unknown_direction {
             ReturnProof::Unknown
         } else {
@@ -167,8 +244,15 @@ impl Context<'_> {
 
 #[cfg(test)]
 mod tests {
+    use std::time::Duration;
+
     use super::*;
-    use crate::simulation::state::{RulesContext, SimulatedSnake};
+    use crate::analysis::{detect_territorial_partition, replay_fixtures};
+    use crate::direction::Direction;
+    use crate::search::forecast::FoodForecastPolicy;
+    use crate::simulation::joint_action::JointAction;
+    use crate::simulation::resolver::resolve_turn;
+    use crate::simulation::state::{RulesContext, SimulatedGameState, SimulatedSnake};
 
     fn snake(id: &str, body: &[(i32, i32)]) -> SimulatedSnake {
         SimulatedSnake {
@@ -196,62 +280,125 @@ mod tests {
         }
     }
 
-    fn run(state: &SimulatedGameState, target: Coord, depth: u8, limit: usize) -> ReturnAnalysis {
+    fn run(state: SimulatedGameState, target: Coord, depth: u8, limit: usize) -> ReturnAnalysis {
+        let mut graph = FutureGraph::new_beam(state);
+        let budget = SearchBudget::for_duration(Duration::from_secs(2));
+        let root = graph.root();
         verify_return(
-            state,
+            &mut graph,
+            root,
             &[target],
             depth,
             limit,
-            Instant::now() + std::time::Duration::from_millis(500),
+            Instant::now() + Duration::from_millis(750),
+            ReturnExpansion::WithinBudget,
+            &budget,
         )
     }
 
     #[test]
-    fn open_board_proves_reentry() {
+    fn open_board_proves_reentry_through_shared_graph() {
         let board = state(vec![snake("ours", &[(0, 0)])]);
-        let result = run(&board, Coord { x: 2, y: 0 }, 3, 300);
+        let result = run(board, Coord { x: 2, y: 0 }, 3, 600);
         assert_eq!(result.result, ReturnProof::VerifiedForFixedFood);
     }
 
     #[test]
-    fn no_horizon_does_not_assume_failure() {
+    fn no_horizon_is_unknown() {
         let board = state(vec![snake("ours", &[(0, 0)])]);
-        let result = run(&board, Coord { x: 2, y: 0 }, 0, 300);
+        let result = run(board, Coord { x: 2, y: 0 }, 0, 300);
         assert_eq!(result.result, ReturnProof::Unknown);
     }
 
     #[test]
     fn insufficient_horizon_is_not_a_terminal_loss() {
         let board = state(vec![snake("ours", &[(0, 0)])]);
-        let result = run(&board, Coord { x: 4, y: 4 }, 2, 500);
+        let result = run(board, Coord { x: 4, y: 4 }, 2, 600);
         assert_eq!(result.result, ReturnProof::NotGuaranteedWithinHorizon);
     }
 
     #[test]
-    fn exhausted_budget_is_unknown_not_a_forced_trap() {
+    fn exhausted_budget_never_claims_a_trap() {
         let board = state(vec![snake("ours", &[(0, 0)])]);
-        let result = run(&board, Coord { x: 4, y: 4 }, 6, 0);
+        let result = run(board, Coord { x: 4, y: 4 }, 6, 0);
         assert_eq!(result.result, ReturnProof::Unknown);
     }
 
     #[test]
-    fn contested_destination_must_survive_enemy_replies() {
+    fn partial_replies_cannot_prove_return() {
+        let board = state(vec![snake("ours", &[(1, 1)]), snake("enemy", &[(4, 4)])]);
+        let mut graph = FutureGraph::new_beam(board);
+        let budget = SearchBudget::for_duration(Duration::from_secs(1));
+        let root = graph.root();
+        let result = verify_return(
+            &mut graph,
+            root,
+            &[Coord { x: 2, y: 1 }],
+            1,
+            300,
+            Instant::now() + Duration::from_millis(100),
+            ReturnExpansion::ReadOnly,
+            &budget,
+        );
+        assert_eq!(result.result, ReturnProof::Unknown);
+        assert_eq!(graph.node_count(), 1);
+        // Shared expansion, not our own resolver, supplies the exact replies.
+        assert_eq!(
+            run(
+                state(vec![snake("ours", &[(1, 1)]), snake("enemy", &[(4, 4)])]),
+                Coord { x: 2, y: 1 },
+                1,
+                600
+            )
+            .result,
+            ReturnProof::VerifiedForFixedFood,
+        );
+    }
+
+    #[test]
+    fn contested_destination_requires_all_adversarial_replies() {
         let board = state(vec![
             snake("ours", &[(1, 1)]),
             snake("enemy", &[(3, 1), (3, 0)]),
         ]);
-        let result = run(&board, Coord { x: 2, y: 1 }, 1, 500);
-        // A same-size rival can meet us at (2,1); the head-to-head would
-        // eliminate both snakes. No first-step guaranteed return.
+        let result = run(board, Coord { x: 2, y: 1 }, 1, 600);
         assert_eq!(result.result, ReturnProof::NotGuaranteedWithinHorizon);
     }
 
     #[test]
-    fn recorded_turn_241_right_resolves_to_the_recorded_turn_242() {
-        use crate::analysis::{detect_territorial_partition, replay_fixtures};
-        use crate::direction::Direction;
-        use crate::simulation::joint_action::JointAction;
+    fn food_growth_is_resolved_by_shared_graph() {
+        let mut board = state(vec![snake("ours", &[(1, 1), (1, 0), (0, 0)])]);
+        board.food.push(Coord { x: 2, y: 1 });
+        let result = run(board, Coord { x: 2, y: 1 }, 1, 400);
+        assert_eq!(result.result, ReturnProof::VerifiedForFixedFood);
+    }
 
+    #[test]
+    fn provisional_food_is_propagated_across_graph_edges() {
+        let board = state(vec![snake("ours", &[(1, 1)])]);
+        let forecast = FoodForecastPolicy {
+            spawn_chance_percent: 10,
+            minimum_food: 0,
+        };
+        let mut graph = FutureGraph::new_beam_with_forecast(board, forecast);
+        let budget = SearchBudget::for_duration(Duration::from_secs(2));
+        let root = graph.root();
+        let result = verify_return(
+            &mut graph,
+            root,
+            &[Coord { x: 2, y: 1 }],
+            1,
+            500,
+            Instant::now() + Duration::from_millis(600),
+            ReturnExpansion::WithinBudget,
+            &budget,
+        );
+        assert_eq!(result.result, ReturnProof::VerifiedForFixedFood);
+        assert!(result.provisional_food);
+    }
+
+    #[test]
+    fn recorded_241_242_turn_uses_same_joint_resolver_and_shared_graph() {
         let before = replay_fixtures::state(241);
         let after = replay_fixtures::state(242);
         let ours = before.actor_index("ours").unwrap();
@@ -260,22 +407,24 @@ mod tests {
             .with_move(ours, Direction::Right)
             .with_move(hobbs, Direction::Up);
         let resolved = resolve_turn(&before, &action).unwrap().state;
-        // One food item spawned between actual turns; this must not affect
-        // the precisely simulated body/health/joint movement.
         assert_eq!(resolved.snakes, after.snakes);
         let cut = detect_territorial_partition(&before, &resolved, "ours").unwrap();
-        let reply = verify_return(
-            &resolved,
+        let mut graph = FutureGraph::new_beam(resolved);
+        let budget = SearchBudget::for_duration(Duration::from_secs(2));
+        let root = graph.root();
+        let report = verify_return(
+            &mut graph,
+            root,
             &cut.target_region,
             5,
             125,
-            Instant::now() + std::time::Duration::from_millis(120),
+            Instant::now() + Duration::from_millis(200),
+            ReturnExpansion::WithinBudget,
+            &budget,
         );
-        assert!(reply.explored <= 125);
-        // Whatever the bounded result, it must never claim that a complete
-        // game loss was proved by checking only access to a region.
+        assert!(report.explored <= 125);
         assert!(matches!(
-            reply.result,
+            report.result,
             ReturnProof::VerifiedForFixedFood
                 | ReturnProof::NotGuaranteedWithinHorizon
                 | ReturnProof::Unknown
@@ -283,10 +432,22 @@ mod tests {
     }
 
     #[test]
-    fn food_growth_is_resolved_by_joint_simulation() {
-        let mut board = state(vec![snake("ours", &[(1, 1), (1, 0), (0, 0)])]);
-        board.food.push(Coord { x: 2, y: 1 });
-        let result = run(&board, Coord { x: 2, y: 1 }, 1, 250);
-        assert_eq!(result.result, ReturnProof::VerifiedForFixedFood);
+    fn retained_root_cannot_claim_complete_opponent_coverage() {
+        let board = state(vec![snake("ours", &[(1, 1)])]);
+        let mut graph = FutureGraph::new_beam(board);
+        graph.retain_chosen_direction(Direction::Right);
+        let budget = SearchBudget::for_duration(Duration::from_secs(1));
+        let root = graph.root();
+        let result = verify_return(
+            &mut graph,
+            root,
+            &[Coord { x: 2, y: 1 }],
+            1,
+            300,
+            Instant::now() + Duration::from_millis(100),
+            ReturnExpansion::ReadOnly,
+            &budget,
+        );
+        assert_eq!(result.result, ReturnProof::Unknown);
     }
 }
