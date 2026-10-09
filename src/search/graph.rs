@@ -568,6 +568,52 @@ mod tests {
     }
 
     #[test]
+    fn coverage_is_partial_until_generator_exhausts_every_enemy_reply() {
+        let mut graph = FutureGraph::new_beam(state());
+        let budget = SearchBudget::for_duration(Duration::from_secs(3));
+        let root = graph.root();
+        assert_eq!(
+            graph.response_coverage(root, Direction::Up),
+            ResponseCoverage::Unexpanded
+        );
+        let available = graph.available_directions(root);
+        let direction = available[0];
+        assert_eq!(
+            graph.response_coverage(root, direction),
+            ResponseCoverage::Partial
+        );
+        assert!(matches!(
+            graph.next_response(root, direction, 0, &budget).unwrap(),
+            ResponseLookup::Edge(_)
+        ));
+        assert_eq!(
+            graph.response_coverage(root, direction),
+            ResponseCoverage::Partial,
+            "one cached enemy move is not full opponent coverage"
+        );
+        let mut next = 1;
+        loop {
+            match graph.next_response(root, direction, next, &budget).unwrap() {
+                ResponseLookup::Edge(_) => next += 1,
+                ResponseLookup::Exhausted => break,
+                ResponseLookup::Deadline => panic!("small fixture should exhaust replies"),
+            }
+        }
+        assert!(next > 1);
+        assert_eq!(
+            graph.response_coverage(root, direction),
+            ResponseCoverage::Complete
+        );
+        graph.retain_chosen_direction(direction);
+        assert!(graph.responses_retained_after_decision(root));
+        assert_eq!(
+            graph.response_coverage(root, direction),
+            ResponseCoverage::Partial,
+            "retention must invalidate the completeness certificate"
+        );
+    }
+
+    #[test]
     fn lazy_cursor_resumes_and_matches_full_joint_enumeration() {
         let board = state();
         let mut full = FutureGraph::new_beam(board.clone());
