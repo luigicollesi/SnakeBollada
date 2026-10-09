@@ -250,6 +250,42 @@ mod tests {
     }
 
     #[test]
+    fn recorded_turn_241_right_resolves_to_the_recorded_turn_242() {
+        use crate::analysis::{detect_territorial_partition, replay_fixtures};
+        use crate::direction::Direction;
+        use crate::simulation::joint_action::JointAction;
+
+        let before = replay_fixtures::state(241);
+        let after = replay_fixtures::state(242);
+        let ours = before.actor_index("ours").unwrap();
+        let hobbs = before.actor_index("hobbs").unwrap();
+        let action = JointAction::new()
+            .with_move(ours, Direction::Right)
+            .with_move(hobbs, Direction::Up);
+        let resolved = resolve_turn(&before, &action).unwrap().state;
+        // One food item spawned between actual turns; this must not affect
+        // the precisely simulated body/health/joint movement.
+        assert_eq!(resolved.snakes, after.snakes);
+        let cut = detect_territorial_partition(&before, &resolved, "ours").unwrap();
+        let reply = verify_return(
+            &resolved,
+            &cut.target_region,
+            5,
+            125,
+            Instant::now() + std::time::Duration::from_millis(120),
+        );
+        assert!(reply.explored <= 125);
+        // Whatever the bounded result, it must never claim that a complete
+        // game loss was proved by checking only access to a region.
+        assert!(matches!(
+            reply.result,
+            ReturnProof::VerifiedForFixedFood
+                | ReturnProof::NotGuaranteedWithinHorizon
+                | ReturnProof::Unknown
+        ));
+    }
+
+    #[test]
     fn food_growth_is_resolved_by_joint_simulation() {
         let mut board = state(vec![snake("ours", &[(1, 1), (1, 0), (0, 0)])]);
         board.food.push(Coord { x: 2, y: 1 });
