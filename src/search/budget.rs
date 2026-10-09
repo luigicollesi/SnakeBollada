@@ -90,7 +90,6 @@ impl SearchBudget {
     pub(crate) fn safety_reserve(&self) -> Duration {
         self.safety_reserve
     }
-
 }
 
 #[cfg(test)]

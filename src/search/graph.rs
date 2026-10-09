@@ -443,13 +443,21 @@ mod tests {
         let directions = graph.available_directions(root);
         assert!(directions.len() >= 2);
 
-        let first = graph.next_response(root, directions[0], 0, &budget).unwrap();
+        let first = graph
+            .next_response(root, directions[0], 0, &budget)
+            .unwrap();
         assert!(matches!(first, ResponseLookup::Edge(_)));
         assert_eq!(graph.edge_count(), 1);
         assert!(graph.known_responses(root, directions[1]).is_empty());
-        let cached = graph.next_response(root, directions[0], 0, &budget).unwrap();
+        let cached = graph
+            .next_response(root, directions[0], 0, &budget)
+            .unwrap();
         assert!(matches!(cached, ResponseLookup::Edge(_)));
-        assert_eq!(graph.edge_count(), 1, "cached access cannot resolve a second edge");
+        assert_eq!(
+            graph.edge_count(),
+            1,
+            "cached access cannot resolve a second edge"
+        );
     }
 
     #[test]
@@ -463,7 +471,10 @@ mod tests {
         let root = partial.root();
         let directions = partial.available_directions(root);
         let first = directions[0];
-        assert!(matches!(partial.next_response(root, first, 0, &budget).unwrap(), ResponseLookup::Edge(_)));
+        assert!(matches!(
+            partial.next_response(root, first, 0, &budget).unwrap(),
+            ResponseLookup::Edge(_)
+        ));
         assert_eq!(partial.edge_count(), 1);
         assert!(partial.expand_one(root, &budget).unwrap());
 
