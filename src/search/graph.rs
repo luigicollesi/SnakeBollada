@@ -6,6 +6,8 @@ use std::sync::Arc;
 use crate::decision::joint_actions::JointActionGenerator;
 use crate::decision::state_key::StateKey;
 use crate::direction::{Direction, MoveMask};
+use crate::evaluation::{StateScore, TrapAssessment};
+use super::forecast::ForecastCertainty;
 use crate::simulation::joint_action::JointAction;
 use crate::simulation::mobility::MobilityAnalysis;
 use crate::simulation::resolver::{resolve_turn, ResolveError};
@@ -41,11 +43,32 @@ pub(crate) enum ResponseLookup {
     Deadline,
 }
 
+/// A search result is retained as a move-ordering hint only. Bounds must be
+/// recalculated for each search's root turn, path safety and food certainty.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum SearchBoundKind {
+    Exact,
+    Lower,
+    Upper,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct CachedSearchValue {
+    pub(crate) score: StateScore,
+    pub(crate) safety: TrapAssessment,
+    pub(crate) depth: u8,
+    pub(crate) certainty: ForecastCertainty,
+    pub(crate) bound: SearchBoundKind,
+}
+
 #[derive(Debug, Clone)]
 pub(crate) struct SearchNode {
     pub(crate) state: SimulatedGameState,
     pub(crate) key: Arc<StateKey>,
     pub(crate) children: Vec<SearchEdge>,
+    pub(crate) preferred_direction: Option<Direction>,
+    pub(crate) preferred_reply: HashMap<Direction, JointAction>,
+    pub(crate) last_search: Option<CachedSearchValue>,
     generators_initialized: bool,
     legal_moves: MoveMask,
     exhausted_moves: MoveMask,
@@ -118,6 +141,32 @@ impl FutureGraph {
 
     pub(crate) fn node(&self, node_id: NodeId) -> &SearchNode {
         &self.nodes[node_id]
+    }
+
+    pub(crate) fn record_search(
+        &mut self,
+        node_id: NodeId,
+        depth: u8,
+        result: CachedSearchValue,
+        best_direction: Option<Direction>,
+    ) {
+        if let Some(node) = self.nodes.get_mut(node_id) {
+            if best_direction.is_some() {
+                node.preferred_direction = best_direction;
+            }
+            if node.last_search.is_none_or(|cached| depth >= cached.depth) {
+                node.last_search = Some(result);
+            }
+        }
+    }
+
+    pub(crate) fn record_worst_reply(
+        &mut self,
+        node_id: NodeId,
+        direction: Direction,
+        response: JointAction,
+    ) {
+        self.nodes[node_id].preferred_reply.insert(direction, response);
     }
 
     pub(crate) fn node_count(&self) -> usize {
@@ -410,6 +459,9 @@ fn build_node_with_key(state: SimulatedGameState, key: Arc<StateKey>) -> SearchN
         state,
         key,
         children: Vec::new(),
+        preferred_direction: None,
+        preferred_reply: HashMap::new(),
+        last_search: None,
         generators_initialized: false,
         legal_moves: MoveMask::empty(),
         exhausted_moves: MoveMask::empty(),
@@ -570,6 +622,34 @@ mod tests {
             .children
             .iter()
             .all(|edge| edge.child != graph.root()));
+    }
+
+    #[test]
+    fn search_hints_survive_compaction_and_reroot() {
+        let mut graph = FutureGraph::new_beam(state());
+        let budget = SearchBudget::for_duration(Duration::from_secs(3));
+        let root = graph.root();
+        let direction = graph.available_directions(root)[0];
+        let edge = match graph.next_response(root, direction, 0, &budget).unwrap() {
+            ResponseLookup::Edge(edge) => edge,
+            other => panic!("unexpected response {other:?}"),
+        };
+        let child = edge.child;
+        let child_key = graph.node(child).key.clone();
+        graph.record_search(child, 2, CachedSearchValue {
+            score: StateScore::Normal { utility_milli: 123 },
+            safety: TrapAssessment::Viable,
+            depth: 2,
+            certainty: ForecastCertainty::Deterministic,
+            bound: SearchBoundKind::Exact,
+        }, Some(Direction::Left));
+        graph.record_worst_reply(child, Direction::Left, edge.joint_action.clone());
+        graph.retain_chosen_direction(direction);
+        let new_id = graph.find_node_by_key(&child_key).unwrap();
+        graph.reroot(new_id);
+        assert_eq!(graph.node(graph.root()).preferred_direction, Some(Direction::Left));
+        assert_eq!(graph.node(graph.root()).preferred_reply.get(&Direction::Left), Some(&edge.joint_action));
+        assert_eq!(graph.node(graph.root()).last_search.unwrap().depth, 2);
     }
 
     #[test]
