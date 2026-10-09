@@ -140,9 +140,8 @@ impl TerritorialMode {
 
     fn configured() -> Self {
         static MODE: OnceLock<TerritorialMode> = OnceLock::new();
-        *MODE.get_or_init(|| {
-            Self::parse(&std::env::var("SNAKE_TERRITORY_MODE").unwrap_or_default())
-        })
+        *MODE
+            .get_or_init(|| Self::parse(&std::env::var("SNAKE_TERRITORY_MODE").unwrap_or_default()))
     }
 }
 
@@ -158,7 +157,12 @@ fn trace_territory_shadow(
     const SHADOW_LIMIT: Duration = Duration::from_millis(12);
     let request_timeout = Duration::from_millis(u64::from(state.game.timeout));
     let reserve = budget.safety_reserve().max(Duration::from_millis(60));
-    if budget.elapsed().saturating_add(reserve).saturating_add(SHADOW_LIMIT) >= request_timeout {
+    if budget
+        .elapsed()
+        .saturating_add(reserve)
+        .saturating_add(SHADOW_LIMIT)
+        >= request_timeout
+    {
         log::debug!(target: "territorial_control", "territory_shadow skipped=budget turn={}", state.turn);
         return;
     }
