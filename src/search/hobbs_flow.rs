@@ -517,13 +517,13 @@ fn corridor_tactics(
             .iter()
             .filter(|snake| snake.alive && snake.id != state.our_snake_id)
             .filter_map(|enemy| {
-                CorridorOutlook::from_state(state, &enemy.id, LEAF_CORRIDOR_HORIZON).map(|outlook| {
-                    match outlook.continuing_exits {
+                CorridorOutlook::from_state(state, &enemy.id, LEAF_CORRIDOR_HORIZON).map(
+                    |outlook| match outlook.continuing_exits {
                         0 => 2,
                         1 => 1,
                         _ => 0,
-                    }
-                })
+                    },
+                )
             })
             .max()
             .unwrap_or(0)
