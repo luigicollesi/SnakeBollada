@@ -68,7 +68,11 @@ impl ProjectedPath {
             remaining_food.swap_remove(food_index);
             state.rules.max_health
         } else {
-            let hazard_stacks = state.hazards.iter().filter(|hazard| **hazard == head).count();
+            let hazard_stacks = state
+                .hazards
+                .iter()
+                .filter(|hazard| **hazard == head)
+                .count();
             let damage = state
                 .rules
                 .hazard_damage_per_turn
@@ -123,8 +127,8 @@ impl CorridorOutlook {
             for (segment, &position) in other.body.iter().enumerate() {
                 if let Some(index) = position_index(position, width, height) {
                     let remaining = other.body.len().saturating_sub(segment);
-                    opponent_release[index] = opponent_release[index]
-                        .max(u16::try_from(remaining).unwrap_or(u16::MAX));
+                    opponent_release[index] =
+                        opponent_release[index].max(u16::try_from(remaining).unwrap_or(u16::MAX));
                 }
             }
         }
@@ -296,7 +300,11 @@ mod tests {
 
     #[test]
     fn open_board_has_multiple_continuations() {
-        let s = board(7, 7, vec![snake("ours", &[(3, 3)]), snake("enemy", &[(6, 6)])]);
+        let s = board(
+            7,
+            7,
+            vec![snake("ours", &[(3, 3)]), snake("enemy", &[(6, 6)])],
+        );
         let o = CorridorOutlook::from_state(&s, "ours", 4).unwrap();
         assert!(o.immediate_exits >= 3);
         assert!(o.continuing_exits >= 3);
@@ -306,7 +314,8 @@ mod tests {
     #[test]
     fn stacked_tail_is_not_opened_one_cycle_early() {
         let s = board(
-            3, 3,
+            3,
+            3,
             vec![
                 snake("ours", &[(0, 0), (0, 1), (1, 1), (1, 0), (1, 0)]),
                 snake("enemy", &[(2, 2)]),
@@ -321,7 +330,8 @@ mod tests {
     #[test]
     fn one_open_turn_can_still_close_on_second_cycle() {
         let s = board(
-            3, 3,
+            3,
+            3,
             vec![
                 snake("ours", &[(0, 0), (0, 1), (1, 1), (1, 2), (0, 2)]),
                 snake("enemy", &[(2, 0), (2, 1), (2, 2)]),
@@ -337,7 +347,8 @@ mod tests {
     #[test]
     fn moving_head_cannot_revisit_its_retained_neck() {
         let s = board(
-            2, 2,
+            2,
+            2,
             vec![
                 snake("ours", &[(0, 0), (0, 1), (1, 1)]),
                 snake("enemy", &[(1, 0)]),
@@ -353,7 +364,8 @@ mod tests {
     #[test]
     fn food_growth_keeps_old_tail_blocked() {
         let mut s = board(
-            2, 2,
+            2,
+            2,
             vec![
                 snake("ours", &[(0, 0), (0, 1), (1, 1)]),
                 snake("enemy", &[(1, 0), (1, 0)]),
@@ -368,7 +380,11 @@ mod tests {
 
     #[test]
     fn projected_food_growth_changes_the_body_shape() {
-        let mut s = board(4, 4, vec![snake("ours", &[(1, 1), (1, 0)]), snake("enemy", &[(3, 3)])]);
+        let mut s = board(
+            4,
+            4,
+            vec![snake("ours", &[(1, 1), (1, 0)]), snake("enemy", &[(3, 3)])],
+        );
         s.food.push(Coord { x: 2, y: 1 });
         let initial = ProjectedPath {
             body: s.snakes[0].body.clone(),
@@ -376,33 +392,61 @@ mod tests {
             remaining_food: s.food.clone(),
         };
         let release = vec![0; 16];
-        let moved = initial.step(crate::direction::Direction::Right, 1, &s, &release, 4, 4).unwrap();
-        assert_eq!(moved.body, vec![Coord { x: 2, y: 1 }, Coord { x: 1, y: 1 }, Coord { x: 1, y: 0 }]);
+        let moved = initial
+            .step(crate::direction::Direction::Right, 1, &s, &release, 4, 4)
+            .unwrap();
+        assert_eq!(
+            moved.body,
+            vec![
+                Coord { x: 2, y: 1 },
+                Coord { x: 1, y: 1 },
+                Coord { x: 1, y: 0 }
+            ]
+        );
         assert_eq!(moved.health, 100);
         assert!(moved.remaining_food.is_empty());
     }
 
     #[test]
     fn adversarial_order_checks_enemy_escape_symmetrically() {
-        let corner = board(7, 7, vec![snake("ours", &[(3, 3)]), snake("enemy", &[(6, 6)])]);
-        let center = board(7, 7, vec![snake("ours", &[(3, 3)]), snake("enemy", &[(5, 5)])]);
+        let corner = board(
+            7,
+            7,
+            vec![snake("ours", &[(3, 3)]), snake("enemy", &[(6, 6)])],
+        );
+        let center = board(
+            7,
+            7,
+            vec![snake("ours", &[(3, 3)]), snake("enemy", &[(5, 5)])],
+        );
         let corner_hint = adversarial_order(&corner);
         let center_hint = adversarial_order(&center);
-        assert_eq!(corner_hint.our_continuations(), center_hint.our_continuations());
+        assert_eq!(
+            corner_hint.our_continuations(),
+            center_hint.our_continuations()
+        );
         assert!(corner_hint.enemy_continuations() < center_hint.enemy_continuations());
         assert!(center_hint < corner_hint);
     }
 
     #[test]
     fn horizon_one_agrees_with_immediate_exit_count_in_open_field() {
-        let s = board(7, 7, vec![snake("ours", &[(2, 2)]), snake("enemy", &[(6, 6)])]);
+        let s = board(
+            7,
+            7,
+            vec![snake("ours", &[(2, 2)]), snake("enemy", &[(6, 6)])],
+        );
         let o = CorridorOutlook::from_state(&s, "ours", 1).unwrap();
         assert_eq!(o.continuing_exits, o.immediate_exits);
     }
 
     #[test]
     fn perspective_can_analyze_enemy_symmetrically() {
-        let s = board(5, 5, vec![snake("ours", &[(2, 2)]), snake("enemy", &[(0, 0)])]);
+        let s = board(
+            5,
+            5,
+            vec![snake("ours", &[(2, 2)]), snake("enemy", &[(0, 0)])],
+        );
         let us = CorridorOutlook::from_state(&s, "ours", 4).unwrap();
         let enemy = CorridorOutlook::from_state(&s, "enemy", 4).unwrap();
         assert!(us.continuing_exits > enemy.immediate_exits);
