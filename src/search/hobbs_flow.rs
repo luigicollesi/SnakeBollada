@@ -854,17 +854,21 @@ mod tests {
             pressure: 2,
         };
         let unsafe_attack = RouteRank {
-            score: StateScore::Normal { utility_milli: 1000 },
+            score: StateScore::Normal {
+                utility_milli: 1000,
+            },
             safety: TrapAssessment::ForcedCorridor,
             pressure: 2,
         };
         assert!(threatening > safe);
         assert!(safe > unsafe_attack);
-        assert!(RouteRank {
-            score: StateScore::Win,
-            safety: TrapAssessment::Unknown,
-            pressure: 0,
-        } > threatening);
+        assert!(
+            RouteRank {
+                score: StateScore::Win,
+                safety: TrapAssessment::Unknown,
+                pressure: 0,
+            } > threatening
+        );
     }
 
     #[test]
