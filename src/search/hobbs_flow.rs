@@ -304,8 +304,15 @@ fn evaluate_minimax(
                 return Ok(None);
             }
             let child_certainty = certainty.after(forecast_delta);
-            let Some(mut candidate) =
-                evaluate_minimax(graph, child, depth - 1, child_certainty, budget, cache, ordering)?
+            let Some(mut candidate) = evaluate_minimax(
+                graph,
+                child,
+                depth - 1,
+                child_certainty,
+                budget,
+                cache,
+                ordering,
+            )?
             else {
                 return Ok(None);
             };
