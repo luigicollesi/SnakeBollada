@@ -9,6 +9,7 @@ use crate::search::beam_search::{search_beam, BeamSearchResult};
 use crate::search::budget::SearchBudget;
 use crate::search::forecast::{FoodForecastPolicy, ForecastCertainty, PROVISIONAL_TERMINAL_VALUE};
 use crate::search::graph::FutureGraph;
+use crate::search::hobbs_flow::search_hobbs;
 use crate::search::maximin::hunting_frontier_breakdown;
 use crate::simulation::state::{SimulatedGameState, SimulationSupport};
 use crate::strategy::{
@@ -82,6 +83,88 @@ impl DecisionEngine {
     ) -> Option<BeamDecisionOutcome> {
         let budget = SearchBudget::from_state_with_extra_reserve(state, extra_reserve_ms);
         graph.reset_performance();
+
+        // The state-based Hobbs flow is now the default. Preserve the former
+        // engine behind an explicit opt-in only while its telemetry and
+        // integration tests are migrated.
+        if std::env::var("SNAKE_DECISION_FLOW").as_deref() != Ok("legacy") {
+            let hobbs = search_hobbs(graph, &budget).ok().flatten()?;
+            if !direction_stays_in_bounds(state, hobbs.direction) {
+                return None;
+            }
+
+            let root = graph.node(graph.root());
+            let reachable_cells = root.active_analysis().map_or(0, |analysis| {
+                analysis.mobility.reachable_space(
+                    &root.state,
+                    &root.state.our_snake_id,
+                    hobbs.direction,
+                )
+            });
+            let terminal = match hobbs.score {
+                StateScore::Win => LineTerminal::Won,
+                StateScore::Loss | StateScore::Tie => LineTerminal::Lost,
+                _ => LineTerminal::Running,
+            };
+            let mut selected_line =
+                BeamLine::exact(0, hobbs.direction, hobbs.completed_depth, 0, 0, terminal);
+            selected_line.path = hobbs.path;
+            selected_line.certainty = hobbs.certainty;
+
+            log::debug!(
+                target: "search_diagnostics",
+                "hobbs_selected turn={} direction={:?} score={:?} survival={:?} depth={} root_directions={} certainty={:?}",
+                state.turn,
+                hobbs.direction,
+                hobbs.score,
+                hobbs.survival,
+                hobbs.completed_depth,
+                hobbs.root_directions,
+                hobbs.certainty,
+            );
+            let performance = graph.performance();
+            let mut metadata = BeamShadowMetadata {
+                enabled: true,
+                completed: true,
+                direction: Some(hobbs.direction),
+                completed_depth: hobbs.completed_depth,
+                selected_depth: hobbs.completed_depth,
+                attempted_depth: hobbs.completed_depth,
+                line_count: hobbs.root_directions.try_into().unwrap_or(u8::MAX),
+                forecast_provisional: hobbs.certainty.is_provisional(),
+                terminal_confirmed: terminal != LineTerminal::Running
+                    && !hobbs.certainty.is_provisional(),
+                ..BeamShadowMetadata::default()
+            };
+            metadata.action_batches = performance.action_batches;
+            metadata.parallel_action_batches = performance.parallel_action_batches;
+            metadata.resolved_actions = performance.resolved_actions;
+            metadata.new_nodes_built = performance.new_nodes_built;
+            metadata.resolve_us = performance.resolve_us;
+            metadata.node_build_us = performance.node_build_us;
+            metadata.merge_us = performance.merge_us;
+            metadata.edge_score_us = performance.edge_score_us;
+            let search = SearchMetadata {
+                completed_depth: hobbs.completed_depth,
+                analyzed_depth: hobbs.completed_depth,
+                nodes: graph.node_count().try_into().unwrap_or(u32::MAX),
+                edges: graph.edge_count(),
+                transposition_hits: graph.transposition_hits(),
+                elapsed_us: budget.elapsed().as_micros().try_into().unwrap_or(u64::MAX),
+                safety_reserve_us: budget.safety_reserve().as_micros().try_into().unwrap_or(u64::MAX),
+                runtime_jitter_reserve_us: extra_reserve_ms.saturating_mul(1000),
+                beam_shadow: metadata,
+            };
+            return Some(BeamDecisionOutcome {
+                decision: Decision {
+                    direction: hobbs.direction,
+                    reason: DecisionReason::BeamUtility,
+                    reachable_cells,
+                    search,
+                },
+                selected_line,
+            });
+        }
 
         let result = search_beam(graph, &budget).ok().flatten()?;
         let selected = select_line_with_continuity(graph, &result, incumbent_direction)?.clone();
