@@ -46,19 +46,11 @@ pub(crate) enum ResponseLookup {
 /// A search result is retained as a move-ordering hint only. Bounds must be
 /// recalculated for each search's root turn, path safety and food certainty.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum SearchBoundKind {
-    Exact,
-    Lower,
-    Upper,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct CachedSearchValue {
     pub(crate) score: StateScore,
     pub(crate) safety: TrapAssessment,
     pub(crate) depth: u8,
     pub(crate) certainty: ForecastCertainty,
-    pub(crate) bound: SearchBoundKind,
 }
 
 #[derive(Debug, Clone)]
@@ -646,8 +638,7 @@ mod tests {
                 safety: TrapAssessment::Viable,
                 depth: 2,
                 certainty: ForecastCertainty::Deterministic,
-                bound: SearchBoundKind::Exact,
-            },
+                },
             Some(Direction::Left),
         );
         graph.record_worst_reply(child, Direction::Left, edge.joint_action.clone());

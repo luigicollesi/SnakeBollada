@@ -690,13 +690,6 @@ mod tests {
         );
 
         let decision = choose_move(&state);
-        state.game.timeout = 5000;
-        let extended = choose_move(&state);
-        eprintln!(
-            "TURN81_DEEP depth={} direction={:?} score={:?}",
-            extended.search.completed_depth, extended.direction, extended.search.hobbs.score
-        );
-
         assert_eq!(decision.reason, DecisionReason::HobbsSearch);
         assert_eq!(
             decision.direction,

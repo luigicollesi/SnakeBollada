@@ -18,7 +18,7 @@ use crate::simulation::joint_action::JointAction;
 
 use super::budget::SearchBudget;
 use super::forecast::ForecastCertainty;
-use super::graph::{CachedSearchValue, FutureGraph, NodeId, ResponseLookup, SearchBoundKind, SearchEdge, SearchError};
+use super::graph::{CachedSearchValue, FutureGraph, NodeId, ResponseLookup, SearchEdge, SearchError};
 use super::path::{FuturePath, FutureStep, MAX_SEARCH_DEPTH};
 
 #[derive(Debug, Clone)]
@@ -349,7 +349,6 @@ fn evaluate_minimax(
             safety: chosen.rank.safety,
             depth,
             certainty: chosen.certainty,
-            bound: SearchBoundKind::Exact,
         }, direction);
     }
     Ok(best)
