@@ -70,6 +70,14 @@ impl FuturePath {
         first_step(self.root.as_deref()?)
     }
 
+    /// Traverse the already-chosen MAX/MIN path without flattening or
+    /// cloning its persistent, shared structure.
+    pub(crate) fn for_each_step(&self, mut visit: impl FnMut(&FutureStep)) {
+        if let Some(root) = self.root.as_deref() {
+            visit_steps(root, &mut visit);
+        }
+    }
+
     #[cfg(test)]
     pub(crate) fn last(&self) -> Option<&FutureStep> {
         last_step(self.root.as_deref()?)
@@ -89,6 +97,20 @@ fn first_step(node: &FuturePathNode) -> Option<&FutureStep> {
     match node {
         FuturePathNode::Step(step) => Some(step),
         FuturePathNode::Concat { left, right } => left.first().or_else(|| right.first()),
+    }
+}
+
+fn visit_steps(node: &FuturePathNode, visit: &mut impl FnMut(&FutureStep)) {
+    match node {
+        FuturePathNode::Step(step) => visit(step),
+        FuturePathNode::Concat { left, right } => {
+            if let Some(left_root) = left.root.as_deref() {
+                visit_steps(left_root, visit);
+            }
+            if let Some(right_root) = right.root.as_deref() {
+                visit_steps(right_root, visit);
+            }
+        }
     }
 }
 
@@ -135,5 +157,8 @@ mod tests {
         assert_eq!(combined.first().unwrap().node, 1);
         assert_eq!(combined.last().unwrap().child, 3);
         assert_eq!(combined.steps().len(), 2);
+        let mut visited = Vec::new();
+        combined.for_each_step(|step| visited.push(step.child));
+        assert_eq!(visited, vec![2, 3]);
     }
 }
