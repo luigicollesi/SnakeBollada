@@ -37,6 +37,13 @@ pub(crate) enum ReturnExpansion {
     WithinBudget,
 }
 
+/// Execution policy and the shared search budget. The return analyzer cannot
+/// independently allocate an unconstrained simulation budget.
+pub(crate) struct ReturnExecution<'a> {
+    pub(crate) expansion: ReturnExpansion,
+    pub(crate) budget: &'a SearchBudget,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct ReturnAnalysis {
     pub(crate) result: ReturnProof,
@@ -60,15 +67,14 @@ pub(crate) fn verify_return(
     horizon: u8,
     limit: usize,
     deadline: Instant,
-    expansion: ReturnExpansion,
-    budget: &SearchBudget,
+    execution: ReturnExecution<'_>,
 ) -> ReturnAnalysis {
     let mut context = Context {
         destinations,
         explored: 0,
         limit,
         deadline,
-        expansion,
+        expansion: execution.expansion,
         visited: HashMap::new(),
         provisional_food: false,
     };
@@ -86,7 +92,7 @@ pub(crate) fn verify_return(
             start,
             horizon,
             ForecastCertainty::Deterministic,
-            budget,
+            execution.budget,
         )
     };
     ReturnAnalysis {
@@ -287,8 +293,10 @@ mod tests {
             depth,
             limit,
             Instant::now() + Duration::from_millis(750),
-            ReturnExpansion::WithinBudget,
-            &budget,
+            ReturnExecution {
+                expansion: ReturnExpansion::WithinBudget,
+                budget: &budget,
+            },
         )
     }
 
@@ -333,8 +341,10 @@ mod tests {
             1,
             300,
             Instant::now() + Duration::from_millis(100),
-            ReturnExpansion::ReadOnly,
-            &budget,
+            ReturnExecution {
+                expansion: ReturnExpansion::ReadOnly,
+                budget: &budget,
+            },
         );
         assert_eq!(result.result, ReturnProof::Unknown);
         assert_eq!(graph.node_count(), 1);
@@ -389,8 +399,10 @@ mod tests {
             1,
             500,
             Instant::now() + Duration::from_millis(600),
-            ReturnExpansion::WithinBudget,
-            &budget,
+            ReturnExecution {
+                expansion: ReturnExpansion::WithinBudget,
+                budget: &budget,
+            },
         );
         assert_eq!(result.result, ReturnProof::VerifiedForFixedFood);
         assert!(result.provisional_food);
@@ -418,8 +430,10 @@ mod tests {
             5,
             125,
             Instant::now() + Duration::from_millis(200),
-            ReturnExpansion::WithinBudget,
-            &budget,
+            ReturnExecution {
+                expansion: ReturnExpansion::WithinBudget,
+                budget: &budget,
+            },
         );
         assert!(report.explored <= 125);
         assert!(matches!(
@@ -444,8 +458,10 @@ mod tests {
             1,
             300,
             Instant::now() + Duration::from_millis(100),
-            ReturnExpansion::ReadOnly,
-            &budget,
+            ReturnExecution {
+                expansion: ReturnExpansion::ReadOnly,
+                budget: &budget,
+            },
         );
         assert_eq!(result.result, ReturnProof::Unknown);
     }
