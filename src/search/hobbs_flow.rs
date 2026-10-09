@@ -80,6 +80,32 @@ struct Route {
     rank: RouteRank,
     path: FuturePath,
     certainty: ForecastCertainty,
+    /// Exact number of simulated turns until a terminal Win/Loss/Tie.
+    /// Only present when the terminal state was actually reached.
+    terminal_plies: Option<u16>,
+}
+
+fn compare_routes(left: &Route, right: &Route) -> Ordering {
+    match (left.rank.score, right.rank.score) {
+        // If every available reply loses, delay a proven loss.
+        (StateScore::Loss, StateScore::Loss)
+            if left.terminal_plies.is_some() && right.terminal_plies.is_some() =>
+        {
+            left.terminal_plies
+                .cmp(&right.terminal_plies)
+                .then_with(|| left.rank.cmp(&right.rank))
+        }
+        // Among forced wins, complete the win earlier.
+        (StateScore::Win, StateScore::Win)
+            if left.terminal_plies.is_some() && right.terminal_plies.is_some() =>
+        {
+            right
+                .terminal_plies
+                .cmp(&left.terminal_plies)
+                .then_with(|| left.rank.cmp(&right.rank))
+        }
+        _ => left.rank.cmp(&right.rank),
+    }
 }
 
 type ScoredCache = HashMap<NodeId, RouteRank>;
@@ -181,6 +207,8 @@ fn evaluate_minimax(
             rank,
             path: FuturePath::empty(),
             certainty,
+            terminal_plies: matches!(rank.score, StateScore::Win | StateScore::Loss | StateScore::Tie)
+                .then_some(0),
         }));
     }
 
@@ -215,6 +243,8 @@ fn evaluate_minimax(
             rank,
             path: FuturePath::empty(),
             certainty,
+            terminal_plies: matches!(rank.score, StateScore::Win | StateScore::Loss | StateScore::Tie)
+                .then_some(0),
         }));
     }
 
@@ -231,6 +261,8 @@ fn evaluate_minimax(
             else {
                 return Ok(None);
             };
+            // The terminal distance is relative to this parent, not the leaf.
+            candidate.terminal_plies = candidate.terminal_plies.map(|steps| steps.saturating_add(1));
             // Preserve structural exposure encountered along the entire
             // forecast path; otherwise a deep leaf can hide an earlier pin.
             let immediate_safety = assess_survival_state(&graph.node(child).state);
@@ -242,15 +274,15 @@ fn evaluate_minimax(
             });
             if worst
                 .as_ref()
-                .is_none_or(|previous| candidate.rank < previous.rank)
+                .is_none_or(|previous| compare_routes(&candidate, previous).is_lt())
             {
                 worst = Some(candidate);
             }
         }
         if let Some(worst_response) = worst {
             if best.as_ref().is_none_or(|previous| {
-                worst_response.rank > previous.rank
-                    || (worst_response.rank == previous.rank
+                compare_routes(&worst_response, previous).is_gt()
+                    || (compare_routes(&worst_response, previous).is_eq()
                         && direction.rank()
                             < direction_of_first(graph, node_id, &previous.path)
                                 .map_or(u8::MAX, Direction::rank))
@@ -328,6 +360,98 @@ mod tests {
                 hazard_damage_per_turn: 0,
             },
         }
+    }
+
+    fn route(score: StateScore, safety: TrapAssessment, terminal_plies: Option<u16>) -> Route {
+        Route {
+            rank: RouteRank { score, safety },
+            path: FuturePath::empty(),
+            certainty: ForecastCertainty::Deterministic,
+            terminal_plies,
+        }
+    }
+
+    #[test]
+    fn longer_forced_survival_beats_immediate_loss() {
+        let collision = route(StateScore::Loss, TrapAssessment::Viable, Some(1));
+        let delayed = route(StateScore::Loss, TrapAssessment::ForcedCorridor, Some(4));
+        assert!(compare_routes(&delayed, &collision).is_gt());
+    }
+
+    #[test]
+    fn forced_win_prefers_shorter_line() {
+        let quick = route(StateScore::Win, TrapAssessment::Viable, Some(2));
+        let slow = route(StateScore::Win, TrapAssessment::Viable, Some(6));
+        assert!(compare_routes(&quick, &slow).is_gt());
+    }
+
+    /// State captured from the actual 20261004 match at turn 286.
+    /// Right means an avoidable head-to-head with a 30-segment Hobbs.
+    fn recorded_hobbs_20261004_turn_286() -> SimulatedGameState {
+        fn body(points: &[(i32, i32)]) -> Vec<Coord> {
+            points.iter().map(|&(x, y)| Coord { x, y }).collect()
+        }
+        SimulatedGameState {
+            turn: 286,
+            width: 11,
+            height: 11,
+            food: body(&[(7, 1)]),
+            hazards: Vec::new(),
+            snakes: vec![
+                SimulatedSnake {
+                    id: "ours".into(),
+                    health: 98,
+                    alive: true,
+                    body: body(&[
+                        (5,9),(5,8),(5,7),(5,6),(4,6),(3,6),(2,6),(1,6),(1,7),(1,8),
+                        (2,8),(2,7),(3,7),(3,8),(3,9),(2,9),(1,9),(0,9),(0,8),(0,7),
+                        (0,6),(0,5),(0,4),(1,4),(2,4),(3,4),(4,4),(4,5),(5,5),
+                    ]),
+                },
+                SimulatedSnake {
+                    id: "hobbs".into(),
+                    health: 85,
+                    alive: true,
+                    body: body(&[
+                        (6,8),(6,7),(6,6),(7,6),(7,5),(7,4),(7,3),(6,3),(6,4),(5,4),
+                        (5,3),(4,3),(3,3),(2,3),(1,3),(1,2),(0,2),(0,1),(0,0),(1,0),
+                        (1,1),(2,1),(2,0),(3,0),(4,0),(5,0),(6,0),(7,0),(8,0),(9,0),
+                    ]),
+                },
+            ],
+            our_snake_id: "ours".into(),
+            rules: RulesContext {
+                name: "standard".into(),
+                max_health: 100,
+                hazard_damage_per_turn: 0,
+            },
+        }
+    }
+
+    #[test]
+    fn recorded_turn_286_prioritizes_surviving_the_next_turn() {
+        use crate::simulation::resolver::resolve_turn;
+        let state = recorded_hobbs_20261004_turn_286();
+        let us = state.actor_index("ours").unwrap();
+        let enemy = state.actor_index("hobbs").unwrap();
+        let right = JointAction::new()
+            .with_move(us, Direction::Right)
+            .with_move(enemy, Direction::Up);
+        let up = JointAction::new()
+            .with_move(us, Direction::Up)
+            .with_move(enemy, Direction::Up);
+        assert!(!resolve_turn(&state, &right).unwrap().state.snake("ours").unwrap().alive);
+        assert!(resolve_turn(&state, &up).unwrap().state.snake("ours").unwrap().alive);
+
+        let mut graph = FutureGraph::new_beam(state);
+        let budget = SearchBudget::for_duration(Duration::from_secs(2));
+        let mut scored = ScoredCache::new();
+        let root = graph.root();
+        let selected = evaluate_minimax(
+            &mut graph, root, 1, ForecastCertainty::Deterministic, &budget, &mut scored,
+        ).unwrap().unwrap();
+        let direction = selected.path.first().unwrap().joint_action.direction_for(us).unwrap();
+        assert_ne!(direction, Direction::Right, "never prefer immediate losing head-to-head");
     }
 
     #[test]
