@@ -690,7 +690,7 @@ mod tests {
         );
 
         let decision = choose_move(&state);
-        state.game.timeout = 2000;
+        state.game.timeout = 5000;
         let extended = choose_move(&state);
         eprintln!(
             "TURN81_DEEP depth={} direction={:?} score={:?}",
