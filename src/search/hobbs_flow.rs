@@ -73,8 +73,16 @@ impl Ord for RouteRank {
     fn cmp(&self, other: &Self) -> Ordering {
         self.tier()
             .cmp(&other.tier())
+            .then_with(|| match (self.score, other.score) {
+                (
+                    StateScore::Normal { utility_milli: left },
+                    StateScore::Normal { utility_milli: right },
+                ) => left
+                    .saturating_add(i64::from(self.pressure) * 20)
+                    .cmp(&right.saturating_add(i64::from(other.pressure) * 20)),
+                _ => self.score.cmp(&other.score),
+            })
             .then_with(|| self.pressure.cmp(&other.pressure))
-            .then_with(|| self.score.cmp(&other.score))
             .then_with(|| self.safety_rank().cmp(&other.safety_rank()))
     }
 }
@@ -853,6 +861,11 @@ mod tests {
             pressure: 0,
         };
         let threatening = RouteRank {
+            score: StateScore::Normal { utility_milli: 480 },
+            safety: TrapAssessment::Viable,
+            pressure: 2,
+        };
+        let reckless = RouteRank {
             score: StateScore::Normal { utility_milli: 450 },
             safety: TrapAssessment::Viable,
             pressure: 2,
@@ -865,6 +878,7 @@ mod tests {
             pressure: 2,
         };
         assert!(threatening > safe);
+        assert!(safe > reckless, "small corridor hints cannot override strong territory");
         assert!(safe > unsafe_attack);
         assert!(
             RouteRank {
