@@ -326,6 +326,53 @@ mod tests {
     }
 
     #[test]
+    fn compare_cached_root_replies_without_altering_graph() {
+        let mut graph = FutureGraph::new_beam(board());
+        let budget = SearchBudget::for_duration(Duration::from_secs(2));
+        let root = graph.root();
+        let directions = graph.available_directions(root);
+        assert!(directions.len() >= 2);
+        for direction in directions.iter().take(2) {
+            assert!(matches!(
+                graph.next_response(root, *direction, 0, &budget).unwrap(),
+                ResponseLookup::Edge(_)
+            ));
+        }
+        let before_edges = graph.edge_count();
+        let before_nodes = graph.node_count();
+        let mut cache = HashMap::new();
+        let deadline = Instant::now() + Duration::from_secs(1);
+        let first = TerritoryDirectionSample::from_cached_replies(
+            &graph,
+            directions[0],
+            &mut cache,
+            deadline,
+        )
+        .unwrap();
+        let second = TerritoryDirectionSample::from_cached_replies(
+            &graph,
+            directions[1],
+            &mut cache,
+            deadline,
+        )
+        .unwrap();
+        assert!(first.examined_replies >= 1 && second.examined_replies >= 1);
+        assert_eq!(first.max_sampled_depth, 1);
+        assert!(cache.len() <= TerritoryDirectionSample::MAX_NEW_SNAPSHOTS);
+        assert_eq!(graph.edge_count(), before_edges);
+        assert_eq!(graph.node_count(), before_nodes);
+        let repeated = TerritoryDirectionSample::from_cached_replies(
+            &graph,
+            directions[0],
+            &mut cache,
+            deadline,
+        )
+        .unwrap();
+        assert_eq!(repeated, first);
+        assert_eq!(repeated.coverage, ResponseCoverage::Partial);
+    }
+
+    #[test]
     fn graph_path_forecast_never_expands_an_edge() {
         let mut graph = FutureGraph::new_beam(board());
         let budget = SearchBudget::for_duration(Duration::from_secs(2));
