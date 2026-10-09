@@ -1,6 +1,8 @@
 //! Single authoritative move decision flow: FutureGraph + Hobbs minimax.
 //! No strategic Food/Hunting mode and no legacy decision switch.
 
+use crate::analysis::{analyze_territorial_control, TerritorialControlAnalysis};
+use crate::direction::Direction;
 use crate::evaluation::StateScore;
 use crate::search::budget::SearchBudget;
 use crate::search::graph::FutureGraph;
@@ -11,7 +13,8 @@ use crate::strategy::{
     SearchMetadata,
 };
 use crate::GameState;
-use std::time::Instant;
+use std::sync::OnceLock;
+use std::time::{Duration, Instant};
 
 #[derive(Debug, Default, Clone, Copy)]
 pub(crate) struct DecisionEngine;
@@ -55,6 +58,9 @@ impl DecisionEngine {
         );
         graph.reset_performance();
         let hobbs = search_hobbs(graph, &budget).ok().flatten()?;
+        if TerritorialMode::configured() == TerritorialMode::Shadow {
+            trace_territory_shadow(state, graph, &budget, hobbs.direction);
+        }
         if !direction_stays_in_bounds(state, hobbs.direction) {
             return None;
         }
@@ -113,6 +119,130 @@ impl DecisionEngine {
             },
         })
     }
+}
+
+/// Gradual activation: only a shadow diagnostic is implemented. Unrecognized
+/// mode names (including future ordering/guarded modes) safely fall back to Off.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum TerritorialMode {
+    Off,
+    Shadow,
+}
+
+impl TerritorialMode {
+    fn parse(value: &str) -> Self {
+        if value.trim().eq_ignore_ascii_case("shadow") {
+            Self::Shadow
+        } else {
+            Self::Off
+        }
+    }
+
+    fn configured() -> Self {
+        static MODE: OnceLock<TerritorialMode> = OnceLock::new();
+        *MODE.get_or_init(|| {
+            Self::parse(&std::env::var("SNAKE_TERRITORY_MODE").unwrap_or_default())
+        })
+    }
+}
+
+/// Snapshot diagnostics are performed only AFTER minimax has selected a move.
+/// They never affect ordering, evaluation, graph contents or the selected move.
+/// Cap the work by both a tiny local timer and the request's safety reserve.
+fn trace_territory_shadow(
+    state: &GameState,
+    graph: &FutureGraph,
+    budget: &SearchBudget,
+    selected: Direction,
+) {
+    const SHADOW_LIMIT: Duration = Duration::from_millis(12);
+    let request_timeout = Duration::from_millis(u64::from(state.game.timeout));
+    let reserve = budget.safety_reserve().max(Duration::from_millis(60));
+    if budget.elapsed().saturating_add(reserve).saturating_add(SHADOW_LIMIT) >= request_timeout {
+        log::debug!(target: "territorial_control", "territory_shadow skipped=budget turn={}", state.turn);
+        return;
+    }
+    let expires = Instant::now() + SHADOW_LIMIT;
+    let root_state = &graph.node(graph.root()).state;
+    if let Some(snapshot) = analyze_territorial_control(root_state, &root_state.our_snake_id) {
+        log_territory_snapshot(state.turn, "root", selected, snapshot);
+    }
+
+    // Known replies are not necessarily exhaustive: alpha-beta may have
+    // pruned unexpanded opponent actions. Report sampling explicitly.
+    for direction in Direction::ALL {
+        if Instant::now() >= expires {
+            log::debug!(target: "territorial_control", "territory_shadow partial=budget turn={}", state.turn);
+            break;
+        }
+        let edges = graph.known_responses(graph.root(), direction);
+        if edges.is_empty() {
+            continue;
+        }
+        let known = edges.len();
+        let mut sampled = 0_usize;
+        let mut worst_access = u16::MAX;
+        let mut worst_future = u16::MAX;
+        let mut smallest_regions = u8::MAX;
+        let mut biggest_gate = 0_u16;
+        let mut worst_contested_gate = 0_u16;
+        let mut unknown = 0_usize;
+        for edge in edges {
+            if Instant::now() >= expires {
+                break;
+            }
+            let child = &graph.node(edge.child).state;
+            if let Some(snapshot) = analyze_territorial_control(child, &child.our_snake_id) {
+                sampled += 1;
+                worst_access = worst_access.min(snapshot.accessible_now);
+                worst_future = worst_future.min(snapshot.future_reach);
+                smallest_regions = smallest_regions.min(snapshot.independent_regions);
+                biggest_gate = biggest_gate.max(snapshot.single_gate_exposure);
+                worst_contested_gate = worst_contested_gate.max(snapshot.contested_gate_exposure);
+            } else {
+                unknown += 1;
+            }
+        }
+        log::info!(
+            target: "territorial_control",
+            "territory_shadow turn={} direction={:?} selected={} known_replies={} sampled={} unknown={} complete_known={} min_access={} min_future={} min_regions={} max_gate_exposure={} max_contested_gate={} evidence=optimistic",
+            state.turn,
+            direction,
+            direction == selected,
+            known,
+            sampled,
+            unknown,
+            sampled + unknown == known,
+            if sampled > 0 { Some(worst_access) } else { None },
+            if sampled > 0 { Some(worst_future) } else { None },
+            if sampled > 0 { Some(smallest_regions) } else { None },
+            biggest_gate,
+            worst_contested_gate,
+        );
+    }
+}
+
+fn log_territory_snapshot(
+    turn: i32,
+    scope: &str,
+    selected: Direction,
+    result: TerritorialControlAnalysis,
+) {
+    log::info!(
+        target: "territorial_control",
+        "territory_shadow turn={} scope={} selected={:?} access={} regions={} gates={} largest_gate={} contested_gate={} future={} contested_future={} continuing={:?} evidence=optimistic",
+        turn,
+        scope,
+        selected,
+        result.accessible_now,
+        result.independent_regions,
+        result.critical_gateways,
+        result.single_gate_exposure,
+        result.contested_gate_exposure,
+        result.future_reach,
+        result.contested_future_reach,
+        result.continuing_exits,
+    );
 }
 
 fn baseline_fallback(state: &GameState) -> Decision {
@@ -177,6 +307,15 @@ mod tests {
         assert_eq!(decision.reason, DecisionReason::HobbsSearch);
         assert!(decision.search.completed_depth >= 1);
         assert_eq!(decision.search.hobbs.direction, Some(decision.direction));
+    }
+
+    #[test]
+    fn territorial_mode_defaults_to_off_and_requires_explicit_shadow() {
+        assert_eq!(TerritorialMode::parse(""), TerritorialMode::Off);
+        assert_eq!(TerritorialMode::parse("guarded"), TerritorialMode::Off);
+        assert_eq!(TerritorialMode::parse("ordering"), TerritorialMode::Off);
+        assert_eq!(TerritorialMode::parse("shadow"), TerritorialMode::Shadow);
+        assert_eq!(TerritorialMode::parse(" Shadow "), TerritorialMode::Shadow);
     }
 
     #[test]
