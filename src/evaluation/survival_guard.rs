@@ -12,6 +12,8 @@ pub(crate) enum TrapAssessment {
     Viable,
     /// No loss is proven, but a larger opponent can threaten our sole exit.
     Constrained,
+    /// An equal-or-larger rival can exploit a sole exit along the board edge.
+    ForcedCorridor,
     ProvenTrap,
     Unknown,
 }
@@ -66,7 +68,11 @@ pub(crate) fn assess_state(state: &SimulatedGameState) -> TrapAssessment {
             }
         });
     if near_wall && threatened {
-        TrapAssessment::Constrained
+        if legal.len() == 1 {
+            TrapAssessment::ForcedCorridor
+        } else {
+            TrapAssessment::Constrained
+        }
     } else {
         TrapAssessment::Viable
     }
@@ -130,7 +136,7 @@ mod tests {
         );
         state.width = 11;
         state.height = 11;
-        assert_eq!(assess_state(&state), TrapAssessment::Constrained);
+        assert_eq!(assess_state(&state), TrapAssessment::ForcedCorridor);
     }
 
     #[test]

@@ -40,12 +40,13 @@ struct RouteRank {
 impl RouteRank {
     fn tier(self) -> u8 {
         match (self.score, self.safety) {
-            (StateScore::Win, _) => 5,
+            (StateScore::Win, _) => 6,
             (StateScore::Loss, _) | (_, TrapAssessment::ProvenTrap) => 0,
             (StateScore::Tie, _) => 1,
-            (_, TrapAssessment::Viable) => 4,
-            (_, TrapAssessment::Unknown) => 3,
-            (_, TrapAssessment::Constrained) => 2,
+            (_, TrapAssessment::Viable) => 5,
+            (_, TrapAssessment::Unknown) => 4,
+            (_, TrapAssessment::Constrained) => 3,
+            (_, TrapAssessment::ForcedCorridor) => 2,
         }
     }
 }
@@ -255,9 +256,10 @@ fn evaluate_minimax(
 }
 
 fn worst_safety(left: TrapAssessment, right: TrapAssessment) -> TrapAssessment {
-    use TrapAssessment::{Constrained, ProvenTrap, Unknown, Viable};
+    use TrapAssessment::{Constrained, ForcedCorridor, ProvenTrap, Unknown, Viable};
     match (left, right) {
         (ProvenTrap, _) | (_, ProvenTrap) => ProvenTrap,
+        (ForcedCorridor, _) | (_, ForcedCorridor) => ForcedCorridor,
         (Constrained, _) | (_, Constrained) => Constrained,
         (Unknown, _) | (_, Unknown) => Unknown,
         (Viable, Viable) => Viable,
