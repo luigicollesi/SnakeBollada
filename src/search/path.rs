@@ -57,6 +57,7 @@ impl FuturePath {
         }
     }
 
+    #[cfg(test)]
     pub(crate) const fn len(&self) -> usize {
         self.len
     }
@@ -69,10 +70,12 @@ impl FuturePath {
         first_step(self.root.as_deref()?)
     }
 
+    #[cfg(test)]
     pub(crate) fn last(&self) -> Option<&FutureStep> {
         last_step(self.root.as_deref()?)
     }
 
+    #[cfg(test)]
     pub(crate) fn steps(&self) -> Vec<&FutureStep> {
         let mut steps = Vec::with_capacity(self.len);
         if let Some(root) = self.root.as_deref() {
@@ -89,6 +92,7 @@ fn first_step(node: &FuturePathNode) -> Option<&FutureStep> {
     }
 }
 
+#[cfg(test)]
 fn last_step(node: &FuturePathNode) -> Option<&FutureStep> {
     match node {
         FuturePathNode::Step(step) => Some(step),
@@ -96,6 +100,7 @@ fn last_step(node: &FuturePathNode) -> Option<&FutureStep> {
     }
 }
 
+#[cfg(test)]
 fn collect_steps<'a>(node: &'a FuturePathNode, steps: &mut Vec<&'a FutureStep>) {
     match node {
         FuturePathNode::Step(step) => steps.push(step),

@@ -25,7 +25,6 @@ pub(crate) struct HobbsSearchResult {
     pub(crate) direction: Direction,
     pub(crate) score: StateScore,
     pub(crate) survival: TrapAssessment,
-    pub(crate) path: FuturePath,
     pub(crate) completed_depth: u8,
     pub(crate) root_directions: usize,
     pub(crate) certainty: ForecastCertainty,
@@ -147,7 +146,6 @@ pub(crate) fn search_hobbs(
             direction,
             score: route.rank.score,
             survival,
-            path: route.path,
             completed_depth: depth,
             root_directions: directions.len(),
             certainty: route.certainty,
@@ -403,15 +401,10 @@ mod tests {
         let result = search_hobbs(&mut graph, &budget).unwrap().unwrap();
         assert!(result.completed_depth >= 1);
         assert!(result.root_directions >= 2);
-        assert_eq!(
-            result
-                .path
-                .first()
-                .unwrap()
-                .joint_action
-                .direction_for(graph.node(graph.root()).state.actor_index("ours").unwrap()),
-            Some(result.direction)
-        );
+        let our_actor = graph.node(graph.root()).state.actor_index("ours").unwrap();
+        assert!(graph.node(graph.root()).children.iter().any(|edge|
+            edge.joint_action.direction_for(our_actor) == Some(result.direction)
+        ));
     }
 
     #[test]

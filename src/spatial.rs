@@ -49,6 +49,7 @@ impl SpatialOccupancy {
             .unwrap_or(false)
     }
 
+    #[cfg(test)]
     pub(crate) fn territory_open(&self, state: &SimulatedGameState) -> Vec<bool> {
         let mut open = self
             .retained_body

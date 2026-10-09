@@ -1,7 +1,6 @@
 //! Single authoritative move decision flow: FutureGraph + Hobbs minimax.
 //! No strategic Food/Hunting mode and no legacy decision switch.
 
-use crate::direction::Direction;
 use crate::evaluation::StateScore;
 use crate::search::budget::SearchBudget;
 use crate::search::graph::FutureGraph;

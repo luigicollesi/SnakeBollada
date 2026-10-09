@@ -90,11 +90,6 @@ impl SearchBudget {
         self.safety_reserve
     }
 
-    #[cfg(test)]
-    pub(crate) fn can_afford(&self, estimated: Duration) -> bool {
-        self.can_afford_hard(estimated)
-    }
-
     pub(crate) fn can_afford_hard(&self, estimated: Duration) -> bool {
         !self.hard_expired() && self.remaining_hard() > estimated
     }

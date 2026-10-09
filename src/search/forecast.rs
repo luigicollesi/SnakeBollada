@@ -3,8 +3,6 @@ use serde_json::Value;
 use crate::simulation::state::SimulatedGameState;
 use crate::GameState;
 
-pub(crate) const PROVISIONAL_TERMINAL_VALUE: i64 = 10_000;
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub(crate) enum ForecastCertainty {
     #[default]

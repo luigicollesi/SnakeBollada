@@ -153,6 +153,7 @@ impl TemporalTerritory {
         result
     }
 
+    #[cfg(test)]
     pub(crate) fn owner_at(&self, position: Coord) -> Option<ActorIndex> {
         let cell = index_of(position, self.width, self.height)?;
         self.owners[cell].and_then(ActorIndex::new)
