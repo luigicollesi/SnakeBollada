@@ -225,7 +225,7 @@ fn evaluate_minimax(
     alpha: Option<Route>,
     beta: Option<Route>,
     path_safety: TrapAssessment,
-    root_turn: u32,
+    root_turn: i32,
 ) -> Result<Option<Route>, SearchError> {
     if budget.expired() {
         return Ok(None);
