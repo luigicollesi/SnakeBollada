@@ -61,9 +61,7 @@ impl CorridorOutlook {
             for (segment, &position) in other.body.iter().enumerate() {
                 if let Some(cell) = position_index(position, width, height) {
                     let remaining = other.body.len().saturating_sub(segment);
-                    release[cell] = release[cell].max(
-                        u16::try_from(remaining).unwrap_or(u16::MAX),
-                    );
+                    release[cell] = release[cell].max(u16::try_from(remaining).unwrap_or(u16::MAX));
                 }
             }
         }
@@ -180,9 +178,7 @@ pub(crate) fn adversarial_order(state: &SimulatedGameState) -> AdversarialCorrid
         .snakes
         .iter()
         .filter(|snake| snake.alive && snake.id != state.our_snake_id)
-        .filter_map(|snake| {
-            CorridorOutlook::from_state(state, &snake.id, CORRIDOR_HORIZON)
-        })
+        .filter_map(|snake| CorridorOutlook::from_state(state, &snake.id, CORRIDOR_HORIZON))
         .map(|outlook| outlook.continuing_exits)
         .max()
         .unwrap_or(0);
@@ -236,7 +232,11 @@ mod tests {
 
     #[test]
     fn open_board_has_multiple_continuations() {
-        let s = board(7, 7, vec![snake("ours", &[(3, 3)]), snake("enemy", &[(6, 6)])]);
+        let s = board(
+            7,
+            7,
+            vec![snake("ours", &[(3, 3)]), snake("enemy", &[(6, 6)])],
+        );
         let o = CorridorOutlook::from_state(&s, "ours", 4).unwrap();
         assert!(o.immediate_exits >= 3);
         assert!(o.continuing_exits >= 3);
@@ -254,23 +254,31 @@ mod tests {
             ],
         );
         let o = CorridorOutlook::from_state(&s, "ours", 3).unwrap();
-        assert_eq!(o.immediate_exits, 1);
-        // The only geometrically legal fallback is onto a retained body
-        // segment: no optimistic continuation exists at cycle one.
+        assert_eq!(o.immediate_exits, 2);
+        // Both in-bounds fallback directions lead into retained body
+        // segments: no optimistic continuation exists at cycle one.
         assert_eq!(o.continuing_exits, 0);
         assert_eq!(o.possible_closure_turn, Some(1));
     }
 
     #[test]
     fn horizon_one_agrees_with_immediate_exit_count_in_open_field() {
-        let s = board(7, 7, vec![snake("ours", &[(2, 2)]), snake("enemy", &[(6, 6)])]);
+        let s = board(
+            7,
+            7,
+            vec![snake("ours", &[(2, 2)]), snake("enemy", &[(6, 6)])],
+        );
         let o = CorridorOutlook::from_state(&s, "ours", 1).unwrap();
         assert_eq!(o.continuing_exits, o.immediate_exits);
     }
 
     #[test]
     fn perspective_can_analyze_enemy_symmetrically() {
-        let s = board(5, 5, vec![snake("ours", &[(2, 2)]), snake("enemy", &[(0, 0)])]);
+        let s = board(
+            5,
+            5,
+            vec![snake("ours", &[(2, 2)]), snake("enemy", &[(0, 0)])],
+        );
         let us = CorridorOutlook::from_state(&s, "ours", 4).unwrap();
         let enemy = CorridorOutlook::from_state(&s, "enemy", 4).unwrap();
         assert!(us.continuing_exits > enemy.immediate_exits);

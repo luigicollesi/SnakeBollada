@@ -290,12 +290,7 @@ fn evaluate_minimax(
         let corridor_hints = if node_id == graph.root() {
             known
                 .iter()
-                .map(|edge| {
-                    (
-                        edge.child,
-                        adversarial_order(&graph.node(edge.child).state),
-                    )
-                })
+                .map(|edge| (edge.child, adversarial_order(&graph.node(edge.child).state)))
                 .collect::<HashMap<NodeId, AdversarialCorridorOrder>>()
         } else {
             HashMap::new()
@@ -303,12 +298,12 @@ fn evaluate_minimax(
         known.sort_by(|a, b| {
             (preferred_response.as_ref() == Some(&b.joint_action))
                 .cmp(&(preferred_response.as_ref() == Some(&a.joint_action)))
-                .then_with(|| {
-                    match (corridor_hints.get(&a.child), corridor_hints.get(&b.child)) {
+                .then_with(
+                    || match (corridor_hints.get(&a.child), corridor_hints.get(&b.child)) {
                         (Some(a), Some(b)) => a.cmp(b),
                         _ => Ordering::Equal,
-                    }
-                })
+                    },
+                )
                 .then_with(|| match (cache.get(&a.child), cache.get(&b.child)) {
                     (Some(ra), Some(rb)) => ra.cmp(rb),
                     (Some(_), None) => Ordering::Less,
