@@ -577,7 +577,11 @@ impl FutureGraph {
 
             expanded_nodes = expanded_nodes.saturating_add(1);
             let children = if self.hobbs_only {
-                self.nodes[node_id].children.iter().map(|edge| edge.child).collect()
+                self.nodes[node_id]
+                    .children
+                    .iter()
+                    .map(|edge| edge.child)
+                    .collect()
             } else {
                 ordered_child_ids_for_search(self, node_id)
             };
