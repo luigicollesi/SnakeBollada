@@ -158,7 +158,10 @@ mod tests {
 
     #[test]
     fn equal_size_enemy_does_not_dominate_edge_lane() {
-        let mut state = board(vec![(10, 10), (9, 10), (9, 9)], vec![(7, 8), (7, 7), (8, 7)]);
+        let mut state = board(
+            vec![(10, 10), (9, 10), (9, 9)],
+            vec![(7, 8), (7, 7), (8, 7)],
+        );
         state.width = 11;
         state.height = 11;
         assert_eq!(assess_state(&state), TrapAssessment::Viable);
