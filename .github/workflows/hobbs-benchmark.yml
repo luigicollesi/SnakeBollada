@@ -1,4 +1,5 @@
 name: Hovering Hobbs Benchmark (manual, localhost only)
+# Re-run pinned three-seed local duel after temporal-corridor implementation.
 on:
   push:
     branches: [dev]
@@ -90,6 +91,7 @@ jobs:
           import json,re,csv
           from pathlib import Path
           output=[]
+          endgame_traces={}
           for d in sorted(Path("runs").glob("*")):
               p=d/"game.jsonl"
               if not p.exists(): continue
@@ -109,6 +111,7 @@ jobs:
               their=[length(s,"Hovering Hobbs") for s in states]
               alive=[s for s in states if item(s,"SnakeBollada") and item(s,"Hovering Hobbs")]
               survivors=[x.get("name") for x in states[-1]["board"]["snakes"]]
+              endgame_traces[d.name]=[dict(turn=st["turn"],ours_head=(item(st,"SnakeBollada") or {}).get("head"),hobbs_head=(item(st,"Hovering Hobbs") or {}).get("head"),ours_length=length(st,"SnakeBollada"),hobbs_length=length(st,"Hovering Hobbs"),food=st["board"].get("food",[])) for st in states[-12:]]
               logs=(d/"snakebollada.log").read_text(errors="replace") if (d/"snakebollada.log").exists() else ""
               metrics=re.findall(r"MOVE \d+: \w+ .*?depth=(\d+).*?elapsed_us=(\d+)",logs)
               latency=sorted(int(us)/1000 for _,us in metrics)
@@ -125,16 +128,20 @@ jobs:
                   decisions=len(metrics),median_depth=depth[len(depth)//2] if depth else None,
                   p95_latency_ms=round(latency[int(.95*(len(latency)-1))],2) if latency else None))
           Path("summary.json").write_text(json.dumps(output,indent=2))
+          Path("endgame_traces.json").write_text(json.dumps(endgame_traces,indent=2))
           print("MATCH_SUMMARY_JSON")
           print(json.dumps(output,indent=2))
+          print("ENDGAME_TRACES_JSON")
+          print(json.dumps(endgame_traces,indent=2))
           print("BASELINE_20261002 previous dev lost at turn 132, max ours=8 max Hobbs=13")
           PY
       - name: Upload local match evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: hobbs-local-runner-20261009
+          name: hobbs-corridors-${{ github.run_id }}
           path: |
             runs/
             summary.json
+            endgame_traces.json
           if-no-files-found: warn
