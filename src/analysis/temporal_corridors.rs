@@ -149,7 +149,7 @@ impl CorridorOutlook {
             .collect();
         let mut outlook = Self {
             continuing_exits: 0,
-            immediate_exits: u8::try_from(legal.len()).unwrap_or(4),
+            immediate_exits: legal.len(),
             possible_closure_turn: None,
             narrow_turn: None,
         };
