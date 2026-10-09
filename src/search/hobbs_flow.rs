@@ -117,6 +117,20 @@ fn compare_routes(left: &Route, right: &Route) -> Ordering {
 
 type ScoredCache = HashMap<NodeId, RouteRank>;
 
+/// Best-first hints from prior completed iterations. Ordering affects speed,
+/// never which physical opponent responses remain legal.
+#[derive(Default)]
+struct SearchOrdering {
+    best_direction: HashMap<NodeId, Direction>,
+    worst_response: HashMap<(NodeId, u8), NodeId>,
+}
+
+fn alpha_cuts_reply(incumbent: &Route, worst_so_far: &Route) -> bool {
+    // MIN cannot improve its value by inspecting additional replies. Once its
+    // upper bound is <= this MAX incumbent, the action cannot win the MAX.
+    !compare_routes(worst_so_far, incumbent).is_gt()
+}
+
 pub(crate) fn search_hobbs(
     graph: &mut FutureGraph,
     budget: &SearchBudget,
@@ -124,6 +138,7 @@ pub(crate) fn search_hobbs(
     // The soft deadline leaves headroom for serialization and runtime jitter.
     let search_budget = budget.limited_to_soft_deadline();
     let mut scored = ScoredCache::new();
+    let mut ordering = SearchOrdering::default();
     let root = graph.root();
     let mut last_complete = None;
     for depth in 1..=MAX_SEARCH_DEPTH {
@@ -137,6 +152,7 @@ pub(crate) fn search_hobbs(
             ForecastCertainty::Deterministic,
             &search_budget,
             &mut scored,
+            &mut ordering,
         )?
         else {
             break;
@@ -202,6 +218,7 @@ fn evaluate_minimax(
     certainty: ForecastCertainty,
     budget: &SearchBudget,
     cache: &mut ScoredCache,
+    ordering: &mut SearchOrdering,
 ) -> Result<Option<Route>, SearchError> {
     if budget.expired() {
         return Ok(None);
@@ -245,6 +262,9 @@ fn evaluate_minimax(
             choices.push((direction, alternatives));
         }
     }
+    let preferred = ordering.best_direction.get(&node_id).copied();
+    choices.sort_by_key(|(direction, _)| (Some(*direction) != preferred, direction.rank()));
+
     if choices.is_empty() {
         let rank = *cache
             .entry(node_id)
@@ -262,15 +282,30 @@ fn evaluate_minimax(
     }
 
     let mut best: Option<Route> = None;
-    for (direction, responses) in choices {
+    for (direction, mut responses) in choices {
+        let preferred_response = ordering
+            .worst_response
+            .get(&(node_id, direction.rank()))
+            .copied();
+        responses.sort_by(|a, b| {
+            (Some(b.1) == preferred_response)
+                .cmp(&(Some(a.1) == preferred_response))
+                .then_with(|| match (cache.get(&a.1), cache.get(&b.1)) {
+                    (Some(ra), Some(rb)) => ra.cmp(rb),
+                    (Some(_), None) => Ordering::Less,
+                    (None, Some(_)) => Ordering::Greater,
+                    (None, None) => Ordering::Equal,
+                })
+        });
         let mut worst: Option<Route> = None;
+        let mut pruned = false;
         for (joint_action, child, forecast_delta) in responses {
             if budget.expired() {
                 return Ok(None);
             }
             let child_certainty = certainty.after(forecast_delta);
             let Some(mut candidate) =
-                evaluate_minimax(graph, child, depth - 1, child_certainty, budget, cache)?
+                evaluate_minimax(graph, child, depth - 1, child_certainty, budget, cache, ordering)?
             else {
                 return Ok(None);
             };
@@ -293,8 +328,24 @@ fn evaluate_minimax(
             {
                 worst = Some(candidate);
             }
+            if let (Some(incumbent), Some(worst_so_far)) = (&best, &worst) {
+                if alpha_cuts_reply(incumbent, worst_so_far) {
+                    pruned = true;
+                    break;
+                }
+            }
         }
         if let Some(worst_response) = worst {
+            if let Some(first) = worst_response.path.first() {
+                ordering
+                    .worst_response
+                    .insert((node_id, direction.rank()), first.child);
+            }
+            // A pruned response is an upper bound, not an exact alternative.
+            // Never replace the incumbent with it, even on an apparent tie.
+            if pruned {
+                continue;
+            }
             if best.as_ref().is_none_or(|previous| {
                 compare_routes(&worst_response, previous).is_gt()
                     || (compare_routes(&worst_response, previous).is_eq()
@@ -304,6 +355,11 @@ fn evaluate_minimax(
             }) {
                 best = Some(worst_response);
             }
+        }
+    }
+    if let Some(chosen) = best.as_ref() {
+        if let Some(direction) = direction_of_first(graph, node_id, &chosen.path) {
+            ordering.best_direction.insert(node_id, direction);
         }
     }
     Ok(best)
@@ -398,6 +454,27 @@ mod tests {
         let safer = route(StateScore::Loss, TrapAssessment::Viable, Some(3));
         let corner = route(StateScore::Loss, TrapAssessment::ForcedCorridor, Some(5));
         assert!(compare_routes(&safer, &corner).is_gt());
+    }
+
+    #[test]
+    fn local_alpha_cuts_only_while_max_action_cannot_improve() {
+        let incumbent = route(
+            StateScore::Normal { utility_milli: 500 },
+            TrapAssessment::Viable,
+            None,
+        );
+        let losing = route(
+            StateScore::Normal { utility_milli: 250 },
+            TrapAssessment::Viable,
+            None,
+        );
+        let promising = route(
+            StateScore::Normal { utility_milli: 650 },
+            TrapAssessment::Viable,
+            None,
+        );
+        assert!(alpha_cuts_reply(&incumbent, &losing));
+        assert!(!alpha_cuts_reply(&incumbent, &promising));
     }
 
     #[test]
@@ -535,6 +612,7 @@ mod tests {
         let mut graph = FutureGraph::new_beam(state);
         let budget = SearchBudget::for_duration(Duration::from_secs(2));
         let mut scored = ScoredCache::new();
+        let mut ordering = SearchOrdering::default();
         let root = graph.root();
         let selected = evaluate_minimax(
             &mut graph,
@@ -543,6 +621,7 @@ mod tests {
             ForecastCertainty::Deterministic,
             &budget,
             &mut scored,
+            &mut ordering,
         )
         .unwrap()
         .unwrap();
