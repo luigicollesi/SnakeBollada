@@ -9,9 +9,9 @@ use std::collections::HashMap;
 use std::time::Instant;
 
 use crate::direction::Direction;
-use crate::search::graph::ResponseCoverage;
 use crate::evaluation::HobbsScoreParams;
 use crate::search::forecast::ForecastCertainty;
+use crate::search::graph::ResponseCoverage;
 use crate::search::graph::{FutureGraph, NodeId};
 use crate::search::path::FuturePath;
 use crate::simulation::state::SimulatedGameState;
@@ -227,8 +227,9 @@ impl TerritoryDirectionSample {
             });
             sample.examined_replies = sample.examined_replies.saturating_add(1);
             sample.max_sampled_depth = sample.max_sampled_depth.max(depth);
-            sample.worst_mean_margin_milli =
-                sample.worst_mean_margin_milli.min(trajectory.mean_margin_milli);
+            sample.worst_mean_margin_milli = sample
+                .worst_mean_margin_milli
+                .min(trajectory.mean_margin_milli);
             sample.worst_minimum_margin_milli = sample
                 .worst_minimum_margin_milli
                 .min(trajectory.minimum_margin_milli);
