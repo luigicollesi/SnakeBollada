@@ -130,10 +130,7 @@ mod tests {
 
     #[test]
     fn shorter_opponent_does_not_make_single_exit_proven_trap() {
-        let state = board(
-            vec![(0, 0), (0, 1), (1, 1), (2, 1), (2, 0)],
-            vec![(1, 3)],
-        );
+        let state = board(vec![(0, 0), (0, 1), (1, 1), (2, 1), (2, 0)], vec![(1, 3)]);
         assert_eq!(assess_state(&state), TrapAssessment::Viable);
     }
 

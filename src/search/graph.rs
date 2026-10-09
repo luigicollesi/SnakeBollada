@@ -677,8 +677,7 @@ impl FutureGraph {
             };
             Arc::clone(&parent_analysis.mobility)
         };
-        let deterministic_moves =
-            mobility.deterministic_moves_for(&state, &state.our_snake_id);
+        let deterministic_moves = mobility.deterministic_moves_for(&state, &state.our_snake_id);
         let our_moves = if deterministic_moves.is_empty() {
             mobility.in_bounds_moves_for(&state, &state.our_snake_id)
         } else {
@@ -698,7 +697,10 @@ impl FutureGraph {
                         .expect("legacy node requires analysis")
                         .tracing;
                     JointActionGenerator::new_actor_relative_with_profiles(
-                        &state, our_moves, tracing, &self.opponent_profiles,
+                        &state,
+                        our_moves,
+                        tracing,
+                        &self.opponent_profiles,
                     )
                 }
             });

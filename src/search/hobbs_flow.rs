@@ -314,7 +314,9 @@ mod tests {
             safety: TrapAssessment::Unknown,
         };
         let normal = RouteRank {
-            score: StateScore::Normal { utility_milli: 2000 },
+            score: StateScore::Normal {
+                utility_milli: 2000,
+            },
             safety: TrapAssessment::Viable,
         };
         assert!(win > normal);
@@ -323,18 +325,25 @@ mod tests {
     #[test]
     fn constrained_exit_loses_to_viable_alternative_without_score_weight() {
         let constrained = RouteRank {
-            score: StateScore::Normal { utility_milli: 1000 },
+            score: StateScore::Normal {
+                utility_milli: 1000,
+            },
             safety: TrapAssessment::Constrained,
         };
         let viable = RouteRank {
-            score: StateScore::Normal { utility_milli: -200 },
+            score: StateScore::Normal {
+                utility_milli: -200,
+            },
             safety: TrapAssessment::Viable,
         };
         assert!(viable > constrained);
-        assert!(constrained > RouteRank {
-            score: StateScore::Tie,
-            safety: TrapAssessment::Unknown,
-        });
+        assert!(
+            constrained
+                > RouteRank {
+                    score: StateScore::Tie,
+                    safety: TrapAssessment::Unknown,
+                }
+        );
     }
 
     #[test]
