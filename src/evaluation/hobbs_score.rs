@@ -88,7 +88,11 @@ pub(crate) fn evaluate_hobbs_state(
     let Some(snake) = state.snake_at(actor) else {
         return HobbsEvaluation::terminal(StateScore::Loss, 0);
     };
-    let living = state.snakes.iter().filter(|candidate| candidate.alive).count();
+    let living = state
+        .snakes
+        .iter()
+        .filter(|candidate| candidate.alive)
+        .count();
     if !snake.alive {
         return HobbsEvaluation::terminal(
             if living == 0 {
@@ -253,11 +257,8 @@ mod tests {
 
     fn evaluate(state: &SimulatedGameState, actor: usize) -> HobbsEvaluation {
         let params = HobbsScoreParams::STANDARD;
-        let territory = TemporalTerritory::from_state(
-            state,
-            params.fill_cycles,
-            params.cell_weights,
-        );
+        let territory =
+            TemporalTerritory::from_state(state, params.fill_cycles, params.cell_weights);
         evaluate_hobbs_state(state, &territory, ActorIndex::new(actor).unwrap(), params)
     }
 
@@ -295,7 +296,10 @@ mod tests {
         ));
         let mut healthy = board;
         healthy.snakes[0].health = 60;
-        assert!(matches!(evaluate(&healthy, 0).score, StateScore::Normal { .. }));
+        assert!(matches!(
+            evaluate(&healthy, 0).score,
+            StateScore::Normal { .. }
+        ));
     }
 
     #[test]
@@ -305,10 +309,16 @@ mod tests {
             snake("enemy", 1, 100, Coord { x: 6, y: 6 }),
             snake("enemy2", 1, 100, Coord { x: 6, y: 0 }),
         ]);
-        assert!(matches!(evaluate(&board, 0).score, StateScore::LowHealth { .. }));
+        assert!(matches!(
+            evaluate(&board, 0).score,
+            StateScore::LowHealth { .. }
+        ));
         let mut healthy = board;
         healthy.snakes[0].health = 85;
-        assert!(matches!(evaluate(&healthy, 0).score, StateScore::Normal { .. }));
+        assert!(matches!(
+            evaluate(&healthy, 0).score,
+            StateScore::Normal { .. }
+        ));
     }
 
     #[test]
@@ -327,18 +337,29 @@ mod tests {
 
     #[test]
     fn score_orders_win_normal_low_health_tie_and_loss() {
-        assert!(StateScore::Win > StateScore::Normal { utility_milli: 2000 });
-        assert!(StateScore::Normal { utility_milli: -1000 } > StateScore::LowHealth {
-            negative_food_distance: Some(-1),
-            territory_milli: 1000,
-        });
-        assert!(StateScore::LowHealth {
-            negative_food_distance: Some(-2),
-            territory_milli: 100,
-        } > StateScore::LowHealth {
-            negative_food_distance: Some(-3),
-            territory_milli: 1000,
-        });
+        assert!(
+            StateScore::Win
+                > StateScore::Normal {
+                    utility_milli: 2000
+                }
+        );
+        assert!(
+            StateScore::Normal {
+                utility_milli: -1000
+            } > StateScore::LowHealth {
+                negative_food_distance: Some(-1),
+                territory_milli: 1000,
+            }
+        );
+        assert!(
+            StateScore::LowHealth {
+                negative_food_distance: Some(-2),
+                territory_milli: 100,
+            } > StateScore::LowHealth {
+                negative_food_distance: Some(-3),
+                territory_milli: 1000,
+            }
+        );
         assert!(StateScore::Tie > StateScore::Loss);
     }
 }

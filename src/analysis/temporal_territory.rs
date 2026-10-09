@@ -75,8 +75,7 @@ impl TemporalTerritory {
                 if let Some(cell) = index_of(position, width, height) {
                     result.owners[cell] = Some(actor);
                     let turns_to_vacate =
-                        u16::try_from(length.saturating_sub(index_from_head))
-                            .unwrap_or(u16::MAX);
+                        u16::try_from(length.saturating_sub(index_from_head)).unwrap_or(u16::MAX);
                     release_at[cell] = release_at[cell].max(turns_to_vacate);
                 }
             }
@@ -103,8 +102,7 @@ impl TemporalTerritory {
                         y: i32::try_from(cell / width).unwrap_or(i32::MAX),
                     };
                     for direction in Direction::ALL {
-                        let Some(neighbor) =
-                            index_of(direction.apply(position), width, height)
+                        let Some(neighbor) = index_of(direction.apply(position), width, height)
                         else {
                             continue;
                         };
@@ -149,10 +147,8 @@ impl TemporalTerritory {
                 u32::from(weights.empty)
             };
             result.claimed_cells[*actor] = result.claimed_cells[*actor].saturating_add(1);
-            result.weighted_space[*actor] =
-                result.weighted_space[*actor].saturating_add(weight);
-            result.total_weighted_space =
-                result.total_weighted_space.saturating_add(weight);
+            result.weighted_space[*actor] = result.weighted_space[*actor].saturating_add(weight);
+            result.total_weighted_space = result.total_weighted_space.saturating_add(weight);
         }
         result
     }
@@ -166,7 +162,11 @@ impl TemporalTerritory {
         if self.total_weighted_space == 0 {
             return 0;
         }
-        let ours = self.weighted_space.get(actor.as_usize()).copied().unwrap_or(0);
+        let ours = self
+            .weighted_space
+            .get(actor.as_usize())
+            .copied()
+            .unwrap_or(0);
         i64::from(ours)
             .saturating_mul(1000)
             .saturating_div(i64::from(self.total_weighted_space))
@@ -221,10 +221,7 @@ mod tests {
 
     #[test]
     fn releases_unstacked_tail_on_first_cycle() {
-        let board = state(vec![snake(
-            "ours",
-            &[(0, 0), (0, 1), (1, 1), (1, 0)],
-        )]);
+        let board = state(vec![snake("ours", &[(0, 0), (0, 1), (1, 1), (1, 0)])]);
         let first = TemporalTerritory::from_state(&board, 1, WEIGHTS);
         let second = TemporalTerritory::from_state(&board, 2, WEIGHTS);
 
@@ -271,10 +268,7 @@ mod tests {
 
     #[test]
     fn territory_ratio_is_comparable_between_players() {
-        let board = state(vec![
-            snake("ours", &[(0, 2)]),
-            snake("enemy", &[(4, 2)]),
-        ]);
+        let board = state(vec![snake("ours", &[(0, 2)]), snake("enemy", &[(4, 2)])]);
         let result = TemporalTerritory::from_state(&board, 4, WEIGHTS);
         let ours = result.territory_ratio_milli(ActorIndex::new(0).unwrap());
         let enemy = result.territory_ratio_milli(ActorIndex::new(1).unwrap());
