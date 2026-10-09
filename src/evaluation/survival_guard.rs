@@ -10,6 +10,8 @@ use crate::simulation::state::SimulatedGameState;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum TrapAssessment {
     Viable,
+    /// No loss is proven, but a larger opponent can threaten our sole exit.
+    Constrained,
     ProvenTrap,
     Unknown,
 }
@@ -30,11 +32,36 @@ pub(crate) fn assess_state(state: &SimulatedGameState) -> TrapAssessment {
     }
 
     let mobility = MobilityAnalysis::from_state(state);
-    if mobility
-        .deterministic_moves_for(state, &state.our_snake_id)
-        .is_empty()
-    {
-        TrapAssessment::ProvenTrap
+    let legal = mobility.deterministic_moves_for(state, &state.our_snake_id);
+    if legal.is_empty() {
+        return TrapAssessment::ProvenTrap;
+    }
+    if legal.len() != 1 {
+        return TrapAssessment::Viable;
+    }
+    let Some(head) = ours.head() else {
+        return TrapAssessment::Unknown;
+    };
+    let only_exit = legal.iter().next().map(|direction| direction.apply(head));
+    let near_wall = head.x == 0
+        || head.y == 0
+        || i64::from(head.x) + 1 == i64::from(state.width)
+        || i64::from(head.y) + 1 == i64::from(state.height);
+    let threatened = state
+        .snakes
+        .iter()
+        .filter(|enemy| enemy.alive && enemy.id != ours.id && enemy.length() >= ours.length())
+        .filter_map(|enemy| enemy.head())
+        .any(|enemy_head| {
+            let Some(exit) = only_exit else {
+                return false;
+            };
+            let distance = (enemy_head.x - exit.x).abs() + (enemy_head.y - exit.y).abs();
+            let horizon = i32::try_from(ours.length().min(4)).unwrap_or(4) + 1;
+            distance <= horizon
+        });
+    if near_wall && threatened {
+        TrapAssessment::Constrained
     } else {
         TrapAssessment::Viable
     }
@@ -87,6 +114,26 @@ mod tests {
     #[test]
     fn vacating_tail_preserves_escape() {
         let state = board(vec![(0, 0), (0, 1), (1, 1), (1, 0)], vec![(3, 3)]);
+        assert_eq!(assess_state(&state), TrapAssessment::Viable);
+    }
+
+    #[test]
+    fn larger_opponent_near_forced_edge_exit_marks_constraint_not_certain_death() {
+        let mut state = board(
+            vec![(10, 10), (9, 10), (9, 9)],
+            vec![(7, 8), (7, 7), (8, 7), (8, 6), (7, 6)],
+        );
+        state.width = 11;
+        state.height = 11;
+        assert_eq!(assess_state(&state), TrapAssessment::Constrained);
+    }
+
+    #[test]
+    fn shorter_opponent_does_not_make_single_exit_proven_trap() {
+        let state = board(
+            vec![(0, 0), (0, 1), (1, 1), (2, 1), (2, 0)],
+            vec![(1, 3)],
+        );
         assert_eq!(assess_state(&state), TrapAssessment::Viable);
     }
 

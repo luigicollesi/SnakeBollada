@@ -5,6 +5,7 @@
 //! participates in MIN; opponent intent only affects expansion order.
 //! Iterative deepening commits the previous complete depth on timeout.
 
+use std::cmp::Ordering;
 use std::collections::HashMap;
 
 use crate::analysis::TemporalTerritory;
@@ -30,11 +31,37 @@ pub(crate) struct HobbsSearchResult {
     pub(crate) certainty: ForecastCertainty,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct RouteRank {
-    // This is a structural gate, never a weighted Survival contribution.
-    survives: bool,
     score: StateScore,
+    safety: TrapAssessment,
+}
+
+impl RouteRank {
+    fn tier(self) -> u8 {
+        match (self.score, self.safety) {
+            (StateScore::Win, _) => 5,
+            (StateScore::Loss, _) | (_, TrapAssessment::ProvenTrap) => 0,
+            (StateScore::Tie, _) => 1,
+            (_, TrapAssessment::Viable) => 4,
+            (_, TrapAssessment::Unknown) => 3,
+            (_, TrapAssessment::Constrained) => 2,
+        }
+    }
+}
+
+impl Ord for RouteRank {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.tier()
+            .cmp(&other.tier())
+            .then_with(|| self.score.cmp(&other.score))
+    }
+}
+
+impl PartialOrd for RouteRank {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -93,13 +120,7 @@ pub(crate) fn search_hobbs(
             .iter()
             .filter_map(|edge| edge.joint_action.direction_for(our_actor))
             .collect::<std::collections::HashSet<_>>();
-        let survival = if route.rank.survives {
-            TrapAssessment::Viable
-        } else if route.rank.score == StateScore::Loss {
-            TrapAssessment::Unknown
-        } else {
-            TrapAssessment::ProvenTrap
-        };
+        let survival = route.rank.safety;
         log::debug!(
             target: "search_diagnostics",
             "hobbs_depth turn={} depth={} move={:?} score={:?} survival={:?} root_directions={} nodes={}",
@@ -239,8 +260,8 @@ fn evaluate_leaf(graph: &FutureGraph, node_id: NodeId) -> RouteRank {
     let state = &graph.node(node_id).state;
     let Some(actor) = state.actor_index(&state.our_snake_id) else {
         return RouteRank {
-            survives: false,
             score: StateScore::Loss,
+            safety: TrapAssessment::Unknown,
         };
     };
     let params = HobbsScoreParams::STANDARD;
@@ -248,10 +269,8 @@ fn evaluate_leaf(graph: &FutureGraph, node_id: NodeId) -> RouteRank {
     let score = evaluate_hobbs_state(state, &territory, actor, params).score;
     let survival = assess_survival_state(state);
     RouteRank {
-        survives: score != StateScore::Loss
-            && score != StateScore::Tie
-            && survival != TrapAssessment::ProvenTrap,
         score,
+        safety: survival,
     }
 }
 
@@ -286,6 +305,36 @@ mod tests {
                 hazard_damage_per_turn: 0,
             },
         }
+    }
+
+    #[test]
+    fn terminal_win_outweighs_nonterminal_viability() {
+        let win = RouteRank {
+            score: StateScore::Win,
+            safety: TrapAssessment::Unknown,
+        };
+        let normal = RouteRank {
+            score: StateScore::Normal { utility_milli: 2000 },
+            safety: TrapAssessment::Viable,
+        };
+        assert!(win > normal);
+    }
+
+    #[test]
+    fn constrained_exit_loses_to_viable_alternative_without_score_weight() {
+        let constrained = RouteRank {
+            score: StateScore::Normal { utility_milli: 1000 },
+            safety: TrapAssessment::Constrained,
+        };
+        let viable = RouteRank {
+            score: StateScore::Normal { utility_milli: -200 },
+            safety: TrapAssessment::Viable,
+        };
+        assert!(viable > constrained);
+        assert!(constrained > RouteRank {
+            score: StateScore::Tie,
+            safety: TrapAssessment::Unknown,
+        });
     }
 
     #[test]
