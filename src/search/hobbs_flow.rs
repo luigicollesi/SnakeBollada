@@ -473,9 +473,14 @@ fn evaluate_leaf(graph: &FutureGraph, node_id: NodeId) -> RouteRank {
     }
 }
 
-/// Only verify expensive local continuations on positions where at least
-/// one living snake has at most two immediately safe directions. Exact MIN
-/// responses remain responsible for proving whether an opponent can escape.
+// The leaf of a deep minimax search already represents several actual joint
+// turns. Keep the extra tactical projection short and strictly demand-driven;
+// the full four-cycle projection is cached for near-root ordering.
+const LEAF_CORRIDOR_HORIZON: u8 = 3;
+
+/// Only verify expensive local continuations if some living snake is
+/// down to a single deterministic next move. Exact MIN responses remain
+/// responsible for proving whether an opponent can escape.
 fn corridor_tactics(
     state: &crate::simulation::state::SimulatedGameState,
     score: StateScore,
@@ -489,12 +494,12 @@ fn corridor_tactics(
         .snakes
         .iter()
         .filter(|snake| snake.alive)
-        .any(|snake| mobility.deterministic_moves_for(state, &snake.id).len() <= 2)
+        .any(|snake| mobility.deterministic_moves_for(state, &snake.id).len() <= 1)
     {
         return (safety, 0);
     }
 
-    let Some(ours) = CorridorOutlook::from_state(state, &state.our_snake_id, CORRIDOR_HORIZON)
+    let Some(ours) = CorridorOutlook::from_state(state, &state.our_snake_id, LEAF_CORRIDOR_HORIZON)
     else {
         return (safety, 0);
     };
@@ -513,7 +518,7 @@ fn corridor_tactics(
             .iter()
             .filter(|snake| snake.alive && snake.id != state.our_snake_id)
             .filter_map(|enemy| {
-                CorridorOutlook::from_state(state, &enemy.id, CORRIDOR_HORIZON).map(|outlook| {
+                CorridorOutlook::from_state(state, &enemy.id, LEAF_CORRIDOR_HORIZON).map(|outlook| {
                     match outlook.continuing_exits {
                         0 => 2,
                         1 => 1,
