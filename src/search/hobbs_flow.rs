@@ -15,7 +15,7 @@ use crate::evaluation::{
 };
 use crate::simulation::joint_action::JointAction;
 
-use super::beam::{BeamPath, BeamStep, MAX_BEAM_DEPTH};
+use super::path::{FuturePath, FutureStep, MAX_SEARCH_DEPTH};
 use super::budget::SearchBudget;
 use super::forecast::{ForecastCertainty, ForecastDelta};
 use super::graph::{FutureGraph, NodeId, SearchError};
@@ -25,7 +25,7 @@ pub(crate) struct HobbsSearchResult {
     pub(crate) direction: Direction,
     pub(crate) score: StateScore,
     pub(crate) survival: TrapAssessment,
-    pub(crate) path: BeamPath,
+    pub(crate) path: FuturePath,
     pub(crate) completed_depth: u8,
     pub(crate) root_directions: usize,
     pub(crate) certainty: ForecastCertainty,
@@ -79,7 +79,7 @@ impl PartialOrd for RouteRank {
 #[derive(Debug, Clone)]
 struct Route {
     rank: RouteRank,
-    path: BeamPath,
+    path: FuturePath,
     certainty: ForecastCertainty,
 }
 
@@ -90,12 +90,11 @@ pub(crate) fn search_hobbs(
     budget: &SearchBudget,
 ) -> Result<Option<HobbsSearchResult>, SearchError> {
     // The soft deadline leaves headroom for serialization and runtime jitter.
-    graph.enable_hobbs_only();
     let search_budget = budget.limited_to_soft_deadline();
     let mut scored = ScoredCache::new();
     let root = graph.root();
     let mut last_complete = None;
-    for depth in 1..=MAX_BEAM_DEPTH {
+    for depth in 1..=MAX_SEARCH_DEPTH {
         if search_budget.expired() {
             break;
         }
@@ -182,13 +181,12 @@ fn evaluate_minimax(
             .or_insert_with(|| evaluate_leaf(graph, node_id));
         return Ok(Some(Route {
             rank,
-            path: BeamPath::empty(),
+            path: FuturePath::empty(),
             certainty,
         }));
     }
 
-    let expansion = graph.expand_prioritized_subtree(node_id, 1, budget)?;
-    if !expansion.completed {
+    if !graph.expand_one(node_id, budget)? {
         return Ok(None);
     }
 
@@ -217,7 +215,7 @@ fn evaluate_minimax(
             .or_insert_with(|| evaluate_leaf(graph, node_id));
         return Ok(Some(Route {
             rank,
-            path: BeamPath::empty(),
+            path: FuturePath::empty(),
             certainty,
         }));
     }
@@ -239,7 +237,7 @@ fn evaluate_minimax(
             // forecast path; otherwise a deep leaf can hide an earlier pin.
             let immediate_safety = assess_survival_state(&graph.node(child).state);
             candidate.rank.safety = worst_safety(candidate.rank.safety, immediate_safety);
-            candidate.path = candidate.path.prepend(BeamStep {
+            candidate.path = candidate.path.prepend(FutureStep {
                 node: node_id,
                 joint_action,
                 child,
@@ -277,7 +275,7 @@ fn worst_safety(left: TrapAssessment, right: TrapAssessment) -> TrapAssessment {
     }
 }
 
-fn direction_of_first(graph: &FutureGraph, node: NodeId, path: &BeamPath) -> Option<Direction> {
+fn direction_of_first(graph: &FutureGraph, node: NodeId, path: &FuturePath) -> Option<Direction> {
     let state = &graph.node(node).state;
     let our_actor = state.actor_index(&state.our_snake_id)?;
     path.first()?.joint_action.direction_for(our_actor)

@@ -395,8 +395,8 @@ mod tests {
             Direction::Left,
             "turn 34 must stay out of the top-edge corridor: {decision:?}"
         );
-        assert!(decision.search.analyzed_depth <= crate::search::beam::MAX_BEAM_DEPTH);
-        assert!(decision.search.completed_depth <= crate::search::beam::MAX_BEAM_DEPTH);
+        assert!(decision.search.analyzed_depth <= crate::search::path::MAX_SEARCH_DEPTH);
+        assert!(decision.search.completed_depth <= crate::search::path::MAX_SEARCH_DEPTH);
     }
 
     #[test]
