@@ -91,11 +91,22 @@ impl GameRuntime {
                     .decision_state
                     .lock()
                     .unwrap_or_else(std::sync::PoisonError::into_inner);
+                // A delayed queued request must not run an obsolete search.
+                if started.elapsed() >= Duration::from_millis(
+                    u64::from(owned.game.timeout).saturating_sub(100).max(1),
+                ) {
+                    let _ = tx.send(crate::strategy::choose_move_baseline(&owned));
+                    return;
+                }
                 let decision = decision_state.decide_with_start(&owned, started);
                 // Send the HTTP decision *before* O(N) graph compaction.
-                // The same game mutex protects maintenance and subsequent turns.
-                let _ = tx.send(decision);
-                decision_state.post_response_maintenance();
+                // If the caller already timed out, it returned a fallback that
+                // may differ; the forecast graph must not assume our decision.
+                if tx.send(decision).is_ok() {
+                    decision_state.post_response_maintenance();
+                } else {
+                    decision_state.invalidate_undelivered_decision();
+                }
             } else {
                 let decision = crate::strategy::choose_move(&owned);
                 let _ = tx.send(decision);
@@ -224,6 +235,41 @@ mod tests {
         runtime.end(&game_a).await;
 
         assert_eq!(runtime.active_game_ids().await, vec!["game-b"]);
+    }
+
+    #[tokio::test]
+    async fn duplicate_move_returns_same_decision() {
+        let runtime = GameRuntime::new();
+        let board = state("game-duplicate");
+        runtime.start(&board).await;
+        let first = runtime.decide(&board, Instant::now()).await;
+        let again = runtime.decide(&board, Instant::now()).await;
+        assert_eq!(first.direction, again.direction);
+        assert_eq!(first.reason, again.reason);
+    }
+
+    #[tokio::test]
+    async fn expired_request_returns_without_cpu_work() {
+        let runtime = GameRuntime::new();
+        let board = state("game-expired");
+        runtime.start(&board).await;
+        let started = Instant::now() - Duration::from_secs(1);
+        let before = Instant::now();
+        let decision = runtime.decide(&board, started).await;
+        assert!(before.elapsed() < Duration::from_millis(100));
+        assert!(crate::strategy::direction_stays_in_bounds(&board, decision.direction));
+    }
+
+    #[tokio::test]
+    async fn exhausted_cpu_capacity_returns_safe_move() {
+        let runtime = GameRuntime::new();
+        let board = state("game-overloaded");
+        runtime.start(&board).await;
+        let slots = runtime.search_slots.clone();
+        let count = slots.available_permits();
+        let _held = slots.acquire_many_owned(count as u32).await.unwrap();
+        let decision = runtime.decide(&board, Instant::now()).await;
+        assert!(crate::strategy::direction_stays_in_bounds(&board, decision.direction));
     }
 
     #[tokio::test]

@@ -115,10 +115,11 @@ async fn handle_move(move_req: Json<GameState>, runtime: &State<GameRuntime>) ->
         hobbs.merge_us
     );
 
-    log::debug!(
+    log::info!(
         target: "request_timing",
-        "move_handler turn={} elapsed_us={} timeout_ms={}",
-        move_req.turn, request_started.elapsed().as_micros(), move_req.game.timeout,
+        "move_handler game={} turn={} elapsed_us={} timeout_ms={}",
+        move_req.game.id, move_req.turn, request_started.elapsed().as_micros(),
+        move_req.game.timeout,
     );
     Json(json!({
         "move": decision.direction.as_str(),

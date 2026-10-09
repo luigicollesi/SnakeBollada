@@ -97,7 +97,7 @@ impl DecisionState {
 
         graph.retain_chosen_direction(decision.direction);
         let retained_nodes = graph.node_count();
-        log::debug!(
+        log::info!(
             target: "request_timing",
             "move_compute game={} turn={} prep_us={} search_us={} elapsed_us={} graph_nodes={}",
             state.game.id, state.turn, prep_us, decision.search.elapsed_us,
@@ -117,12 +117,21 @@ impl DecisionState {
 
     /// Runs on a blocking CPU worker, after the response was handed to the
     /// async HTTP handler. Never charge this O(N) compaction to the move path.
+    /// The HTTP handler returned a fallback because its deadline expired.
+    /// We cannot know that the searched direction was actually played.
+    pub(crate) fn invalidate_undelivered_decision(&mut self) {
+        self.graph = None;
+        self.last_turn = None;
+        self.last_decision = None;
+        self.previous_observed_food = None;
+    }
+
     pub(crate) fn post_response_maintenance(&mut self) {
         if let Some(graph) = self.graph.as_mut() {
             let started = Instant::now();
             let before = graph.node_count();
             graph.compact_retained();
-            log::debug!(
+            log::info!(
                 target: "request_timing",
                 "graph_maintenance before_nodes={} after_nodes={} elapsed_us={}",
                 before, graph.node_count(), started.elapsed().as_micros()

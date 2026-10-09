@@ -666,6 +666,27 @@ mod tests {
     }
 
     #[test]
+    fn retain_defers_compaction_until_after_response() {
+        let mut graph = FutureGraph::new_beam(state());
+        let budget = SearchBudget::for_duration(Duration::from_secs(4));
+        assert!(graph.expand_one(graph.root(), &budget).unwrap());
+        let count_before = graph.node_count();
+        let root = graph.root();
+        let actor = graph.node(root).state.actor_index("ours").unwrap();
+        let chosen = graph.node(root).children[0]
+            .joint_action
+            .direction_for(actor)
+            .unwrap();
+        graph.retain_chosen_direction(chosen);
+        assert_eq!(graph.node_count(), count_before, "retention must not compact");
+        graph.compact_retained();
+        assert!(graph.node_count() <= count_before);
+        assert!(graph.node(graph.root()).children.iter().all(|edge| {
+            edge.joint_action.direction_for(actor) == Some(chosen)
+        }));
+    }
+
+    #[test]
     fn chosen_move_keeps_opponent_responses_and_enables_reroot() {
         let mut graph = FutureGraph::new_beam(state());
         let budget = SearchBudget::for_duration(Duration::from_secs(4));
