@@ -53,10 +53,8 @@ pub(crate) fn assess_state(state: &SimulatedGameState) -> TrapAssessment {
             let Some(exit) = only_exit else {
                 return false;
             };
-            let distance_to_exit = (enemy_head.x - exit.x).abs()
-                + (enemy_head.y - exit.y).abs();
-            let distance_to_head = (enemy_head.x - head.x).abs()
-                + (enemy_head.y - head.y).abs();
+            let distance_to_exit = (enemy_head.x - exit.x).abs() + (enemy_head.y - exit.y).abs();
+            let distance_to_head = (enemy_head.x - head.x).abs() + (enemy_head.y - head.y).abs();
             if legal.len() == 1 {
                 // A single escape corridor near an equal-or-larger opponent
                 // is vulnerable to a forced pin, but not a proven death.

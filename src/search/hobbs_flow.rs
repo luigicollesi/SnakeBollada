@@ -226,8 +226,7 @@ fn evaluate_minimax(
             // Preserve structural exposure encountered along the entire
             // forecast path; otherwise a deep leaf can hide an earlier pin.
             let immediate_safety = assess_survival_state(&graph.node(child).state);
-            candidate.rank.safety =
-                worst_safety(candidate.rank.safety, immediate_safety);
+            candidate.rank.safety = worst_safety(candidate.rank.safety, immediate_safety);
             candidate.path = candidate.path.prepend(BeamStep {
                 node: node_id,
                 joint_action,
