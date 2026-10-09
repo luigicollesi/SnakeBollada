@@ -3,14 +3,14 @@
 
 use crate::analysis::{
     analyze_territorial_control, detect_territorial_partition, verify_territorial_return_cached,
-    ReturnProof, TerritorialControlAnalysis, TerritoryTrajectory,
+    ReturnProof, TerritorialControlAnalysis, TerritoryDirectionSample, TerritoryTrajectory,
 };
 use crate::direction::Direction;
 use crate::evaluation::StateScore;
 use crate::search::budget::SearchBudget;
 use crate::search::forecast::ForecastCertainty;
 use crate::search::graph::FutureGraph;
-use crate::search::hobbs_flow::search_hobbs;
+use crate::search::hobbs_flow::{search_hobbs, search_hobbs_with_territory_ordering};
 use crate::search::path::FuturePath;
 use crate::simulation::state::{SimulatedGameState, SimulationSupport};
 use crate::strategy::{
@@ -63,8 +63,15 @@ impl DecisionEngine {
             request_started,
         );
         graph.reset_performance();
-        let hobbs = search_hobbs(graph, &budget).ok().flatten()?;
-        if TerritorialMode::configured() == TerritorialMode::Shadow {
+        let mode = TerritorialMode::configured();
+        let hobbs = if mode == TerritorialMode::Ordering {
+            search_hobbs_with_territory_ordering(graph, &budget, true)
+        } else {
+            search_hobbs(graph, &budget)
+        }
+        .ok()
+        .flatten()?;
+        if mode != TerritorialMode::Off {
             trace_territory_shadow(
                 state,
                 graph,
@@ -134,20 +141,21 @@ impl DecisionEngine {
     }
 }
 
-/// Gradual activation: only a shadow diagnostic is implemented. Unrecognized
-/// mode names (including future ordering/guarded modes) safely fall back to Off.
+/// Gradual activation: opt-in territorial move ordering is experimental.
+/// Scoring modes remain disabled; unknown configuration defaults to Off.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum TerritorialMode {
     Off,
     Shadow,
+    Ordering,
 }
 
 impl TerritorialMode {
     fn parse(value: &str) -> Self {
-        if value.trim().eq_ignore_ascii_case("shadow") {
-            Self::Shadow
-        } else {
-            Self::Off
+        match value.trim().to_ascii_lowercase().as_str() {
+            "shadow" => Self::Shadow,
+            "ordering" => Self::Ordering,
+            _ => Self::Off,
         }
     }
 
@@ -204,6 +212,29 @@ fn trace_territory_shadow(
             trajectory.mean_margin_milli,
             trajectory.certainty.is_provisional(),
         );
+    }
+    let compare_deadline = expires.min(Instant::now() + Duration::from_millis(3));
+    for direction in Direction::ALL {
+        if Instant::now() >= compare_deadline { break; }
+        if let Some(sample) = TerritoryDirectionSample::from_cached_replies(
+            graph,
+            direction,
+            &mut territory_cache,
+            compare_deadline,
+        ) {
+            log::info!(
+                target: "territorial_control",
+                "territory_compare turn={} direction={:?} selected={} replies_sampled={} max_depth={} worst_mean={} worst_min={} coverage={:?} evidence=cached_partial",
+                state.turn,
+                direction,
+                direction == selected,
+                sample.examined_replies,
+                sample.max_sampled_depth,
+                sample.worst_mean_margin_milli,
+                sample.worst_minimum_margin_milli,
+                sample.coverage,
+            );
+        }
     }
     let root = graph.root();
     let root_state = &graph.node(root).state;
