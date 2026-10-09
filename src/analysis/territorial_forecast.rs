@@ -48,7 +48,8 @@ impl TerritorySnapshot {
                     return None;
                 }
                 Some((
-                    territory.territory_ratio_milli(crate::simulation::state::ActorIndex::new(actor)?),
+                    territory
+                        .territory_ratio_milli(crate::simulation::state::ActorIndex::new(actor)?),
                     territory.claimed_cells.get(actor).copied().unwrap_or(0),
                 ))
             })
@@ -183,7 +184,10 @@ mod tests {
         let territory =
             TemporalTerritory::from_state(&state, params.fill_cycles, params.cell_weights);
         let actor = state.actor_index("ours").unwrap();
-        assert_eq!(snapshot.our_control_milli, territory.territory_ratio_milli(actor));
+        assert_eq!(
+            snapshot.our_control_milli,
+            territory.territory_ratio_milli(actor)
+        );
         assert_eq!(
             snapshot.margin_milli,
             snapshot.our_control_milli - snapshot.opponent_control_milli
