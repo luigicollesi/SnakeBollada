@@ -254,8 +254,14 @@ fn evaluate_minimax(
             StateScore::Win | StateScore::Loss | StateScore::Tie
         )
         .then(|| {
-            u16::try_from(graph.node(node_id).state.turn.saturating_sub(window.root_turn))
-                .unwrap_or(u16::MAX)
+            u16::try_from(
+                graph
+                    .node(node_id)
+                    .state
+                    .turn
+                    .saturating_sub(window.root_turn),
+            )
+            .unwrap_or(u16::MAX)
         });
         return Ok(Some(Route {
             rank,
@@ -338,8 +344,10 @@ fn evaluate_minimax(
                 child,
                 forecast_delta,
             } = edge;
-            let child_safety =
-                worst_safety(window.path_safety, assess_survival_state(&graph.node(child).state));
+            let child_safety = worst_safety(
+                window.path_safety,
+                assess_survival_state(&graph.node(child).state),
+            );
             let Some(mut candidate) = evaluate_minimax(
                 graph,
                 child,
