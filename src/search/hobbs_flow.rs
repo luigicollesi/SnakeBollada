@@ -84,6 +84,7 @@ struct Route {
     /// Exact number of simulated turns until a terminal Win/Loss/Tie.
     /// Only present when the terminal state was actually reached.
     terminal_plies: Option<u16>,
+    bound: SearchBoundKind,
 }
 
 fn compare_routes(left: &Route, right: &Route) -> Ordering {
@@ -132,6 +133,7 @@ pub(crate) fn search_hobbs(
     let search_budget = budget.limited_to_soft_deadline();
     let mut scored = ScoredCache::new();
     let root = graph.root();
+    let root_turn = graph.node(root).state.turn;
     let mut last_complete = None;
     for depth in 1..=MAX_SEARCH_DEPTH {
         if search_budget.expired() {
@@ -147,7 +149,7 @@ pub(crate) fn search_hobbs(
             None,
             None,
             TrapAssessment::Viable,
-            graph.node(root).state.turn,
+            root_turn,
         )?
         else {
             break;
@@ -240,6 +242,7 @@ fn evaluate_minimax(
             path: FuturePath::empty(),
             certainty,
             terminal_plies,
+            bound: SearchBoundKind::Exact,
         }));
     }
 
@@ -256,6 +259,7 @@ fn evaluate_minimax(
             path: FuturePath::empty(),
             certainty,
             terminal_plies: None,
+            bound: SearchBoundKind::Exact,
         }));
     }
 
@@ -334,7 +338,7 @@ fn evaluate_minimax(
             // MAX may return a lower bound when it has already exceeded
             // the MIN window. Such a child cannot improve MIN's incumbent.
             if let Some(limit) = local_beta.as_ref() {
-                if matches!(candidate_bound(&candidate, graph, child), SearchBoundKind::Lower)
+                if matches!(candidate.bound, SearchBoundKind::Lower)
                     && !compare_routes(&candidate, limit).is_lt()
                 {
                     continue;
@@ -410,25 +414,19 @@ fn evaluate_minimax(
         result_kind = SearchBoundKind::Upper;
     }
     if let Some(result) = best.as_ref() {
+        let best_direction = direction_of_first(graph, node_id, &result.path);
         graph.record_search(node_id, depth, CachedSearchValue {
             score: result.rank.score,
             safety: result.rank.safety,
             depth,
             certainty: result.certainty,
             bound: result_kind,
-        }, direction_of_first(graph, node_id, &result.path));
+        }, best_direction);
+    }
+    if let Some(route) = best.as_mut() {
+        route.bound = result_kind;
     }
     Ok(best)
-}
-
-// Bounds are computed only in the current call. A persisted graph evaluation
-// is never trusted as an exact bound from another root or safety path.
-fn candidate_bound(
-    _candidate: &Route,
-    graph: &FutureGraph,
-    node_id: NodeId,
-) -> SearchBoundKind {
-    graph.node(node_id).last_search.map_or(SearchBoundKind::Exact, |cached| cached.bound)
 }
 
 fn worst_safety(left: TrapAssessment, right: TrapAssessment) -> TrapAssessment {
@@ -505,6 +503,7 @@ mod tests {
             path: FuturePath::empty(),
             certainty: ForecastCertainty::Deterministic,
             terminal_plies,
+            bound: SearchBoundKind::Exact,
         }
     }
 
