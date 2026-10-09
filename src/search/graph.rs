@@ -153,6 +153,7 @@ pub(crate) struct FutureGraph {
     edge_count: u32,
     opponent_profiles: OpponentProfiles,
     forecast_policy: FoodForecastPolicy,
+    hobbs_only: bool,
     action_batch_estimate: Duration,
     perf_stats: GraphPerfStats,
 }
@@ -183,6 +184,7 @@ impl FutureGraph {
             edge_count: 0,
             opponent_profiles,
             forecast_policy,
+            hobbs_only: false,
             action_batch_estimate: INITIAL_BATCH_ESTIMATE,
             perf_stats: GraphPerfStats::default(),
         }
@@ -206,6 +208,10 @@ impl FutureGraph {
         forecast_policy: FoodForecastPolicy,
     ) -> Self {
         Self::new_with_context(root_state, opponent_profiles, forecast_policy)
+    }
+
+    pub(crate) fn enable_hobbs_only(&mut self) {
+        self.hobbs_only = true;
     }
 
     pub(crate) fn set_opponent_profiles(&mut self, opponent_profiles: OpponentProfiles) {
@@ -570,7 +576,11 @@ impl FutureGraph {
             }
 
             expanded_nodes = expanded_nodes.saturating_add(1);
-            let children = ordered_child_ids_for_search(self, node_id);
+            let children = if self.hobbs_only {
+                self.nodes[node_id].children.iter().map(|edge| edge.child).collect()
+            } else {
+                ordered_child_ids_for_search(self, node_id)
+            };
             for child in children {
                 queue.push_back((child, depth.saturating_add(1)));
             }
@@ -788,17 +798,22 @@ impl FutureGraph {
             let merge_elapsed = merge_started.elapsed();
 
             let edge_score_started = std::time::Instant::now();
+            let hobbs_only = self.hobbs_only;
             let parent = &self.nodes[node_id];
             let nodes = &self.nodes;
             let prepared_edges = resolved
                 .into_par_iter()
                 .zip(child_ids.into_par_iter())
                 .map(|(candidate, child)| {
-                    let transition = TransitionScore::from_parts(
-                        parent,
-                        &candidate.resolution_events,
-                        &nodes[child],
-                    );
+                    let transition = if hobbs_only {
+                        TransitionScore::default()
+                    } else {
+                        TransitionScore::from_parts(
+                            parent,
+                            &candidate.resolution_events,
+                            &nodes[child],
+                        )
+                    };
 
                     SearchEdge {
                         joint_action: candidate.joint_action,

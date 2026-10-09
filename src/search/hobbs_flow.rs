@@ -51,6 +51,7 @@ pub(crate) fn search_hobbs(
     budget: &SearchBudget,
 ) -> Result<Option<HobbsSearchResult>, SearchError> {
     // The soft deadline leaves headroom for serialization and runtime jitter.
+    graph.enable_hobbs_only();
     let search_budget = budget.limited_to_soft_deadline();
     let mut scored = ScoredCache::new();
     let root = graph.root();
