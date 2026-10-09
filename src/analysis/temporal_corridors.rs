@@ -8,7 +8,6 @@
 //! It is deliberately computed only for cached near-root continuations in
 //! Hobbs search. It must never be an additive Food/Hunting utility.
 
-use crate::direction::Direction;
 use crate::simulation::mobility::MobilityAnalysis;
 use crate::simulation::state::SimulatedGameState;
 use crate::Coord;
@@ -259,6 +258,43 @@ mod tests {
         // segments: no optimistic continuation exists at cycle one.
         assert_eq!(o.continuing_exits, 0);
         assert_eq!(o.possible_closure_turn, Some(1));
+    }
+
+    #[test]
+    fn one_open_turn_can_still_close_on_second_cycle() {
+        let s = board(
+            3,
+            3,
+            vec![
+                snake("ours", &[(0, 0), (0, 1), (1, 1), (1, 2), (0, 2)]),
+                snake("enemy", &[(2, 0), (2, 1), (2, 2)]),
+            ],
+        );
+        let forecast = CorridorOutlook::from_state(&s, "ours", 4).unwrap();
+        assert_eq!(forecast.immediate_exits, 1);
+        assert_eq!(forecast.continuing_exits, 0);
+        assert_eq!(forecast.narrow_turn, Some(1));
+        assert_eq!(forecast.possible_closure_turn, Some(2));
+    }
+
+    #[test]
+    fn adversarial_order_checks_enemy_escape_symmetrically() {
+        let corner = board(
+            7,
+            7,
+            vec![snake("ours", &[(3, 3)]), snake("enemy", &[(6, 6)])],
+        );
+        let center = board(
+            7,
+            7,
+            vec![snake("ours", &[(3, 3)]), snake("enemy", &[(5, 5)])],
+        );
+        let corner_hint = adversarial_order(&corner);
+        let center_hint = adversarial_order(&center);
+        assert_eq!(corner_hint.our_continuations(), center_hint.our_continuations());
+        assert!(corner_hint.enemy_continuations() < center_hint.enemy_continuations());
+        // The adversary's more flexible escape is a more pessimistic reply.
+        assert!(center_hint < corner_hint);
     }
 
     #[test]
