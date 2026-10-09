@@ -668,18 +668,19 @@ impl FutureGraph {
         }
 
         let state = self.nodes[node_id].state.clone();
-        let Some(parent_analysis) = self.nodes[node_id].analysis.as_ref() else {
-            self.nodes[node_id].expansion_complete = true;
-            return Ok(true);
+        let mobility = if self.hobbs_only {
+            Arc::new(MobilityAnalysis::from_state(&state))
+        } else {
+            let Some(parent_analysis) = self.nodes[node_id].analysis.as_ref() else {
+                self.nodes[node_id].expansion_complete = true;
+                return Ok(true);
+            };
+            Arc::clone(&parent_analysis.mobility)
         };
-        let tracing = Arc::clone(&parent_analysis.tracing);
-        let deterministic_moves = parent_analysis
-            .mobility
-            .deterministic_moves_for(&state, &state.our_snake_id);
+        let deterministic_moves =
+            mobility.deterministic_moves_for(&state, &state.our_snake_id);
         let our_moves = if deterministic_moves.is_empty() {
-            parent_analysis
-                .mobility
-                .in_bounds_moves_for(&state, &state.our_snake_id)
+            mobility.in_bounds_moves_for(&state, &state.our_snake_id)
         } else {
             deterministic_moves
         };
@@ -688,12 +689,18 @@ impl FutureGraph {
             .pending_actions
             .take()
             .unwrap_or_else(|| {
-                JointActionGenerator::new_actor_relative_with_profiles(
-                    &state,
-                    our_moves,
-                    &tracing,
-                    &self.opponent_profiles,
-                )
+                if self.hobbs_only {
+                    JointActionGenerator::new_hobbs(&state, our_moves, &mobility)
+                } else {
+                    let tracing = &self.nodes[node_id]
+                        .analysis
+                        .as_ref()
+                        .expect("legacy node requires analysis")
+                        .tracing;
+                    JointActionGenerator::new_actor_relative_with_profiles(
+                        &state, our_moves, tracing, &self.opponent_profiles,
+                    )
+                }
             });
 
         loop {
@@ -769,9 +776,16 @@ impl FutureGraph {
             }
 
             let node_build_started = std::time::Instant::now();
+            let hobbs_only = self.hobbs_only;
             let built_nodes = unique_new
                 .into_par_iter()
-                .map(|(key, state)| build_node_with_key(state, key))
+                .map(|(key, state)| {
+                    if hobbs_only {
+                        build_hobbs_node_with_key(state, key)
+                    } else {
+                        build_node_with_key(state, key)
+                    }
+                })
                 .collect::<Vec<_>>();
             let node_build_elapsed = node_build_started.elapsed();
             let built_node_count = built_nodes.len().try_into().unwrap_or(u32::MAX);
@@ -916,6 +930,19 @@ fn is_terminal_state(state: &SimulatedGameState) -> bool {
 fn build_node(state: SimulatedGameState) -> SearchNode {
     let key = Arc::new(StateKey::from_beam_state(&state));
     build_node_with_key(state, key)
+}
+
+/// Hobbs only uses the physical state: legacy territorial and category
+/// analyses are neither computed nor retained for speculative nodes.
+fn build_hobbs_node_with_key(state: SimulatedGameState, key: Arc<StateKey>) -> SearchNode {
+    SearchNode {
+        state,
+        key,
+        analysis: None,
+        children: Vec::new(),
+        expansion_complete: false,
+        pending_actions: None,
+    }
 }
 
 fn build_node_with_key(state: SimulatedGameState, key: Arc<StateKey>) -> SearchNode {

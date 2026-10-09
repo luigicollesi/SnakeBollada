@@ -23,6 +23,53 @@ impl JointActionGenerator {
         Self::new_with_profiles(state, our_moves, tracing, &OpponentProfiles::default())
     }
 
+    /// Enumerate every deterministic enemy response without Food/Hunting
+    /// intention filters; the paranoid search, not a policy guess, chooses MIN.
+    pub(crate) fn new_hobbs(
+        state: &SimulatedGameState,
+        our_moves: MoveMask,
+        mobility: &crate::simulation::mobility::MobilityAnalysis,
+    ) -> Self {
+        let Some(our_actor) = state.actor_index(&state.our_snake_id) else {
+            return Self {
+                options: vec![],
+                indices: vec![],
+                done: true,
+                estimated_count: 0,
+            };
+        };
+        let mut options = vec![(
+            our_actor,
+            normalized_moves(our_moves).iter().collect::<Vec<_>>(),
+        )];
+        let mut enemies = state
+            .snakes
+            .iter()
+            .enumerate()
+            .filter(|(_, snake)| snake.alive && snake.id != state.our_snake_id)
+            .filter_map(|(index, snake)| ActorIndex::new(index).map(|actor| (actor, snake)))
+            .collect::<Vec<_>>();
+        enemies.sort_by(|(_, a), (_, b)| a.id.cmp(&b.id));
+        for (actor, snake) in enemies {
+            let moves = mobility.deterministic_moves_for(state, &snake.id);
+            let moves = if moves.is_empty() {
+                mobility.in_bounds_moves_for(state, &snake.id)
+            } else {
+                moves
+            };
+            options.push((actor, normalized_moves(moves).iter().collect()));
+        }
+        let estimated_count = options.iter().fold(1_usize, |count, (_, moves)| {
+            count.saturating_mul(moves.len())
+        });
+        Self {
+            indices: vec![0; options.len()],
+            options,
+            done: false,
+            estimated_count,
+        }
+    }
+
     pub(crate) fn new_with_profiles(
         state: &SimulatedGameState,
         our_moves: MoveMask,
