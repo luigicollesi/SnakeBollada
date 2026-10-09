@@ -8,8 +8,6 @@
 
 use std::collections::VecDeque;
 
-use crate::direction::Direction;
-use crate::simulation::mobility::MobilityAnalysis;
 use crate::simulation::state::SimulatedGameState;
 use crate::Coord;
 
