@@ -643,7 +643,10 @@ mod tests {
         let mut graph = FutureGraph::new_beam(state());
         let root = graph.root();
         assert_eq!(graph.cached_directions(root), None);
-        assert_eq!(graph.response_coverage(root, Direction::Up), ResponseCoverage::Unexpanded);
+        assert_eq!(
+            graph.response_coverage(root, Direction::Up),
+            ResponseCoverage::Unexpanded
+        );
         let live = graph.available_directions(root);
         assert_eq!(graph.cached_directions(root), Some(live));
     }
