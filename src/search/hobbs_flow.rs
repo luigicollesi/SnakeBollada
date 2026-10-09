@@ -207,8 +207,11 @@ fn evaluate_minimax(
             rank,
             path: FuturePath::empty(),
             certainty,
-            terminal_plies: matches!(rank.score, StateScore::Win | StateScore::Loss | StateScore::Tie)
-                .then_some(0),
+            terminal_plies: matches!(
+                rank.score,
+                StateScore::Win | StateScore::Loss | StateScore::Tie
+            )
+            .then_some(0),
         }));
     }
 
@@ -243,8 +246,11 @@ fn evaluate_minimax(
             rank,
             path: FuturePath::empty(),
             certainty,
-            terminal_plies: matches!(rank.score, StateScore::Win | StateScore::Loss | StateScore::Tie)
-                .then_some(0),
+            terminal_plies: matches!(
+                rank.score,
+                StateScore::Win | StateScore::Loss | StateScore::Tie
+            )
+            .then_some(0),
         }));
     }
 
@@ -262,7 +268,9 @@ fn evaluate_minimax(
                 return Ok(None);
             };
             // The terminal distance is relative to this parent, not the leaf.
-            candidate.terminal_plies = candidate.terminal_plies.map(|steps| steps.saturating_add(1));
+            candidate.terminal_plies = candidate
+                .terminal_plies
+                .map(|steps| steps.saturating_add(1));
             // Preserve structural exposure encountered along the entire
             // forecast path; otherwise a deep leaf can hide an earlier pin.
             let immediate_safety = assess_survival_state(&graph.node(child).state);
@@ -403,9 +411,35 @@ mod tests {
                     health: 98,
                     alive: true,
                     body: body(&[
-                        (5,9),(5,8),(5,7),(5,6),(4,6),(3,6),(2,6),(1,6),(1,7),(1,8),
-                        (2,8),(2,7),(3,7),(3,8),(3,9),(2,9),(1,9),(0,9),(0,8),(0,7),
-                        (0,6),(0,5),(0,4),(1,4),(2,4),(3,4),(4,4),(4,5),(5,5),
+                        (5, 9),
+                        (5, 8),
+                        (5, 7),
+                        (5, 6),
+                        (4, 6),
+                        (3, 6),
+                        (2, 6),
+                        (1, 6),
+                        (1, 7),
+                        (1, 8),
+                        (2, 8),
+                        (2, 7),
+                        (3, 7),
+                        (3, 8),
+                        (3, 9),
+                        (2, 9),
+                        (1, 9),
+                        (0, 9),
+                        (0, 8),
+                        (0, 7),
+                        (0, 6),
+                        (0, 5),
+                        (0, 4),
+                        (1, 4),
+                        (2, 4),
+                        (3, 4),
+                        (4, 4),
+                        (4, 5),
+                        (5, 5),
                     ]),
                 },
                 SimulatedSnake {
@@ -413,9 +447,36 @@ mod tests {
                     health: 85,
                     alive: true,
                     body: body(&[
-                        (6,8),(6,7),(6,6),(7,6),(7,5),(7,4),(7,3),(6,3),(6,4),(5,4),
-                        (5,3),(4,3),(3,3),(2,3),(1,3),(1,2),(0,2),(0,1),(0,0),(1,0),
-                        (1,1),(2,1),(2,0),(3,0),(4,0),(5,0),(6,0),(7,0),(8,0),(9,0),
+                        (6, 8),
+                        (6, 7),
+                        (6, 6),
+                        (7, 6),
+                        (7, 5),
+                        (7, 4),
+                        (7, 3),
+                        (6, 3),
+                        (6, 4),
+                        (5, 4),
+                        (5, 3),
+                        (4, 3),
+                        (3, 3),
+                        (2, 3),
+                        (1, 3),
+                        (1, 2),
+                        (0, 2),
+                        (0, 1),
+                        (0, 0),
+                        (1, 0),
+                        (1, 1),
+                        (2, 1),
+                        (2, 0),
+                        (3, 0),
+                        (4, 0),
+                        (5, 0),
+                        (6, 0),
+                        (7, 0),
+                        (8, 0),
+                        (9, 0),
                     ]),
                 },
             ],
@@ -440,18 +501,49 @@ mod tests {
         let up = JointAction::new()
             .with_move(us, Direction::Up)
             .with_move(enemy, Direction::Up);
-        assert!(!resolve_turn(&state, &right).unwrap().state.snake("ours").unwrap().alive);
-        assert!(resolve_turn(&state, &up).unwrap().state.snake("ours").unwrap().alive);
+        assert!(
+            !resolve_turn(&state, &right)
+                .unwrap()
+                .state
+                .snake("ours")
+                .unwrap()
+                .alive
+        );
+        assert!(
+            resolve_turn(&state, &up)
+                .unwrap()
+                .state
+                .snake("ours")
+                .unwrap()
+                .alive
+        );
 
         let mut graph = FutureGraph::new_beam(state);
         let budget = SearchBudget::for_duration(Duration::from_secs(2));
         let mut scored = ScoredCache::new();
         let root = graph.root();
         let selected = evaluate_minimax(
-            &mut graph, root, 1, ForecastCertainty::Deterministic, &budget, &mut scored,
-        ).unwrap().unwrap();
-        let direction = selected.path.first().unwrap().joint_action.direction_for(us).unwrap();
-        assert_ne!(direction, Direction::Right, "never prefer immediate losing head-to-head");
+            &mut graph,
+            root,
+            1,
+            ForecastCertainty::Deterministic,
+            &budget,
+            &mut scored,
+        )
+        .unwrap()
+        .unwrap();
+        let direction = selected
+            .path
+            .first()
+            .unwrap()
+            .joint_action
+            .direction_for(us)
+            .unwrap();
+        assert_ne!(
+            direction,
+            Direction::Right,
+            "never prefer immediate losing head-to-head"
+        );
     }
 
     #[test]
