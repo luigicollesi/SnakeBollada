@@ -188,6 +188,7 @@ fn trace_territory_shadow(
         let mut worst_access = u16::MAX;
         let mut worst_future = u16::MAX;
         let mut smallest_regions = u8::MAX;
+        let mut smallest_largest_branch = u16::MAX;
         let mut biggest_gate = 0_u16;
         let mut worst_contested_gate = 0_u16;
         let mut unknown = 0_usize;
@@ -201,6 +202,7 @@ fn trace_territory_shadow(
                 worst_access = worst_access.min(snapshot.accessible_now);
                 worst_future = worst_future.min(snapshot.future_reach);
                 smallest_regions = smallest_regions.min(snapshot.independent_regions);
+                smallest_largest_branch = smallest_largest_branch.min(snapshot.largest_independent_region);
                 biggest_gate = biggest_gate.max(snapshot.single_gate_exposure);
                 worst_contested_gate = worst_contested_gate.max(snapshot.contested_gate_exposure);
             } else {
@@ -209,7 +211,7 @@ fn trace_territory_shadow(
         }
         log::info!(
             target: "territorial_control",
-            "territory_shadow turn={} direction={:?} selected={} known_replies={} sampled={} unknown={} complete_known={} min_access={} min_future={} min_regions={} max_gate_exposure={} max_contested_gate={} evidence=optimistic",
+            "territory_shadow turn={} direction={:?} selected={} known_replies={} sampled={} unknown={} complete_known={} min_access={} min_future={} min_regions={} min_largest_branch={} max_gate_exposure={} max_contested_gate={} evidence=optimistic",
             state.turn,
             direction,
             direction == selected,
@@ -220,6 +222,7 @@ fn trace_territory_shadow(
             if sampled > 0 { Some(worst_access) } else { None },
             if sampled > 0 { Some(worst_future) } else { None },
             if sampled > 0 { Some(smallest_regions) } else { None },
+            if sampled > 0 { Some(smallest_largest_branch) } else { None },
             biggest_gate,
             worst_contested_gate,
         );
@@ -234,12 +237,13 @@ fn log_territory_snapshot(
 ) {
     log::info!(
         target: "territorial_control",
-        "territory_shadow turn={} scope={} selected={:?} access={} regions={} gates={} largest_gate={} contested_gate={} future={} contested_future={} continuing={:?} evidence=optimistic",
+        "territory_shadow turn={} scope={} selected={:?} access={} regions={} largest_branch={} gates={} largest_gate={} contested_gate={} future={} contested_future={} continuing={:?} evidence=optimistic",
         turn,
         scope,
         selected,
         result.accessible_now,
         result.independent_regions,
+        result.largest_independent_region,
         result.critical_gateways,
         result.single_gate_exposure,
         result.contested_gate_exposure,
