@@ -114,11 +114,8 @@ impl Context<'_> {
         let mut unknown_direction = false;
         for direction in moves {
             let mut worst = ReturnProof::VerifiedForFixedFood;
-            let mut replies = JointActionGenerator::new(
-                state,
-                MoveMask::single(direction),
-                &mobility,
-            );
+            let mut replies =
+                JointActionGenerator::new(state, MoveMask::single(direction), &mobility);
             let mut saw_reply = false;
             for joint in &mut replies {
                 saw_reply = true;
