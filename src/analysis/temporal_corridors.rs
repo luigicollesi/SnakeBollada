@@ -160,6 +160,16 @@ pub(crate) struct AdversarialCorridorOrder {
     enemy_escape_priority: u8,
 }
 
+impl AdversarialCorridorOrder {
+    pub(crate) const fn our_continuations(self) -> u8 {
+        self.our_continuations
+    }
+
+    pub(crate) const fn enemy_continuations(self) -> u8 {
+        u8::MAX - self.enemy_escape_priority
+    }
+}
+
 pub(crate) fn adversarial_order(state: &SimulatedGameState) -> AdversarialCorridorOrder {
     let own = CorridorOutlook::from_state(state, &state.our_snake_id, CORRIDOR_HORIZON);
     let our_continuations = own.map_or(4, |outlook| outlook.flexibility_rank().0);

@@ -8,7 +8,7 @@
 use std::cmp::Ordering;
 use std::collections::HashMap;
 
-use crate::analysis::TemporalTerritory;
+use crate::analysis::{adversarial_order, AdversarialCorridorOrder, TemporalTerritory};
 use crate::direction::Direction;
 use crate::evaluation::{
     assess_survival_state, evaluate_hobbs_state, HobbsScoreParams, StateScore, TrapAssessment,
@@ -233,7 +233,39 @@ fn evaluate_minimax(
 
     let mut directions = graph.available_directions(node_id);
     let preferred = graph.node(node_id).preferred_direction;
-    directions.sort_by_key(|direction| (Some(*direction) != preferred, direction.rank()));
+    if node_id == graph.root() {
+        // Tactical move ordering only. A one-ply corridor estimate cannot
+        // prove a forced trap: all legal joint-action replies remain in MIN.
+        let mut corridor_by_direction = HashMap::<Direction, (u8, u8)>::new();
+        for direction in &directions {
+            let known = graph.known_responses(node_id, *direction);
+            if known.is_empty() {
+                continue;
+            }
+            let mut worst_ours = u8::MAX;
+            let mut best_enemy = 0_u8;
+            for edge in known {
+                let forecast = adversarial_order(&graph.node(edge.child).state);
+                worst_ours = worst_ours.min(forecast.our_continuations());
+                best_enemy = best_enemy.max(forecast.enemy_continuations());
+            }
+            corridor_by_direction.insert(*direction, (worst_ours, best_enemy));
+        }
+        directions.sort_by_key(|direction| {
+            let (our_exits, their_exits) = corridor_by_direction
+                .get(direction)
+                .copied()
+                .unwrap_or((0, u8::MAX));
+            (
+                Some(*direction) != preferred,
+                std::cmp::Reverse(our_exits),
+                their_exits,
+                direction.rank(),
+            )
+        });
+    } else {
+        directions.sort_by_key(|direction| (Some(*direction) != preferred, direction.rank()));
+    }
     if directions.is_empty() {
         let rank = *cache
             .entry(node_id)
@@ -255,9 +287,28 @@ fn evaluate_minimax(
         let mut known = graph.known_responses(node_id, direction);
         let known_count = known.len();
         let preferred_response = graph.node(node_id).preferred_reply.get(&direction).cloned();
+        let corridor_hints = if node_id == graph.root() {
+            known
+                .iter()
+                .map(|edge| {
+                    (
+                        edge.child,
+                        adversarial_order(&graph.node(edge.child).state),
+                    )
+                })
+                .collect::<HashMap<NodeId, AdversarialCorridorOrder>>()
+        } else {
+            HashMap::new()
+        };
         known.sort_by(|a, b| {
             (preferred_response.as_ref() == Some(&b.joint_action))
                 .cmp(&(preferred_response.as_ref() == Some(&a.joint_action)))
+                .then_with(|| {
+                    match (corridor_hints.get(&a.child), corridor_hints.get(&b.child)) {
+                        (Some(a), Some(b)) => a.cmp(b),
+                        _ => Ordering::Equal,
+                    }
+                })
                 .then_with(|| match (cache.get(&a.child), cache.get(&b.child)) {
                     (Some(ra), Some(rb)) => ra.cmp(rb),
                     (Some(_), None) => Ordering::Less,
