@@ -22,6 +22,8 @@ jobs:
           pattern: hobbs-ordering_v3-*
           path: evidence
           merge-multiple: true
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@1.98.1
       - name: Verify real pre-trap states and derive counterfactual candidates
         shell: bash
         run: |
@@ -82,6 +84,19 @@ jobs:
                                      larger_enemy_head_risk=head_collision_risk,
                                      observed_next_move=observed))
           Path("v3_historical_characterization.json").write_text(json.dumps(report,indent=2))
+          Path("fixtures").mkdir(exist_ok=True)
+          for seed, (start, end) in cases.items():
+              state_file = next(Path("evidence").rglob(f"runs/{seed}/game.jsonl"))
+              chosen = {}
+              for raw in state_file.read_text().splitlines():
+                  try: state = json.loads(raw)
+                  except json.JSONDecodeError: continue
+                  if isinstance(state, dict) and state.get("turn") in (start,start+1,end-1):
+                      chosen[state["turn"]] = state
+              for turn,state in chosen.items():
+                  dest = Path("fixtures") / f"{seed}-{turn}.json"
+                  dest.write_text(json.dumps(state))
+          assert len(list(Path("fixtures").glob("*.json"))) == 12
           print("Captured",len(report),"historical states")
           for seed in cases:
               rows = [r for r in report if r["seed"] == seed]
@@ -90,8 +105,14 @@ jobs:
                     "single_exit",sum(len(r["free_non_tail_moves"])==1 for r in rows))
           # Characterization phase only: do not assert an unproven best move.
           PY
+      - name: Reproduce real scenarios with Rust FutureGraph
+        env:
+          SNAKE_V3_REGRESSION_FIXTURES: fixtures
+        run: cargo test historical_v3_graph -- --nocapture
       - name: Upload classification evidence
         uses: actions/upload-artifact@v4
         with:
           name: v3-historical-characterization
-          path: v3_historical_characterization.json
+          path: |
+            v3_historical_characterization.json
+            fixtures/
