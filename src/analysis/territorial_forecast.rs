@@ -306,6 +306,9 @@ impl TerritoryDirectionSample {
                         .is_some_and(|snake| !snake.alive)
                 {
                     terminal_reply_seen = true;
+                    if let Some(sample) = result.as_mut() {
+                        sample.terminal_reply_seen = true;
+                    }
                     terminated = true;
                     break;
                 }
@@ -590,6 +593,47 @@ mod tests {
         assert!(!sample.adversarially_complete);
         assert_eq!(sample.min_sampled_depth, sample.max_sampled_depth);
         assert_eq!(sample.coverage, ResponseCoverage::Partial);
+    }
+
+    #[test]
+    fn v3_terminal_enemy_reply_does_not_discard_other_cached_replies() {
+        let mut state = board();
+        // Both heads can enter (2, 2). Hobbs choosing Left creates an
+        // equal-length head-to-head loss; choosing Up/Right does not.
+        state.snakes[1].body = vec![Coord { x: 3, y: 2 }, Coord { x: 3, y: 1 }];
+        let mut graph = FutureGraph::new_beam(state);
+        let root = graph.root();
+        let budget = SearchBudget::for_duration(Duration::from_secs(3));
+        let direction = Direction::Right;
+        for i in 0..16 {
+            match graph.next_response(root, direction, i, &budget).unwrap() {
+                ResponseLookup::Edge(_) => {}
+                ResponseLookup::Exhausted => break,
+                ResponseLookup::Deadline => panic!("unexpected deadline"),
+            }
+        }
+        let responses = graph.known_responses(root, direction);
+        let losing = responses
+            .iter()
+            .find(|edge| !graph.node(edge.child).state.snake("ours").unwrap().alive)
+            .expect("one opponent reply should force an equal head collision");
+        assert!(responses.iter().any(|edge| graph.node(edge.child).state.snake("ours").unwrap().alive));
+        graph.record_worst_reply(root, direction, losing.joint_action.clone());
+        let nodes = graph.node_count();
+        let edges = graph.edge_count();
+        let sample = TerritoryDirectionSample::from_cached_replies(
+            &graph,
+            direction,
+            &mut HashMap::new(),
+            |_| None,
+            true,
+            Instant::now() + Duration::from_secs(1),
+        )
+        .expect("a surviving cached reply still has valid observations");
+        assert!(sample.terminal_reply_seen);
+        assert_eq!(sample.territorial_drop, None);
+        assert_eq!(graph.node_count(), nodes);
+        assert_eq!(graph.edge_count(), edges);
     }
 
     #[test]

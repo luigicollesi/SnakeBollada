@@ -82,7 +82,7 @@ mod tests {
             worst_minimum_margin_milli: mean,
             examined_replies: 2,
             max_sampled_depth: 3,
-            min_sampled_depth: 2,
+            min_sampled_depth: 3,
             coverage: ResponseCoverage::Partial,
             certainty: ForecastCertainty::FoodProvisional,
             adversarially_complete: false,
@@ -200,7 +200,7 @@ mod tests {
         );
         sample.min_sampled_depth = 2;
         assert_eq!(drop_adjustment(&sample), 0);
-        sample.min_sampled_depth = 3;
+        sample.min_sampled_depth = 4;
         assert!(drop_adjustment(&sample) > 0);
     }
 
