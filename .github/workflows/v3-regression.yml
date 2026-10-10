@@ -34,6 +34,12 @@ jobs:
           python3 - <<'PY'
           import json
           from pathlib import Path
+          def our_perspective(state):
+              matches = [snake for snake in state["board"]["snakes"]
+                         if snake.get("name") == "SnakeBollada"]
+              assert len(matches) == 1, f"turn {state['turn']}: SnakeBollada missing"
+              state["you"] = matches[0]
+              return state
           cases = {"20261002": (577, 592), "20261011": (299, 306),
                    "20261014": (420, 435), "20261015": (466, 481)}
           directions = {"up": (0, 1), "down": (0, -1),
@@ -49,7 +55,7 @@ jobs:
                   except json.JSONDecodeError:
                       continue
                   if isinstance(state, dict) and "board" in state and "turn" in state:
-                      states[state["turn"]] = state
+                      states[state["turn"]] = our_perspective(state)
               assert all(turn in states for turn in range(start, end + 1)), f"{seed}: incomplete interval"
               for turn in range(start, end + 1):
                   state = states[turn]
@@ -95,7 +101,7 @@ jobs:
                   try: state = json.loads(raw)
                   except json.JSONDecodeError: continue
                   if isinstance(state, dict) and state.get("turn") in (start,start+1,end-1):
-                      chosen[state["turn"]] = state
+                      chosen[state["turn"]] = our_perspective(state)
               for turn,state in chosen.items():
                   dest = Path("fixtures") / f"{seed}-{turn}.json"
                   dest.write_text(json.dumps(state))
@@ -117,7 +123,7 @@ jobs:
                   try: state = json.loads(raw)
                   except json.JSONDecodeError: continue
                   if isinstance(state, dict) and state.get("turn") in wanted:
-                      found[state["turn"]] = state
+                      found[state["turn"]] = our_perspective(state)
               assert set(found) == wanted, f"{seed}: missing pre-trap snapshots"
               for turn, state in found.items():
                   (Path("fixtures/backtrack") / f"{seed}-{turn}.json").write_text(
