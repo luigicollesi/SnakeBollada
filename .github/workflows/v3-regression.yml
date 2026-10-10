@@ -1,0 +1,97 @@
+name: V3 historical trap characterization (GitHub only)
+on:
+  workflow_dispatch:
+  push:
+    branches: [dev]
+    paths:
+      - .github/workflows/v3-regression.yml
+permissions:
+  contents: read
+  actions: read
+jobs:
+  historical-traps:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download pinned V3 duel evidence
+        uses: actions/download-artifact@v4
+        with:
+          run-id: 38026703252
+          github-token: ${{ github.token }}
+          pattern: hobbs-ordering_v3-*
+          path: evidence
+          merge-multiple: true
+      - name: Verify real pre-trap states and derive counterfactual candidates
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          cases = {"20261002": (577, 592), "20261011": (299, 306),
+                   "20261014": (420, 435), "20261015": (466, 481)}
+          directions = {"up": (0, 1), "down": (0, -1),
+                        "left": (-1, 0), "right": (1, 0)}
+          report = []
+          for seed, (start, end) in cases.items():
+              matches = list(Path("evidence").rglob(f"runs/{seed}/game.jsonl"))
+              assert len(matches) == 1, f"{seed}: missing or duplicate pinned game"
+              states = {}
+              for raw in matches[0].read_text().splitlines():
+                  try:
+                      state = json.loads(raw)
+                  except json.JSONDecodeError:
+                      continue
+                  if isinstance(state, dict) and "board" in state and "turn" in state:
+                      states[state["turn"]] = state
+              assert all(turn in states for turn in range(start, end + 1)), f"{seed}: incomplete interval"
+              for turn in range(start, end + 1):
+                  state = states[turn]
+                  our = state["you"]
+                  hx, hy = our["head"]["x"], our["head"]["y"]
+                  snakes = state["board"]["snakes"]
+                  occupied = {(p["x"], p["y"]) for s in snakes for p in s["body"]}
+                  enemy_heads = [s for s in snakes if s["id"] != our["id"]]
+                  legal = []
+                  head_collision_risk = []
+                  for direction, (dx, dy) in directions.items():
+                      nx, ny = hx + dx, hy + dy
+                      if not (0 <= nx < state["board"]["width"] and
+                              0 <= ny < state["board"]["height"]):
+                          continue
+                      # Conservative screening: tails may vacate, so 'occupied'
+                      # is NOT proof of forced death without turn resolution.
+                      if (nx, ny) not in occupied:
+                          legal.append(direction)
+                      if any(abs(s["head"]["x"]-nx) + abs(s["head"]["y"]-ny) == 1
+                             and s["length"] >= our["length"] for s in enemy_heads):
+                          head_collision_risk.append(direction)
+                  next_state = states.get(turn + 1)
+                  observed = None
+                  if next_state:
+                      survivor = next((s for s in next_state["board"]["snakes"]
+                                       if s["id"] == our["id"]), None)
+                      if survivor:
+                          dx = survivor["head"]["x"]-hx
+                          dy = survivor["head"]["y"]-hy
+                          observed = next((name for name, vec in directions.items()
+                                           if vec == (dx,dy)), None)
+                  report.append(dict(seed=seed, turn=turn, head=[hx,hy],
+                                     size=our["length"], free_non_tail_moves=legal,
+                                     larger_enemy_head_risk=head_collision_risk,
+                                     observed_next_move=observed))
+          Path("v3_historical_characterization.json").write_text(json.dumps(report,indent=2))
+          print("Captured",len(report),"historical states")
+          for seed in cases:
+              rows = [r for r in report if r["seed"] == seed]
+              print(seed, "states",len(rows),
+                    "no_free_exits",sum(not r["free_non_tail_moves"] for r in rows),
+                    "single_exit",sum(len(r["free_non_tail_moves"])==1 for r in rows))
+          # Characterization phase only: do not assert an unproven best move.
+          PY
+      - name: Upload classification evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: v3-historical-characterization
+          path: v3_historical_characterization.json
