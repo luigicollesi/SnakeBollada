@@ -259,6 +259,8 @@ pub(crate) use v3_models::{Battlesnake, Board, Coord, Game, GameState};""",
     main_src = replace_exact(main_src,
         "Result<GameState, String>", "Result<RequestGameState, String>", "src/main.rs")
     main_src = replace_exact(main_src,
+        "event.json::<GameState>()", "event.json::<RequestGameState>()", "src/main.rs")
+    main_src = replace_exact(main_src,
         "logic::start(&state);", "logic::start(&state).await;", "src/main.rs")
     main_src = replace_exact(main_src,
         "logic::end(&state);", "logic::end(&state).await;", "src/main.rs")
