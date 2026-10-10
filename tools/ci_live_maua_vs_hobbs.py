@@ -68,8 +68,14 @@ def find_deployed_lambda() -> tuple[str, dict]:
             try:
                 raw = get(endpoint, token=True, timeout=30)
             except (urllib.error.HTTPError, urllib.error.URLError) as error:
-                print(f"Deploy log {job['id']} unavailable: {type(error).__name__}", flush=True)
-                continue
+                try:
+                    raw = get(endpoint, token=False, timeout=30)
+                    print(f"Read public deployment log anonymously, job={job['id']}", flush=True)
+                except (urllib.error.HTTPError, urllib.error.URLError) as anonymous:
+                    code = getattr(error, "code", "network")
+                    anon_code = getattr(anonymous, "code", "network")
+                    print(f"Deploy log {job['id']} unavailable (token={code}, public={anon_code})", flush=True)
+                    continue
             if raw[:2] == b"PK":
                 import io
                 import zipfile
