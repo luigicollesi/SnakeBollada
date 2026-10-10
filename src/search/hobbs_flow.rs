@@ -1512,6 +1512,30 @@ mod tests {
                         hint.certainty,
                     ))
                 );
+                let nodes_before = graph.node_count();
+                let edges_before = graph.edge_count();
+                let mut trial_cache = HashMap::new();
+                let extended = TerritoryDirectionSample::from_cached_replies_trial(
+                    &graph,
+                    direction,
+                    &mut trial_cache,
+                    |_| None,
+                    true,
+                    Instant::now() + Duration::from_millis(70),
+                );
+                assert_eq!(graph.node_count(), nodes_before, "trial must not expand nodes");
+                assert_eq!(graph.edge_count(), edges_before, "trial must not expand edges");
+                println!(
+                    "V3_SAMPLING_TRIAL state={:?} direction={:?} baseline={:?} extended={:?}",
+                    path.file_stem(),
+                    direction,
+                    sample.map(|hint| (
+                        hint.examined_replies, hint.max_sampled_depth, hint.territorial_drop,
+                    )),
+                    extended.map(|hint| (
+                        hint.examined_replies, hint.max_sampled_depth, hint.territorial_drop,
+                    )),
+                );
             }
             // Fail only for a fully proven one-ply mistake. Partial coverage
             // is not evidence that a move is safe or inevitably fatal.
