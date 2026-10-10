@@ -266,14 +266,24 @@ mod tests {
     async fn same_turn_selfplay_uses_each_snakes_own_legal_move() {
         let runtime = GameRuntime::new();
         let mut a = state("same-game");
-        a.you.body = vec![Coord { x: 0, y: 0 }, Coord { x: 0, y: 1 }];
+        // The neck must NOT be a vacating tail: give each snake length 3.
+        a.you.body = vec![
+            Coord { x: 0, y: 0 },
+            Coord { x: 0, y: 1 },
+            Coord { x: 1, y: 1 },
+        ];
         a.you.head = a.you.body[0];
-        a.you.length = 2;
+        a.you.length = 3;
         let mut b = a.you.clone();
         b.id = "other-snake".into();
         b.name = "other-snake".into();
-        b.body = vec![Coord { x: 10, y: 10 }, Coord { x: 10, y: 9 }];
+        b.body = vec![
+            Coord { x: 10, y: 10 },
+            Coord { x: 10, y: 9 },
+            Coord { x: 9, y: 9 },
+        ];
         b.head = b.body[0];
+        b.length = 3;
         a.board.snakes = vec![a.you.clone(), b.clone()];
         let mut opponent_view = a.clone();
         opponent_view.you = b;
