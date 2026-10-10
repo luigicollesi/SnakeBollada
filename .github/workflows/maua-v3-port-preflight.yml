@@ -4,6 +4,7 @@ on:
     branches: [dev]
     paths:
       - scripts/prepare_maua_v3_port.py
+      - scripts/tune_maua_v3_lambda.py
       - docs/migrations/maua-ordering-v3-lambda.md
       - .github/workflows/maua-v3-port-preflight.yml
   workflow_dispatch:
@@ -41,3 +42,14 @@ jobs:
           python3 scripts/prepare_maua_v3_port.py ../battlesnake_luigi
           cd ../battlesnake_luigi
           git log -1 --oneline
+
+      - name: Validate Lambda code-only CPU-safety adaptations
+        run: |
+          set -euo pipefail
+          cd ../battlesnake_luigi
+          git switch -c fix/v3-lambda-256mb-local-preflight
+          python3 ../SnakeBollada/scripts/tune_maua_v3_lambda.py .
+          cargo fmt --all
+          cargo test --locked --all-features
+          cargo build --locked --release
+          test "$(git status --porcelain terraform/app/main.tf | wc -l)" -eq 0
