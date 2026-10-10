@@ -147,7 +147,13 @@ pub(crate) struct TerritoryDirectionSample {
     pub(crate) worst_minimum_margin_milli: i64,
     pub(crate) examined_replies: u8,
     pub(crate) max_sampled_depth: u8,
+    pub(crate) min_sampled_depth: u8,
     pub(crate) coverage: ResponseCoverage,
+    /// Accumulated uncertainty from every traversed FutureGraph edge.
+    pub(crate) certainty: ForecastCertainty,
+    /// False for cached preferred-reply chains: preferences may originate
+    /// from separate, partially-pruned iterative-deepening horizons.
+    pub(crate) adversarially_complete: bool,
 }
 
 impl TerritoryDirectionSample {
@@ -175,6 +181,8 @@ impl TerritoryDirectionSample {
         let mut result: Option<Self> = None;
         for edge in edges.iter().take(Self::MAX_REPLIES_PER_DIRECTION) {
             let mut chain = vec![root, edge.child];
+            let mut chain_certainty =
+                ForecastCertainty::Deterministic.after(edge.forecast_delta);
             let mut current = edge.child;
             for _ in 1..Self::MAX_CACHED_PLIES {
                 let node = graph.node(current);
@@ -194,6 +202,7 @@ impl TerritoryDirectionSample {
                 if chain.contains(&next.child) {
                     break; // Transpositions can form loops; don't resample forever.
                 }
+                chain_certainty = chain_certainty.after(next.forecast_delta);
                 current = next.child;
                 chain.push(current);
             }
@@ -216,17 +225,24 @@ impl TerritoryDirectionSample {
                 snapshots.push(snapshot);
             }
             let trajectory =
-                TerritoryTrajectory::summarize(&snapshots, ForecastCertainty::Deterministic)?;
+                TerritoryTrajectory::summarize(&snapshots, chain_certainty)?;
             let depth = trajectory.samples.saturating_sub(1);
             let sample = result.get_or_insert(Self {
                 worst_mean_margin_milli: trajectory.mean_margin_milli,
                 worst_minimum_margin_milli: trajectory.minimum_margin_milli,
                 examined_replies: 0,
                 max_sampled_depth: 0,
+                min_sampled_depth: u8::MAX,
                 coverage: graph.response_coverage(root, direction),
+                certainty: ForecastCertainty::Deterministic,
+                adversarially_complete: false,
             });
             sample.examined_replies = sample.examined_replies.saturating_add(1);
             sample.max_sampled_depth = sample.max_sampled_depth.max(depth);
+            sample.min_sampled_depth = sample.min_sampled_depth.min(depth);
+            if trajectory.certainty.is_provisional() {
+                sample.certainty = ForecastCertainty::FoodProvisional;
+            }
             sample.worst_mean_margin_milli = sample
                 .worst_mean_margin_milli
                 .min(trajectory.mean_margin_milli);
@@ -371,6 +387,28 @@ mod tests {
         .unwrap();
         assert_eq!(repeated, first);
         assert_eq!(repeated.coverage, ResponseCoverage::Partial);
+    }
+
+    #[test]
+    fn cached_forecasts_do_not_claim_adversarial_completeness() {
+        let mut graph = FutureGraph::new_beam(board());
+        let budget = SearchBudget::for_duration(Duration::from_secs(2));
+        let root = graph.root();
+        let direction = graph.available_directions(root)[0];
+        assert!(matches!(
+            graph.next_response(root, direction, 0, &budget).unwrap(),
+            ResponseLookup::Edge(_)
+        ));
+        let sample = TerritoryDirectionSample::from_cached_replies(
+            &graph,
+            direction,
+            &mut HashMap::new(),
+            Instant::now() + Duration::from_secs(1),
+        )
+        .unwrap();
+        assert!(!sample.adversarially_complete);
+        assert_eq!(sample.min_sampled_depth, sample.max_sampled_depth);
+        assert_eq!(sample.coverage, ResponseCoverage::Partial);
     }
 
     #[test]
