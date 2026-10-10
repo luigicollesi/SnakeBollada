@@ -130,7 +130,7 @@ pub(crate) fn choose_move_baseline(state: &GameState) -> Decision {
         .filter(|direction| {
             !map.lethal_head_danger
                 .contains(direction.apply(state.you.head))
-        }
+        })
         .collect::<Vec<_>>();
     let candidates = if uncontested.is_empty() {
         &legal_moves
