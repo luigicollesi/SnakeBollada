@@ -10,9 +10,7 @@ use crate::evaluation::StateScore;
 use crate::search::budget::SearchBudget;
 use crate::search::forecast::ForecastCertainty;
 use crate::search::graph::FutureGraph;
-use crate::search::hobbs_flow::{
-    search_hobbs, search_hobbs_baseline, search_hobbs_ordering_v2,
-};
+use crate::search::hobbs_flow::{search_hobbs, search_hobbs_baseline, search_hobbs_ordering_v2};
 use crate::search::path::FuturePath;
 use crate::simulation::state::{SimulatedGameState, SimulationSupport};
 use crate::strategy::{
