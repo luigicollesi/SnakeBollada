@@ -151,6 +151,7 @@ struct ScoredCache {
     leaf_ranks: HashMap<NodeId, RouteRank>,
     corridor_orders: HashMap<NodeId, AdversarialCorridorOrder>,
     territory_snapshots: HashMap<NodeId, TerritorySnapshot>,
+    escape_snapshots: HashMap<NodeId, crate::analysis::EscapeSnapshot>,
     /// Root directions from ONE completed iterative-deepening depth only.
     /// Replaced atomically after a successful depth (never on deadline).
     completed_root_lines: HashMap<Direction, CompletedRootLine>,
@@ -310,9 +311,44 @@ pub(crate) fn search_hobbs_with_territory_ordering(
     // V2 has validated coverage and food certainty against the baseline.
     if territory_ordering {
         let deadline = Instant::now() + Duration::from_millis(2);
-        for (direction, line) in &scored.completed_root_lines {
+        // Stable iteration makes limited-budget diagnostics reproducible.
+        for direction in Direction::ALL {
+            let Some(line) = scored.completed_root_lines.get(&direction) else {
+                continue;
+            };
             if Instant::now() >= deadline {
                 break;
+            }
+            // Prioritize cheap, cached escape evidence over territorial
+            // flood-fill. Neither diagnostic changes MAX/MIN route scores.
+            if let Some(escape) = EscapeEvidence::from_graph_path(
+                graph,
+                &line.path,
+                line.certainty,
+                line.adversarially_complete,
+                deadline,
+                &mut scored.escape_snapshots,
+            ) {
+                log::debug!(
+                    target: "territorial_control",
+                    "escape_completed_line turn={} direction={:?} depth={} states={} requested_horizon={} observed_horizon={} available_plies={} horizon_complete={} minimum_exits={} minimum_uncontested={} narrow_at={:?} contested_at={:?} all_contested_at={:?} closed_at={:?} death_at={:?} quality={:?} evidence=observed_minimax_path_only",
+                    graph.node(root).state.turn,
+                    direction,
+                    line.depth,
+                    escape.observed_states,
+                    escape.requested_horizon,
+                    escape.observed_horizon,
+                    escape.available_plies,
+                    escape.reached_requested_horizon,
+                    escape.minimum_exits,
+                    escape.minimum_uncontested_exits,
+                    escape.first_narrow_ply,
+                    escape.first_contested_ply,
+                    escape.first_all_exits_contested_ply,
+                    escape.first_no_exit_ply,
+                    escape.first_observed_death_ply,
+                    escape.quality,
+                );
             }
             if let Some(trajectory) = TerritoryTrajectory::from_graph_path(
                 graph,
@@ -332,28 +368,6 @@ pub(crate) fn search_hobbs_with_territory_ordering(
                     trajectory.certainty.is_provisional(),
                     trajectory.mean_margin_milli,
                     trajectory.minimum_margin_milli,
-                );
-            }
-            if let Some(escape) = EscapeEvidence::from_graph_path(
-                graph,
-                &line.path,
-                line.certainty,
-                line.adversarially_complete,
-                deadline,
-            ) {
-                log::debug!(
-                    target: "territorial_control",
-                    "escape_completed_line turn={} direction={:?} depth={} states={} minimum_exits={} narrow_at={:?} contested_at={:?} closed_at={:?} death_at={:?} quality={:?} evidence=observed_minimax_path_only",
-                    graph.node(root).state.turn,
-                    direction,
-                    line.depth,
-                    escape.observed_states,
-                    escape.minimum_exits,
-                    escape.first_narrow_ply,
-                    escape.first_contested_ply,
-                    escape.first_no_exit_ply,
-                    escape.first_observed_death_ply,
-                    escape.quality,
                 );
             }
         }
