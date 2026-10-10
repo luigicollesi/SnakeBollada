@@ -253,6 +253,44 @@ impl TerritoryDirectionSample {
         collect_drop: bool,
         deadline: Instant,
     ) -> Option<Self> {
+        Self::from_cached_replies_with_limits(
+            graph,
+            direction,
+            cache,
+            cached_leaf,
+            collect_drop,
+            deadline,
+            Self::MAX_REPLIES_PER_DIRECTION,
+            Self::MAX_CACHED_PLIES,
+        )
+    }
+
+    /// Trial-only access to a larger *existing cache* window.
+    /// Normal production callers retain the original 2-reply/4-ply policy.
+    #[cfg(test)]
+    pub(crate) fn from_cached_replies_trial(
+        graph: &FutureGraph,
+        direction: Direction,
+        cache: &mut HashMap<NodeId, TerritorySnapshot>,
+        cached_leaf: impl Fn(NodeId) -> Option<TerritorySnapshot>,
+        collect_drop: bool,
+        deadline: Instant,
+    ) -> Option<Self> {
+        Self::from_cached_replies_with_limits(
+            graph, direction, cache, cached_leaf, collect_drop, deadline, 3, 6,
+        )
+    }
+
+    fn from_cached_replies_with_limits(
+        graph: &FutureGraph,
+        direction: Direction,
+        cache: &mut HashMap<NodeId, TerritorySnapshot>,
+        cached_leaf: impl Fn(NodeId) -> Option<TerritorySnapshot>,
+        collect_drop: bool,
+        deadline: Instant,
+        reply_limit: usize,
+        chain_limit: usize,
+    ) -> Option<Self> {
         let root = graph.root();
         let mut edges = graph.known_responses(root, direction);
         if edges.is_empty() {
@@ -263,11 +301,11 @@ impl TerritoryDirectionSample {
         }
         let mut result: Option<Self> = None;
         let mut terminal_reply_seen = false;
-        for edge in edges.iter().take(Self::MAX_REPLIES_PER_DIRECTION) {
+        for edge in edges.iter().take(reply_limit) {
             let mut chain = vec![root, edge.child];
             let mut chain_certainty = ForecastCertainty::Deterministic.after(edge.forecast_delta);
             let mut current = edge.child;
-            for _ in 1..Self::MAX_CACHED_PLIES {
+            for _ in 1..chain_limit {
                 let node = graph.node(current);
                 let Some(preferred) = node.preferred_direction else {
                     break;
