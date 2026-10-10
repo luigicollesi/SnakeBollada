@@ -222,7 +222,7 @@ def main() -> None:
     if "Maua-Dev/battlesnake_luigi" not in remote:
         sys.exit(f"Unexpected target origin: {remote!r}")
     run("git", "fetch", "origin", "dev", cwd=dest)
-    if BRANCH in capture("git", "branch", "--list", BRANCH, cwd=dest).splitlines():
+    if capture("git", "branch", "--list", BRANCH, cwd=dest).strip():
         sys.exit(f"Branch {BRANCH} already exists; refusing to overwrite.")
     run("git", "switch", "-c", BRANCH, "origin/dev", cwd=dest)
 
