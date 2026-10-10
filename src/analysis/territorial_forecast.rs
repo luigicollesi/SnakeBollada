@@ -617,7 +617,12 @@ mod tests {
             .iter()
             .find(|edge| !graph.node(edge.child).state.snake("ours").unwrap().alive)
             .expect("one opponent reply should force an equal head collision");
-        assert!(responses.iter().any(|edge| graph.node(edge.child).state.snake("ours").unwrap().alive));
+        assert!(responses.iter().any(|edge| graph
+            .node(edge.child)
+            .state
+            .snake("ours")
+            .unwrap()
+            .alive));
         graph.record_worst_reply(root, direction, losing.joint_action.clone());
         let nodes = graph.node_count();
         let edges = graph.edge_count();
