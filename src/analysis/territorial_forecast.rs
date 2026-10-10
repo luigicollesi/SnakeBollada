@@ -653,7 +653,7 @@ mod tests {
                 ResponseLookup::Exhausted => break,
                 ResponseLookup::Deadline | ResponseLookup::ResourceLimit => {
                     panic!("unexpected truncated graph search")
-                },
+                }
             }
         }
         let responses = graph.known_responses(root, direction);
