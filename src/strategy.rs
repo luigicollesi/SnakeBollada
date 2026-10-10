@@ -695,7 +695,10 @@ mod tests {
         // minimax route can be Right, while deeper completed iterations can
         // change the result. Verify the actual non-overriding contract here;
         // exact tactical choices belong to deterministic search fixtures.
-        assert!(matches!(decision.direction, Direction::Right | Direction::Up));
+        assert!(matches!(
+            decision.direction,
+            Direction::Right | Direction::Up
+        ));
         assert_eq!(decision.search.hobbs.direction, Some(decision.direction));
         assert!(decision.search.completed_depth >= 1);
         assert_eq!(
