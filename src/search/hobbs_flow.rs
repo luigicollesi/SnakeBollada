@@ -1459,6 +1459,50 @@ mod tests {
                 path.file_stem(), decision.direction, decision.completed_depth,
                 legal, sampled, immediate_terminal_replies
             );
+            // Characterization only: reuse the existing cached FutureGraph.
+            // Never infer safety from partial response coverage or horizon.
+            for direction in legal.iter().copied() {
+                let replies = graph.known_responses(root, direction);
+                let coverage = graph.response_coverage(root, direction);
+                let terminal_count = replies
+                    .iter()
+                    .filter(|edge| {
+                        !graph
+                            .node(edge.child)
+                            .state
+                            .snake_at(actor)
+                            .is_some_and(|snake| snake.alive)
+                    })
+                    .count();
+                let mut territory_cache = HashMap::new();
+                let sample = TerritoryDirectionSample::from_cached_replies(
+                    &graph,
+                    direction,
+                    &mut territory_cache,
+                    |_| None,
+                    true,
+                    Instant::now() + Duration::from_millis(70),
+                );
+                println!(
+                    "V3_COUNTERFACTUAL state={:?} direction={:?} selected={} coverage={:?} replies={} immediate_deaths={} territory={:?}",
+                    path.file_stem(),
+                    direction,
+                    direction == decision.direction,
+                    coverage,
+                    replies.len(),
+                    terminal_count,
+                    sample.map(|hint| (
+                        hint.examined_replies,
+                        hint.min_sampled_depth,
+                        hint.max_sampled_depth,
+                        hint.worst_mean_margin_milli,
+                        hint.worst_minimum_margin_milli,
+                        hint.territorial_drop,
+                        hint.terminal_reply_seen,
+                        hint.certainty,
+                    ))
+                );
+            }
             // Fail only for a fully proven one-ply mistake. Partial coverage
             // is not evidence that a move is safe or inevitably fatal.
             let classified = |direction: Direction| {
