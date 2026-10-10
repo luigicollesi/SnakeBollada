@@ -341,7 +341,7 @@ mod tests {
                 ResponseLookup::Exhausted => break,
                 ResponseLookup::Deadline | ResponseLookup::ResourceLimit => {
                     panic!("fixture response generation stopped before coverage was complete")
-                },
+                }
             }
         }
     }
