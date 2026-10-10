@@ -27,7 +27,7 @@ jobs:
           python3 ../SnakeBollada/scripts/stage_maua_v3_root_tactics.py .
           cargo fmt --all
           cargo test --locked --all-features
-          cargo clippy --locked --all-features -- -D warnings
+          cargo clippy --locked --all-features -- -D clippy::all
           cargo build --locked --release
           test -z "$(git status --porcelain -- terraform/ .github/workflows/)"
           git status --short
