@@ -71,7 +71,9 @@ impl DecisionEngine {
         }
         .ok()
         .flatten()?;
-        if mode != TerritorialMode::Off {
+        // Shadow is an explicit offline diagnostic mode. Production ordering
+        // must not spend its request budget measuring a move already selected.
+        if mode == TerritorialMode::Shadow {
             trace_territory_shadow(
                 state,
                 graph,

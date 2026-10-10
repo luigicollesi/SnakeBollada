@@ -451,7 +451,7 @@ fn search_hobbs_with_ordering(
     // Completed root lines are comparable only at an identical horizon.
     // Keep these diagnostics out of MAX/MIN route comparison until ordering
     // V2 has validated coverage and food certainty against the baseline.
-    if ordering_mode != RootSearchOrdering::Baseline {
+    if ordering_mode == RootSearchOrdering::ConservativeV2 {
         let deadline = Instant::now() + Duration::from_millis(2);
         // Stable iteration makes limited-budget diagnostics reproducible.
         let mut adversarial = AdversarialEscapeAnalyzer::new(graph, deadline);
@@ -769,7 +769,7 @@ fn evaluate_minimax(
             graph.response_coverage(node_id, direction) == super::graph::ResponseCoverage::Complete;
         all_directions_exhaustive &= direction_exhaustive;
         if let Some(worst_response) = worst {
-            if is_root {
+            if is_root && ordering_mode == RootSearchOrdering::ConservativeV2 {
                 root_lines.insert(
                     direction,
                     CompletedRootLine {
@@ -799,9 +799,9 @@ fn evaluate_minimax(
             all_directions_exhaustive = false;
         }
     }
-    if is_root {
-        // Only a fully completed call reaches here. Partial iterations
-        // return None above and preserve the preceding depth's evidence.
+    if is_root && ordering_mode == RootSearchOrdering::ConservativeV2 {
+        // V2 alone retains full root paths for retrospective verification.
+        // The primary policy must not clone or retain unused diagnostic lines.
         cache.completed_root_lines = root_lines;
     }
     if let Some(chosen) = best.as_mut() {
@@ -1329,7 +1329,7 @@ mod tests {
             ForecastCertainty::Deterministic,
             &budget,
             &mut scored,
-            RootSearchOrdering::Baseline,
+            RootSearchOrdering::ConservativeV2,
         )
         .unwrap()
         .unwrap();
