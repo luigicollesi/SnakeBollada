@@ -263,6 +263,33 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn same_turn_selfplay_uses_each_snakes_own_legal_move() {
+        let runtime = GameRuntime::new();
+        let mut a = state("same-game");
+        a.you.body = vec![Coord { x: 0, y: 0 }, Coord { x: 0, y: 1 }];
+        a.you.head = a.you.body[0];
+        a.you.length = 2;
+        let mut b = a.you.clone();
+        b.id = "other-snake".into();
+        b.name = "other-snake".into();
+        b.body = vec![Coord { x: 10, y: 10 }, Coord { x: 10, y: 9 }];
+        b.head = b.body[0];
+        a.board.snakes = vec![a.you.clone(), b.clone()];
+        let mut opponent_view = a.clone();
+        opponent_view.you = b;
+
+        runtime.start(&a).await;
+        runtime.start(&opponent_view).await;
+
+        // Both moves are simultaneous, but forced in opposite directions.
+        // Under the old game-only cache the second request reused Right.
+        let first = runtime.decide(&a, Instant::now()).await;
+        let second = runtime.decide(&opponent_view, Instant::now()).await;
+        assert_eq!(first.direction, crate::direction::Direction::Right);
+        assert_eq!(second.direction, crate::direction::Direction::Left);
+    }
+
+    #[tokio::test]
     async fn duplicate_start_keeps_existing_session() {
         let runtime = GameRuntime::new();
 
