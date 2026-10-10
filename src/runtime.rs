@@ -16,7 +16,7 @@ struct GameSession {
 
 #[derive(Debug)]
 pub(crate) struct GameRuntime {
-    sessions: RwLock<HashMap<String, Arc<GameSession>>>,
+    sessions: RwLock<HashMap<(String, String), Arc<GameSession>>>,
     // Bound heavy CPU jobs. An overloaded process returns a valid fallback
     // instead of queueing unlimited searches behind the HTTP executor.
     search_slots: Arc<Semaphore>,
@@ -42,12 +42,16 @@ impl GameRuntime {
     pub(crate) async fn start(&self, state: &GameState) {
         let mut sessions = self.sessions.write().await;
 
-        if sessions.contains_key(&state.game.id) {
-            warn!("duplicate /start for game {}", state.game.id);
+        let key = (state.game.id.clone(), state.you.id.clone());
+        if sessions.contains_key(&key) {
+            warn!(
+                "duplicate /start for game {} snake {}",
+                state.game.id, state.you.id
+            );
             return;
         }
 
-        sessions.insert(state.game.id.clone(), Arc::new(GameSession::default()));
+        sessions.insert(key, Arc::new(GameSession::default()));
         info!("GAME START {}", state.game.id);
     }
 
@@ -64,7 +68,9 @@ impl GameRuntime {
 
         let session = {
             let sessions = self.sessions.read().await;
-            sessions.get(&state.game.id).cloned()
+            sessions
+                .get(&(state.game.id.clone(), state.you.id.clone()))
+                .cloned()
         };
         if session.is_none() {
             warn!(
@@ -133,7 +139,11 @@ impl GameRuntime {
     }
 
     pub(crate) async fn end(&self, state: &GameState) {
-        let removed = self.sessions.write().await.remove(&state.game.id);
+        let removed = self
+            .sessions
+            .write()
+            .await
+            .remove(&(state.game.id.clone(), state.you.id.clone()));
 
         if removed.is_some() {
             info!("GAME OVER {}", state.game.id);
@@ -149,7 +159,7 @@ impl GameRuntime {
             .read()
             .await
             .keys()
-            .cloned()
+            .map(|(game, snake)| format!("{game}:{snake}"))
             .collect::<Vec<_>>();
         ids.sort();
         ids
@@ -201,7 +211,7 @@ mod tests {
 
         runtime.start(&state("game-a")).await;
 
-        assert_eq!(runtime.active_game_ids().await, vec!["game-a"]);
+        assert_eq!(runtime.active_game_ids().await, vec!["game-a:ours"]);
     }
 
     #[tokio::test]
@@ -213,8 +223,80 @@ mod tests {
 
         assert_eq!(
             runtime.active_game_ids().await,
-            vec!["game-a".to_string(), "game-b".to_string()]
+            vec!["game-a:ours".to_string(), "game-b:ours".to_string()]
         );
+    }
+
+    #[tokio::test]
+    async fn selfplay_sessions_do_not_share_decisions_or_graphs() {
+        let runtime = GameRuntime::new();
+        let first = state("shared-game");
+        let mut second = first.clone();
+        second.you.id = "other-snake".to_string();
+        second.board.snakes.push(second.you.clone());
+
+        runtime.start(&first).await;
+        runtime.start(&second).await;
+        assert_eq!(
+            runtime.active_game_ids().await,
+            vec!["shared-game:other-snake", "shared-game:ours"]
+        );
+
+        let sessions = runtime.sessions.read().await;
+        let one = sessions
+            .get(&("shared-game".to_string(), "ours".to_string()))
+            .unwrap();
+        let two = sessions
+            .get(&("shared-game".to_string(), "other-snake".to_string()))
+            .unwrap();
+        assert!(
+            !Arc::ptr_eq(one, two),
+            "same game, independent search session"
+        );
+        drop(sessions);
+
+        runtime.end(&first).await;
+        assert_eq!(
+            runtime.active_game_ids().await,
+            vec!["shared-game:other-snake"]
+        );
+    }
+
+    #[tokio::test]
+    async fn same_turn_selfplay_uses_each_snakes_own_legal_move() {
+        let runtime = GameRuntime::new();
+        let mut a = state("same-game");
+        // The neck must NOT be a vacating tail: give each snake length 3.
+        a.you.body = vec![
+            Coord { x: 0, y: 0 },
+            Coord { x: 0, y: 1 },
+            Coord { x: 1, y: 1 },
+        ];
+        a.you.head = a.you.body[0];
+        a.you.length = 3;
+        let mut b = a.you.clone();
+        b.id = "other-snake".into();
+        b.name = "other-snake".into();
+        b.body = vec![
+            Coord { x: 10, y: 10 },
+            Coord { x: 10, y: 9 },
+            Coord { x: 9, y: 9 },
+        ];
+        b.head = b.body[0];
+        b.length = 3;
+        a.board.snakes = vec![a.you.clone(), b.clone()];
+        let mut opponent_view = a.clone();
+        opponent_view.you = b;
+
+        runtime.start(&a).await;
+        runtime.start(&opponent_view).await;
+
+        // Both moves are simultaneous, but forced in opposite directions.
+        // Under the old game-only cache the second request reused Right.
+        let first = runtime.decide(&a, Instant::now()).await;
+        let second = runtime.decide(&opponent_view, Instant::now()).await;
+        assert_eq!(first.direction, crate::direction::Direction::Right);
+        assert_eq!(second.direction, crate::direction::Direction::Left);
     }
 
     #[tokio::test]
@@ -224,7 +306,7 @@ mod tests {
         runtime.start(&state("game-a")).await;
         runtime.start(&state("game-a")).await;
 
-        assert_eq!(runtime.active_game_ids().await, vec!["game-a"]);
+        assert_eq!(runtime.active_game_ids().await, vec!["game-a:ours"]);
     }
 
     #[tokio::test]
@@ -236,7 +318,7 @@ mod tests {
         runtime.start(&state("game-b")).await;
         runtime.end(&game_a).await;
 
-        assert_eq!(runtime.active_game_ids().await, vec!["game-b"]);
+        assert_eq!(runtime.active_game_ids().await, vec!["game-b:ours"]);
     }
 
     #[tokio::test]
@@ -287,6 +369,6 @@ mod tests {
         runtime.start(&state("game-a")).await;
         runtime.end(&state("game-b")).await;
 
-        assert_eq!(runtime.active_game_ids().await, vec!["game-a"]);
+        assert_eq!(runtime.active_game_ids().await, vec!["game-a:ours"]);
     }
 }
