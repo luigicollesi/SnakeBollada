@@ -626,6 +626,7 @@ fn evaluate_minimax(
                     *direction,
                     &mut cache.territory_snapshots,
                     |id| cache.leaf_ranks.get(&id).and_then(|leaf| leaf.territory),
+                    ordering_mode == RootSearchOrdering::PrimaryV3,
                     expires,
                 ) {
                     territorial.insert(*direction, sample);

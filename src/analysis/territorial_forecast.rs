@@ -243,6 +243,7 @@ impl TerritoryDirectionSample {
         direction: Direction,
         cache: &mut HashMap<NodeId, TerritorySnapshot>,
         cached_leaf: impl Fn(NodeId) -> Option<TerritorySnapshot>,
+        collect_drop: bool,
         deadline: Instant,
     ) -> Option<Self> {
         let root = graph.root();
@@ -301,7 +302,12 @@ impl TerritoryDirectionSample {
                 snapshots.push(snapshot);
             }
             let trajectory = TerritoryTrajectory::summarize(&snapshots, chain_certainty)?;
-            let drop = TerritorialDrop::from_snapshots(&snapshots);
+            // No drop analysis at all in the validated primary mode.
+            let drop = if collect_drop {
+                TerritorialDrop::from_snapshots(&snapshots)
+            } else {
+                None
+            };
             let depth = trajectory.samples.saturating_sub(1);
             let sample = result.get_or_insert(Self {
                 worst_mean_margin_milli: trajectory.mean_margin_milli,
@@ -478,6 +484,7 @@ mod tests {
             directions[0],
             &mut cache,
             |_| None,
+            false,
             deadline,
         )
         .unwrap();
@@ -486,6 +493,7 @@ mod tests {
             directions[1],
             &mut cache,
             |_| None,
+            false,
             deadline,
         )
         .unwrap();
@@ -499,6 +507,7 @@ mod tests {
             directions[0],
             &mut cache,
             |_| None,
+            false,
             deadline,
         )
         .unwrap();
@@ -521,6 +530,7 @@ mod tests {
             direction,
             &mut HashMap::new(),
             |_| None,
+            false,
             Instant::now() + Duration::from_secs(1),
         )
         .unwrap();

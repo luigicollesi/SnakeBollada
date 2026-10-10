@@ -236,6 +236,7 @@ fn trace_territory_shadow(
             direction,
             &mut territory_cache,
             |_| None,
+            false,
             compare_deadline,
         ) {
             log::info!(
