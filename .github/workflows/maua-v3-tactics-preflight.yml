@@ -4,6 +4,7 @@ on:
     branches: [dev]
     paths:
       - scripts/stage_maua_v3_root_tactics.py
+      - scripts/cleanup_maua_v3_navigation.py
       - .github/workflows/maua-v3-tactics-preflight.yml
   workflow_dispatch:
 permissions:
@@ -25,9 +26,10 @@ jobs:
           cd ../battlesnake_luigi
           git switch -c fix/v3-adversarial-head-safety-test
           python3 ../SnakeBollada/scripts/stage_maua_v3_root_tactics.py .
+          python3 ../SnakeBollada/scripts/cleanup_maua_v3_navigation.py .
           cargo fmt --all
-          cargo test --locked --all-features
-          cargo clippy --locked --all-features -- -D clippy::all
-          cargo build --locked --release
+          RUSTFLAGS='-D warnings' cargo test --locked --all-features
+          RUSTFLAGS='-D warnings' cargo clippy --locked --all-features -- -D warnings
+          RUSTFLAGS='-D warnings' cargo build --locked --release
           test -z "$(git status --porcelain -- terraform/ .github/workflows/)"
           git status --short
