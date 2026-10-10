@@ -14,6 +14,8 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - name: Validate migration script syntax
         run: python3 -m py_compile scripts/prepare_maua_v3_port.py
       - name: Validate command-line interface
