@@ -86,7 +86,7 @@ mod tests {
             (
                 Direction::Right,
                 hint(
-                    300,
+                    299,
                     Some(TerritorialDrop {
                         max_absolute_drop: 22,
                         max_relative_drop_milli: 733,
