@@ -181,8 +181,7 @@ impl TerritoryDirectionSample {
         let mut result: Option<Self> = None;
         for edge in edges.iter().take(Self::MAX_REPLIES_PER_DIRECTION) {
             let mut chain = vec![root, edge.child];
-            let mut chain_certainty =
-                ForecastCertainty::Deterministic.after(edge.forecast_delta);
+            let mut chain_certainty = ForecastCertainty::Deterministic.after(edge.forecast_delta);
             let mut current = edge.child;
             for _ in 1..Self::MAX_CACHED_PLIES {
                 let node = graph.node(current);
@@ -224,8 +223,7 @@ impl TerritoryDirectionSample {
                 };
                 snapshots.push(snapshot);
             }
-            let trajectory =
-                TerritoryTrajectory::summarize(&snapshots, chain_certainty)?;
+            let trajectory = TerritoryTrajectory::summarize(&snapshots, chain_certainty)?;
             let depth = trajectory.samples.saturating_sub(1);
             let sample = result.get_or_insert(Self {
                 worst_mean_margin_milli: trajectory.mean_margin_milli,
