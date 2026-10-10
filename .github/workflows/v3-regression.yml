@@ -115,7 +115,7 @@ jobs:
       - name: Reproduce real scenarios with Rust FutureGraph
         env:
           SNAKE_V3_REGRESSION_FIXTURES: fixtures
-        run: cargo test historical_v3_graph -- --nocapture
+        run: cargo test historical_v3_ -- --nocapture
       - name: Upload classification evidence
         uses: actions/upload-artifact@v4
         with:
