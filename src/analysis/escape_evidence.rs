@@ -141,7 +141,9 @@ impl EscapeEvidence {
         self.observed_horizon = ply;
         self.requested_horizon = self.requested_horizon.max(snapshot.suggested_horizon());
         self.minimum_exits = self.minimum_exits.min(snapshot.immediate_exits);
-        let uncontested = snapshot.immediate_exits.saturating_sub(snapshot.contested_exits);
+        let uncontested = snapshot
+            .immediate_exits
+            .saturating_sub(snapshot.contested_exits);
         self.minimum_uncontested_exits = self.minimum_uncontested_exits.min(uncontested);
         if snapshot.immediate_exits <= 1 {
             self.first_narrow_ply.get_or_insert(ply);
@@ -223,8 +225,7 @@ impl EscapeEvidence {
                 break;
             }
         }
-        result.reached_requested_horizon =
-            result.observed_horizon >= result.requested_horizon;
+        result.reached_requested_horizon = result.observed_horizon >= result.requested_horizon;
         Some(result)
     }
 }
