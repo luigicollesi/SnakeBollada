@@ -18,6 +18,8 @@ pub(crate) use territorial_control::{
     analyze as analyze_territorial_control, partition_after as detect_territorial_partition,
     TerritorialControlAnalysis,
 };
+#[cfg(test)]
+pub(crate) use territorial_forecast::TerritorialDrop;
 pub(crate) use territorial_forecast::{
-    TerritorialDrop, TerritoryDirectionSample, TerritorySnapshot, TerritoryTrajectory,
+    TerritoryDirectionSample, TerritorySnapshot, TerritoryTrajectory,
 };
