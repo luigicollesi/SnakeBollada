@@ -1,0 +1,182 @@
+name: Hovering Hobbs V3 - 10 unseen seeds (local only)
+# Independent 10-seed V3-only validation; no primary comparator or Vercel.
+# New drop heuristics are opt-in; no changes to the default production policy.
+# Pinned Hobbs, native localhost, 500 ms timeout; no Docker Hub or Vercel.
+on:
+  push:
+    branches: [dev]
+    paths:
+      - .github/workflows/hobbs-v3-unseen10.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  duel:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 70
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { mode: ordering_v3, group: new_a, seeds: "841016201 841016202 841016203 841016204 841016205" }
+          - { mode: ordering_v3, group: new_b, seeds: "841016206 841016207 841016208 841016209 841016210" }
+    env:
+      TERRITORY_MODE: ${{ matrix.mode }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Record SHA
+        run: git rev-parse HEAD
+      - name: Install our Rust toolchain
+        uses: dtolnay/rust-toolchain@1.98.1
+      - name: Build our native local server
+        run: cargo build --release
+      - name: Build pinned Hovering Hobbs without Docker Hub
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends cmake protobuf-compiler
+          mkdir -p /tmp/battlesnake-rs
+          git -C /tmp/battlesnake-rs init
+          git -C /tmp/battlesnake-rs remote add origin https://github.com/coreyja/battlesnake-rs.git
+          git -C /tmp/battlesnake-rs fetch --depth 1 origin 3775c70676a4add680a19eb810c196d1e4820665
+          git -C /tmp/battlesnake-rs checkout --detach FETCH_HEAD
+          rustup toolchain install nightly-2026-01-26 --profile minimal
+          cd /tmp/battlesnake-rs
+          cargo build --release --locked --bin web-axum
+      - name: Install local Battlesnake CLI
+        run: |
+          go install github.com/BattlesnakeOfficial/rules/cli/battlesnake@latest
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+      - name: Play deterministic local-only matches
+        env:
+          BENCHMARK_SEEDS: ${{ matrix.seeds }}
+        run: |
+          set -euo pipefail
+          read -r -a seeds <<< "$BENCHMARK_SEEDS"
+          if ((${#seeds[@]} > 30)); then
+            echo "Too many seeds" >&2
+            exit 1
+          fi
+          for seed in "${seeds[@]}" ; do
+            [[ "$seed" =~ ^[0-9]+$ ]] || { echo "Bad seed" >&2; exit 1; }
+            mkdir -p "runs/$seed"
+            RUST_LOG=info,territorial_control=debug ROCKET_ADDRESS=127.0.0.1 ROCKET_PORT=8000 SNAKE_TERRITORY_MODE="$TERRITORY_MODE" ./target/release/snake-bollada > "runs/$seed/snakebollada.log" 2>&1 &
+            snake_pid=$!
+            PORT=8001 JSON_LOGS=1 /tmp/battlesnake-rs/target/release/web-axum > "runs/$seed/hobbs.log" 2>&1 &
+            hobbs_pid=$!
+            ready=0
+            for attempt in $(seq 1 35); do
+              if curl -fsS --max-time 2 http://127.0.0.1:8000/ >/dev/null \
+                && curl -fsS --max-time 2 http://127.0.0.1:8001/hovering-hobbs >/dev/null; then
+                ready=1
+                break
+              fi
+              sleep 1
+            done
+            if [ "$ready" != 1 ]; then
+              tail -n 80 "runs/$seed/snakebollada.log" || true
+              tail -n 80 "runs/$seed/hobbs.log" || true
+              kill "$snake_pid" "$hobbs_pid" 2>/dev/null || true
+              exit 1
+            fi
+            echo "LOCAL_DUEL seed=$seed ports=8000,8001 mode=$TERRITORY_MODE runner=native"
+            set +e
+            timeout 660s battlesnake play \
+              --width 11 --height 11 \
+              --name "SnakeBollada" --url http://127.0.0.1:8000 \
+              --name "Hovering Hobbs" --url http://127.0.0.1:8001/hovering-hobbs \
+              --timeout 500 --gametype standard --map standard \
+              --seed "$seed" --output "runs/$seed/game.jsonl" \
+              2>&1 | tee "runs/$seed/game-console.log"
+            status=$?
+            set -e
+            echo "$status" > "runs/$seed/cli-exit-code.txt"
+            kill "$snake_pid" "$hobbs_pid" 2>/dev/null || true
+            wait "$snake_pid" "$hobbs_pid" 2>/dev/null || true
+          done
+      - name: Summarize match states
+        if: always()
+        run: |
+          python3 - <<'PY'
+          import json,re,csv,os
+          from pathlib import Path
+          output=[]
+          endgame_traces={}
+          for d in sorted(Path("runs").glob("*")):
+              p=d/"game.jsonl"
+              if not p.exists(): continue
+              states=[]
+              for line in p.read_text(errors="replace").splitlines():
+                  try:
+                      x=json.loads(line)
+                      if isinstance(x,dict) and "turn" in x and "board" in x: states.append(x)
+                  except ValueError: pass
+              if not states: continue
+              def item(s,n):
+                  return next((x for x in s["board"]["snakes"] if x.get("name")==n),None)
+              def length(s,n):
+                  x=item(s,n)
+                  return x["length"] if x else 0
+              our=[length(s,"SnakeBollada") for s in states]
+              their=[length(s,"Hovering Hobbs") for s in states]
+              alive=[s for s in states if item(s,"SnakeBollada") and item(s,"Hovering Hobbs")]
+              survivors=[x.get("name") for x in states[-1]["board"]["snakes"]]
+              endgame_traces[d.name]=[dict(turn=st["turn"],ours_head=(item(st,"SnakeBollada") or {}).get("head"),hobbs_head=(item(st,"Hovering Hobbs") or {}).get("head"),ours_length=length(st,"SnakeBollada"),hobbs_length=length(st,"Hovering Hobbs"),food=st["board"].get("food",[])) for st in states[-12:]]
+              logs=(d/"snakebollada.log").read_text(errors="replace") if (d/"snakebollada.log").exists() else ""
+              metrics=re.findall(r"MOVE \d+: \w+ .*?depth=(\d+).*?elapsed_us=(\d+)",logs)
+              latency=sorted(int(us)/1000 for _,us in metrics)
+              depth=sorted(int(x) for x,_ in metrics)
+              territory_compares=sum('territory_compare turn=' in line for line in logs.splitlines())
+              escape_completed_logs=sum('escape_completed_line turn=' in line for line in logs.splitlines())
+              escape_horizon_complete_logs=sum('escape_completed_line turn=' in line and 'horizon_complete=true' in line for line in logs.splitlines())
+              escape_contested_logs=sum('escape_completed_line turn=' in line and 'contested_at=Some(' in line for line in logs.splitlines())
+              v2_order_events=[line for line in logs.splitlines() if 'root_ordering_v2 turn=' in line]
+              v2_reorders=sum('changed=true' in line for line in v2_order_events)
+              v2_fallbacks=sum('fallback=' in line for line in v2_order_events)
+              v3_order_events=[line for line in logs.splitlines() if 'root_ordering_v3 turn=' in line]
+              v3_reorders=sum('changed=true' in line for line in v3_order_events)
+              v3_sharp_drop_events=sum(bool(re.search(r'sharp_drops=[1-9][0-9]*',line)) for line in v3_order_events)
+              adversarial_logs=[line for line in logs.splitlines() if 'escape_adversarial_line turn=' in line]
+              adversarial_losses=sum('verdict=ForcedLossWithinHorizon' in line for line in adversarial_logs)
+              adversarial_survivals=sum('verdict=SurvivesHorizon' in line for line in adversarial_logs)
+              adversarial_unknown=sum('verdict=Unknown' in line for line in adversarial_logs)
+              territory_root_logs=sum('territory_shadow' in line and 'scope=root' in line for line in logs.splitlines())
+              territory_direction_logs=sum('territory_shadow' in line and 'known_replies=' in line for line in logs.splitlines())
+              territory_return_logs=sum('territory_return turn=' in line for line in logs.splitlines())
+              territory_return_verified=sum('territory_return turn=' in line and 'proof=VerifiedForFixedFood' in line for line in logs.splitlines())
+              territory_return_unknown=sum('territory_return turn=' in line and 'proof=Unknown' in line for line in logs.splitlines())
+              territory_return_not_guaranteed=sum('territory_return turn=' in line and 'proof=NotGuaranteedWithinHorizon' in line for line in logs.splitlines())
+              cli_path=d/"cli-exit-code.txt"
+              cli_exit=int(cli_path.read_text().strip()) if cli_path.exists() else None
+              console=(d/"game-console.log").read_text(errors="replace") if (d/"game-console.log").exists() else ""
+              output.append(dict(seed=d.name,mode=os.environ.get('TERRITORY_MODE'),territory_compares=territory_compares,escape_completed_logs=escape_completed_logs,escape_horizon_complete_logs=escape_horizon_complete_logs,escape_contested_logs=escape_contested_logs,v2_order_events=len(v2_order_events),v2_reorders=v2_reorders,v2_fallbacks=v2_fallbacks,v3_order_events=len(v3_order_events),v3_reorders=v3_reorders,v3_sharp_drop_events=v3_sharp_drop_events,adversarial_logs=len(adversarial_logs),adversarial_losses=adversarial_losses,adversarial_survivals=adversarial_survivals,adversarial_unknown=adversarial_unknown,cli_exit=cli_exit,network_errors=sum(("EOF" in line or "connection refused" in line.lower()) for line in console.splitlines()),winner=survivors[0] if len(survivors)==1 else ("draw" if not survivors else "undetermined"),
+                  turns=states[-1]["turn"],max_ours=max(our),max_hobbs=max(their),
+                  first_growth=next((s["turn"] for s,n in zip(states,our) if n>our[0]),None),
+                  smaller_turns=sum(length(s,"SnakeBollada")<length(s,"Hovering Hobbs") for s in alive),
+                  equal_turns=sum(length(s,"SnakeBollada")==length(s,"Hovering Hobbs") for s in alive),
+                  larger_turns=sum(length(s,"SnakeBollada")>length(s,"Hovering Hobbs") for s in alive),
+                  decisions=len(metrics),median_depth=depth[len(depth)//2] if depth else None,
+                  territory_root_logs=territory_root_logs,territory_direction_logs=territory_direction_logs,
+                  territory_return_logs=territory_return_logs,territory_return_verified=territory_return_verified,
+                  territory_return_unknown=territory_return_unknown,territory_return_not_guaranteed=territory_return_not_guaranteed,
+                  p95_latency_ms=round(latency[int(.95*(len(latency)-1))],2) if latency else None))
+          Path("summary.json").write_text(json.dumps(output,indent=2))
+          Path("endgame_traces.json").write_text(json.dumps(endgame_traces,indent=2))
+          print("MATCH_SUMMARY_JSON")
+          print(json.dumps(output,indent=2))
+          print("ENDGAME_TRACES_JSON")
+          print(json.dumps(endgame_traces,indent=2))
+          print("BATCH=${{ matrix.group }} POLICY=${{ matrix.mode }} EVALUATION=unseen10 BASELINE_REPO_SHA=${{ github.sha }}")
+          PY
+      - name: Upload local match evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: hobbs-${{ matrix.mode }}-${{ matrix.group }}-${{ github.run_id }}
+          path: |
+            runs/
+            summary.json
+            endgame_traces.json
+          if-no-files-found: warn
