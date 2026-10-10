@@ -633,8 +633,19 @@ fn evaluate_minimax(
                 }
             }
         }
-        // Primary and V3 share the same cached samples and stable fallback.
-        // V3's collapse tiebreak is opt-in; default ordering is unchanged.
+        // V3 compares against the exact primary order without another
+        // search, flood-fill, or MIN expansion (at most four root moves).
+        let primary_reference = (ordering_mode == RootSearchOrdering::PrimaryV3).then(|| {
+            let mut reference = directions.clone();
+            sort_primary_root(
+                &mut reference,
+                preferred,
+                &corridor_by_direction,
+                &territorial,
+                false,
+            );
+            reference
+        });
         sort_primary_root(
             &mut directions,
             preferred,
@@ -642,6 +653,23 @@ fn evaluate_minimax(
             &territorial,
             ordering_mode == RootSearchOrdering::PrimaryV3,
         );
+        if let Some(reference) = primary_reference {
+            let significant_drops = territorial
+                .values()
+                .filter(|sample| sample.territorial_drop.is_some_and(|drop| drop.significant()))
+                .count();
+            log::debug!(
+                target: "territorial_control",
+                "root_ordering_v3 turn={} depth={} changed={} sampled={} sharp_drops={} primary={:?} actual={:?}",
+                graph.node(node_id).state.turn,
+                depth,
+                directions != reference,
+                territorial.len(),
+                significant_drops,
+                reference,
+                directions,
+            );
+        }
         if ordering_mode == RootSearchOrdering::ConservativeV2 {
             conservative_v2_root_order(graph, &mut directions, depth, cache, budget);
         }
