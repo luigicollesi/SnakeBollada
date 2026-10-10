@@ -110,6 +110,9 @@ struct Route {
     /// Exact number of simulated turns until a terminal Win/Loss/Tie.
     /// Only present when the terminal state was actually reached.
     terminal_plies: Option<u16>,
+    /// True only if all legal MAX moves and MIN replies beneath this node
+    /// were explored without a tactical alpha cut, through this horizon.
+    exhaustive: bool,
 }
 
 fn compare_routes(left: &Route, right: &Route) -> Ordering {
@@ -148,6 +151,17 @@ struct ScoredCache {
     leaf_ranks: HashMap<NodeId, RouteRank>,
     corridor_orders: HashMap<NodeId, AdversarialCorridorOrder>,
     territory_snapshots: HashMap<NodeId, TerritorySnapshot>,
+    /// Root directions from ONE completed iterative-deepening depth only.
+    /// Replaced atomically after a successful depth (never on deadline).
+    completed_root_lines: HashMap<Direction, CompletedRootLine>,
+}
+
+#[derive(Debug, Clone)]
+struct CompletedRootLine {
+    depth: u8,
+    path: FuturePath,
+    certainty: ForecastCertainty,
+    adversarially_complete: bool,
 }
 
 impl ScoredCache {
@@ -322,6 +336,7 @@ fn evaluate_minimax(
                 StateScore::Win | StateScore::Loss | StateScore::Tie
             )
             .then_some(0),
+            exhaustive: true,
         }));
     }
 
@@ -422,11 +437,16 @@ fn evaluate_minimax(
                 StateScore::Win | StateScore::Loss | StateScore::Tie
             )
             .then_some(0),
+            exhaustive: true,
         }));
     }
 
+    let is_root = node_id == graph.root();
+    let mut root_lines = HashMap::<Direction, CompletedRootLine>::new();
+    let mut all_directions_exhaustive = true;
     let mut best: Option<Route> = None;
     for direction in directions {
+        let mut direction_exhaustive = true;
         let mut known = graph.known_responses(node_id, direction);
         let known_count = known.len();
         let preferred_response = graph.node(node_id).preferred_reply.get(&direction).cloned();
@@ -493,6 +513,7 @@ fn evaluate_minimax(
             else {
                 return Ok(None);
             };
+            direction_exhaustive &= candidate.exhaustive;
             candidate.terminal_plies = candidate
                 .terminal_plies
                 .map(|steps| steps.saturating_add(1));
@@ -512,11 +533,26 @@ fn evaluate_minimax(
             if let (Some(incumbent), Some(worst_so_far)) = (&best, &worst) {
                 if alpha_cuts_reply(incumbent, worst_so_far) {
                     pruned = true;
+                    direction_exhaustive = false;
                     break;
                 }
             }
         }
+        direction_exhaustive &=
+            graph.response_coverage(node_id, direction) == super::graph::ResponseCoverage::Complete;
+        all_directions_exhaustive &= direction_exhaustive;
         if let Some(worst_response) = worst {
+            if is_root {
+                root_lines.insert(
+                    direction,
+                    CompletedRootLine {
+                        depth,
+                        path: worst_response.path.clone(),
+                        certainty: worst_response.certainty,
+                        adversarially_complete: direction_exhaustive,
+                    },
+                );
+            }
             if let Some(first) = worst_response.path.first() {
                 graph.record_worst_reply(node_id, direction, first.joint_action.clone());
             }
@@ -532,9 +568,17 @@ fn evaluate_minimax(
             }) {
                 best = Some(worst_response);
             }
+        } else {
+            all_directions_exhaustive = false;
         }
     }
-    if let Some(chosen) = best.as_ref() {
+    if is_root {
+        // Only a fully completed call reaches here. Partial iterations
+        // return None above and preserve the preceding depth's evidence.
+        cache.completed_root_lines = root_lines;
+    }
+    if let Some(chosen) = best.as_mut() {
+        chosen.exhaustive = all_directions_exhaustive;
         let direction = direction_of_first(graph, node_id, &chosen.path);
         graph.record_search(
             node_id,
@@ -694,6 +738,7 @@ mod tests {
             path: FuturePath::empty(),
             certainty: ForecastCertainty::Deterministic,
             terminal_plies,
+            exhaustive: true,
         }
     }
 
