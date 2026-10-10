@@ -1405,4 +1405,55 @@ mod tests {
         let budget = SearchBudget::for_duration(Duration::ZERO);
         assert!(search_hobbs(&mut graph, &budget).unwrap().is_none());
     }
+    /// Pinned historical game states: real Rust decision path, not a geometric
+    /// approximation. Only runs when the GitHub regression workflow supplies
+    /// fixtures from the immutable duel run.
+    #[test]
+    fn historical_v3_graph_replays_real_trap_positions() {
+        let Ok(folder) = std::env::var("SNAKE_V3_REGRESSION_FIXTURES") else {
+            return;
+        };
+        let mut paths: Vec<_> = std::fs::read_dir(folder)
+            .expect("historical fixtures directory must exist")
+            .map(|entry| entry.expect("read fixture").path())
+            .filter(|path| path.extension().is_some_and(|ext| ext == "json"))
+            .collect();
+        paths.sort();
+        assert_eq!(paths.len(), 12, "expected three states per losing seed");
+        for path in paths {
+            let raw = std::fs::read_to_string(&path).expect("read real match state");
+            let state: crate::GameState =
+                serde_json::from_str(&raw).expect("deserialize real Battlesnake request");
+            let mut graph = FutureGraph::new_beam(
+                crate::simulation::state::SimulatedGameState::from(&state),
+            );
+            let root = graph.root();
+            let legal = graph.available_directions(root);
+            assert!(!legal.is_empty(), "{path:?}: no candidate actions");
+            let budget = SearchBudget::for_duration(Duration::from_millis(350));
+            let decision = search_hobbs_ordering_v3(&mut graph, &budget)
+                .expect("simulation must not fail")
+                .expect("search must return a completed depth");
+            assert!(
+                legal.contains(&decision.direction),
+                "{path:?}: selected an unavailable direction"
+            );
+            let actor = graph.node(root).state.actor_index(&state.you.id)
+                .expect("our snake is present");
+            let cached_replies = graph.known_responses(root, decision.direction);
+            let sampled = cached_replies.len();
+            let immediate_terminal_replies = cached_replies.iter().filter(|edge| {
+                !graph.node(edge.child).state.snake_at(actor)
+                    .is_some_and(|snake| snake.alive)
+            }).count();
+            println!(
+                "V3_HISTORICAL seed_turn={:?} chosen={:?} depth={} legal={:?} cached_replies={} terminal_replies={}",
+                path.file_stem(), decision.direction, decision.completed_depth,
+                legal, sampled, immediate_terminal_replies
+            );
+            // Coverage is not guaranteed. Do not make an unsound
+            // 'safe alternative' assertion from a partially explored graph.
+        }
+    }
+
 }
