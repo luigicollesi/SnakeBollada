@@ -277,7 +277,14 @@ impl TerritoryDirectionSample {
         deadline: Instant,
     ) -> Option<Self> {
         Self::from_cached_replies_with_limits(
-            graph, direction, cache, cached_leaf, collect_drop, deadline, 3, 6,
+            graph,
+            direction,
+            cache,
+            cached_leaf,
+            collect_drop,
+            deadline,
+            3,
+            6,
         )
     }
 
