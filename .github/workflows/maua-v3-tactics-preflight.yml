@@ -1,0 +1,33 @@
+name: Maua V3 adversarial head-to-head preflight
+on:
+  push:
+    branches: [dev]
+    paths:
+      - scripts/stage_maua_v3_root_tactics.py
+      - .github/workflows/maua-v3-tactics-preflight.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.98.1
+        with:
+          components: rustfmt, clippy
+      - name: Validate patcher
+        run: python3 -m py_compile scripts/stage_maua_v3_root_tactics.py
+      - name: Stage only on isolated Maua branch and run Rust checks
+        run: |
+          set -euo pipefail
+          git clone https://github.com/Maua-Dev/battlesnake_luigi.git ../battlesnake_luigi
+          cd ../battlesnake_luigi
+          git switch -c fix/v3-adversarial-head-safety-test
+          python3 ../SnakeBollada/scripts/stage_maua_v3_root_tactics.py .
+          cargo fmt --all
+          cargo test --locked --all-features
+          cargo clippy --locked --all-features -- -D warnings
+          cargo build --locked --release
+          test -z "$(git status --porcelain -- terraform/ .github/workflows/)"
+          git status --short
