@@ -636,7 +636,9 @@ mod tests {
         )
         .expect("a surviving cached reply still has valid observations");
         assert!(sample.terminal_reply_seen);
-        assert_eq!(sample.territorial_drop, None);
+        // An ordinary drop in the surviving reply is still observable, but
+        // cannot be treated as a reliable persistent-risk tiebreak.
+        assert!(sample.territorial_drop.is_none_or(|drop| !drop.significant()));
         assert_eq!(graph.node_count(), nodes);
         assert_eq!(graph.edge_count(), edges);
     }
