@@ -330,37 +330,43 @@ fn recorded_lengths_and_heads_are_consistent() {
 pub(crate) fn late_seed_20261003(turn: i32) -> SimulatedGameState {
     let (our_health, hobbs_health, ours, hobbs, food) = match turn {
         323 => (
-            70, 79,
+            70,
+            79,
             "92939495968685757473838272626364655545445453525141423222",
             "272625243435363747465657586867667677787969595A6A7A8A8988879798",
             "486011A114",
         ),
         325 => (
-            100, 77,
+            100,
+            77,
             "A1A2929394959686857574738382726263646555454454535251414242",
             "1617272625243435363747465657586867667677787969595A6A7A8A898887",
             "4860111438",
         ),
         326 => (
-            99, 76,
+            99,
+            76,
             "A0A1A29293949596868575747383827262636465554544545352514142",
             "151617272625243435363747465657586867667677787969595A6A7A8A8988",
             "4860111438",
         ),
         328 => (
-            97, 99,
+            97,
+            99,
             "9190A0A1A2929394959686857574738382726263646555454454535251",
             "1314151617272625243435363747465657586867667677787969595A6A7A8A89",
             "4860113800",
         ),
         332 => (
-            100, 95,
+            100,
+            95,
             "607071819190A0A1A2929394959686857574738382726263646555454444",
             "424333231314151617272625243435363747465657586867667677787969595A",
             "48113800",
         ),
         333 => (
-            99, 94,
+            99,
+            94,
             "61607071819190A0A1A29293949596868575747383827262636465554544",
             "5242433323131415161727262524343536374746565758686766767778796959",
             "48113800",
@@ -424,8 +430,20 @@ fn late_seed_20261003_checkpoints_preserve_head_body_and_health() {
     ] {
         let state = late_seed_20261003(turn);
         assert_eq!(state.snakes.len(), 2);
-        assert_eq!(state.snakes[0].head(), Some(Coord { x: ours.0, y: ours.1 }));
-        assert_eq!(state.snakes[1].head(), Some(Coord { x: hobbs.0, y: hobbs.1 }));
+        assert_eq!(
+            state.snakes[0].head(),
+            Some(Coord {
+                x: ours.0,
+                y: ours.1
+            })
+        );
+        assert_eq!(
+            state.snakes[1].head(),
+            Some(Coord {
+                x: hobbs.0,
+                y: hobbs.1
+            })
+        );
         assert_eq!(state.snakes[0].health, our_health);
         assert_eq!(state.snakes[1].health, hobbs_health);
         assert!(state.snakes.iter().all(|snake| snake.body.len() >= 28));
