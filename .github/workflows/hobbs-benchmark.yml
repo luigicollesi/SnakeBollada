@@ -1,20 +1,14 @@
 name: Hovering Hobbs Benchmark (manual, localhost only)
-# Run pinned three-seed native localhost duels (no Docker Hub, no Vercel).
-# Compare territory modes against the SAME pinned Hobbs and 3 fixed seeds.
-# Runs at the integration-tested code commit; each matrix job has separate evidence.
-# Validation checkpoint: Ordering V2 (source revision 2a72bb8), same 3 fixed seeds.
+# Primary-ordering validation: 3 previously winning seeds + 6 unseen seeds.
+# Three isolated parallel batches, ONLY the primary "ordering" policy.
+# Pinned Hobbs, native localhost, 500 ms timeout; no Docker Hub or Vercel.
+# Original winning reference: run 38016396600, source 396fd60.
 on:
   push:
     branches: [dev]
     paths:
       - .github/workflows/hobbs-benchmark.yml
   workflow_dispatch:
-    inputs:
-      seeds:
-        description: "Space-separated integer seeds (max 30)"
-        type: string
-        default: "20261002 20261003 20261004"
-        required: false
 
 permissions:
   contents: read
@@ -26,9 +20,15 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        territory_mode: [shadow, ordering, ordering_v2]
+        include:
+          - group: reproducibility
+            seeds: "20261002 20261003 20261004"
+          - group: unseen_a
+            seeds: "20261011 20261012 20261013"
+          - group: unseen_b
+            seeds: "20261014 20261015 20261016"
     env:
-      TERRITORY_MODE: ${{ matrix.territory_mode }}
+      TERRITORY_MODE: ordering
     steps:
       - uses: actions/checkout@v4
       - name: Record SHA
@@ -56,7 +56,7 @@ jobs:
           echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
       - name: Play deterministic local-only matches
         env:
-          BENCHMARK_SEEDS: ${{ inputs.seeds || '20261002 20261003 20261004' }}
+          BENCHMARK_SEEDS: ${{ matrix.seeds }}
         run: |
           set -euo pipefail
           read -r -a seeds <<< "$BENCHMARK_SEEDS"
@@ -170,13 +170,13 @@ jobs:
           print(json.dumps(output,indent=2))
           print("ENDGAME_TRACES_JSON")
           print(json.dumps(endgame_traces,indent=2))
-          print("TARGET_20261002=win TARGET_20261003=win TARGET_20261004=win")
+          print("BATCH=${{ matrix.group }} POLICY=ordering BASELINE_RUN=38016396600")
           PY
       - name: Upload local match evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: hobbs-territory-${{ matrix.territory_mode }}-${{ github.run_id }}
+          name: hobbs-primary-${{ matrix.group }}-${{ github.run_id }}
           path: |
             runs/
             summary.json
