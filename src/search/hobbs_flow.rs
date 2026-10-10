@@ -1435,7 +1435,8 @@ mod tests {
                 budget,
                 &mut scored,
                 RootSearchOrdering::PrimaryV3,
-            )? else {
+            )?
+            else {
                 return Ok(None);
             };
             exhaustive &= candidate.exhaustive;
@@ -1471,7 +1472,12 @@ mod tests {
         let Ok(folder) = std::env::var("SNAKE_V3_REGRESSION_FIXTURES") else {
             return;
         };
-        let targets = ["20261002-578", "20261011-305", "20261014-421", "20261015-466"];
+        let targets = [
+            "20261002-578",
+            "20261011-305",
+            "20261014-421",
+            "20261015-466",
+        ];
         for target in targets {
             let path = std::path::Path::new(&folder).join(format!("{target}.json"));
             let raw = std::fs::read_to_string(&path).expect("read pinned state");
@@ -1489,13 +1495,8 @@ mod tests {
                     if budget.expired() {
                         break;
                     }
-                    match historical_forced_root_at_depth(
-                        &mut graph,
-                        direction,
-                        depth,
-                        &budget,
-                    )
-                    .expect("forced root evaluation must not error")
+                    match historical_forced_root_at_depth(&mut graph, direction, depth, &budget)
+                        .expect("forced root evaluation must not error")
                     {
                         Some((route, exhaustive)) => {
                             last_complete = Some((depth, route, exhaustive));
