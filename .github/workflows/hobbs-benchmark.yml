@@ -2,7 +2,7 @@ name: Hovering Hobbs Benchmark (manual, localhost only)
 # Run pinned three-seed native localhost duels (no Docker Hub, no Vercel).
 # Compare territory modes against the SAME pinned Hobbs and 3 fixed seeds.
 # Runs at the integration-tested code commit; each matrix job has separate evidence.
-# Validation checkpoint: Ordering V2 pre-activation (source revision d6eaa94), three pinned seeds.
+# Validation checkpoint: adaptive escape evidence (source revision 13fa78c), three pinned seeds.
 on:
   push:
     branches: [dev]
@@ -67,7 +67,7 @@ jobs:
           for seed in "${seeds[@]}" ; do
             [[ "$seed" =~ ^[0-9]+$ ]] || { echo "Bad seed" >&2; exit 1; }
             mkdir -p "runs/$seed"
-            RUST_LOG=info ROCKET_ADDRESS=127.0.0.1 ROCKET_PORT=8000 SNAKE_TERRITORY_MODE="$TERRITORY_MODE" ./target/release/snake-bollada > "runs/$seed/snakebollada.log" 2>&1 &
+            RUST_LOG=info,territorial_control=debug ROCKET_ADDRESS=127.0.0.1 ROCKET_PORT=8000 SNAKE_TERRITORY_MODE="$TERRITORY_MODE" ./target/release/snake-bollada > "runs/$seed/snakebollada.log" 2>&1 &
             snake_pid=$!
             PORT=8001 JSON_LOGS=1 /tmp/battlesnake-rs/target/release/web-axum > "runs/$seed/hobbs.log" 2>&1 &
             hobbs_pid=$!
@@ -134,6 +134,9 @@ jobs:
               latency=sorted(int(us)/1000 for _,us in metrics)
               depth=sorted(int(x) for x,_ in metrics)
               territory_compares=sum('territory_compare turn=' in line for line in logs.splitlines())
+              escape_completed_logs=sum('escape_completed_line turn=' in line for line in logs.splitlines())
+              escape_horizon_complete_logs=sum('escape_completed_line turn=' in line and 'horizon_complete=true' in line for line in logs.splitlines())
+              escape_contested_logs=sum('escape_completed_line turn=' in line and 'contested_at=Some(' in line for line in logs.splitlines())
               territory_root_logs=sum('territory_shadow' in line and 'scope=root' in line for line in logs.splitlines())
               territory_direction_logs=sum('territory_shadow' in line and 'known_replies=' in line for line in logs.splitlines())
               territory_return_logs=sum('territory_return turn=' in line for line in logs.splitlines())
@@ -143,7 +146,7 @@ jobs:
               cli_path=d/"cli-exit-code.txt"
               cli_exit=int(cli_path.read_text().strip()) if cli_path.exists() else None
               console=(d/"game-console.log").read_text(errors="replace") if (d/"game-console.log").exists() else ""
-              output.append(dict(seed=d.name,mode=os.environ.get('TERRITORY_MODE'),territory_compares=territory_compares,cli_exit=cli_exit,network_errors=sum(("EOF" in line or "connection refused" in line.lower()) for line in console.splitlines()),winner=survivors[0] if len(survivors)==1 else ("draw" if not survivors else "undetermined"),
+              output.append(dict(seed=d.name,mode=os.environ.get('TERRITORY_MODE'),territory_compares=territory_compares,escape_completed_logs=escape_completed_logs,escape_horizon_complete_logs=escape_horizon_complete_logs,escape_contested_logs=escape_contested_logs,cli_exit=cli_exit,network_errors=sum(("EOF" in line or "connection refused" in line.lower()) for line in console.splitlines()),winner=survivors[0] if len(survivors)==1 else ("draw" if not survivors else "undetermined"),
                   turns=states[-1]["turn"],max_ours=max(our),max_hobbs=max(their),
                   first_growth=next((s["turn"] for s,n in zip(states,our) if n>our[0]),None),
                   smaller_turns=sum(length(s,"SnakeBollada")<length(s,"Hovering Hobbs") for s in alive),
