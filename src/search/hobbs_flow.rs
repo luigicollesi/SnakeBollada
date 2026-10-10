@@ -1148,7 +1148,7 @@ mod tests {
             ForecastCertainty::Deterministic,
             &budget,
             &mut scored,
-            false,
+            RootSearchOrdering::Baseline,
         )
         .unwrap()
         .unwrap();
@@ -1330,7 +1330,7 @@ mod tests {
             ForecastCertainty::Deterministic,
             &budget,
             &mut scored,
-            false,
+            RootSearchOrdering::Baseline,
         )
         .unwrap()
         .unwrap();
