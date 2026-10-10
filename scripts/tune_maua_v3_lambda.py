@@ -101,6 +101,8 @@ def main():
         raise SystemExit("Refusing to edit a deployment branch. Create a fix/* branch first.")
     if "Maua-Dev/battlesnake_luigi" not in git(root, "remote", "get-url", "origin"):
         raise SystemExit("Wrong destination repository.")
+    if git(root, "status", "--porcelain"):
+        raise SystemExit("Destination has uncommitted changes; commit or stash them first.")
     if not (root / "src/search/hobbs_flow.rs").is_file():
         raise SystemExit("Missing V3 engine. Migrate the V3 first.")
 
