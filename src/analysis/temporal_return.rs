@@ -333,7 +333,7 @@ impl Context<'_> {
                             exhausted = true;
                             None
                         }
-                        Ok(ResponseLookup::Deadline) | Err(_) => {
+                        Ok(ResponseLookup::Deadline | ResponseLookup::ResourceLimit) | Err(_) => {
                             unknown_reply = true;
                             None
                         }

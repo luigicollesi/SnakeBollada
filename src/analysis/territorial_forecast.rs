@@ -651,7 +651,9 @@ mod tests {
             match graph.next_response(root, direction, i, &budget).unwrap() {
                 ResponseLookup::Edge(_) => {}
                 ResponseLookup::Exhausted => break,
-                ResponseLookup::Deadline => panic!("unexpected deadline"),
+                ResponseLookup::Deadline | ResponseLookup::ResourceLimit => {
+                    panic!("unexpected truncated graph search")
+                }
             }
         }
         let responses = graph.known_responses(root, direction);

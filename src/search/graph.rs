@@ -1,7 +1,7 @@
 //! Single-purpose persistent FutureGraph for Hobbs evaluation.
 //! Physical Battlesnake turn resolution is shared with the standard simulator.
 use std::collections::{HashMap, HashSet, VecDeque};
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
 use super::forecast::ForecastCertainty;
 use crate::decision::joint_actions::JointActionGenerator;
@@ -18,6 +18,21 @@ use super::forecast::{FoodForecastPolicy, ForecastDelta};
 
 pub(crate) type NodeId = usize;
 
+// A hard graph-size guard for constrained CPU/memory environments such as
+// the 256 MB Lambda. This bounds new allocations, not existing cached nodes.
+const DEFAULT_MAX_NODES: usize = 16_000;
+
+fn configured_max_nodes() -> usize {
+    static CAP: OnceLock<usize> = OnceLock::new();
+    *CAP.get_or_init(|| {
+        std::env::var("SNAKE_GRAPH_MAX_NODES")
+            .ok()
+            .and_then(|raw| raw.parse::<usize>().ok())
+            .map(|value| value.clamp(1_000, 40_000))
+            .unwrap_or(DEFAULT_MAX_NODES)
+    })
+}
+
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub(crate) struct GraphPerfStats {
     pub(crate) action_batches: u32,
@@ -27,6 +42,7 @@ pub(crate) struct GraphPerfStats {
     pub(crate) resolve_us: u64,
     pub(crate) node_build_us: u64,
     pub(crate) merge_us: u64,
+    pub(crate) node_budget_hits: u32,
 }
 
 #[derive(Debug, Clone)]
@@ -41,6 +57,9 @@ pub(crate) enum ResponseLookup {
     Edge(SearchEdge),
     Exhausted,
     Deadline,
+    /// No more graph nodes may be materialized this request. Unlike a
+    /// terminal outcome this must never count as a completed search ply.
+    ResourceLimit,
 }
 
 /// Coverage of *legal enemy replies*, not merely already cached edges.
@@ -105,6 +124,7 @@ pub(crate) struct FutureGraph {
     edge_count: u32,
     forecast_policy: FoodForecastPolicy,
     perf_stats: GraphPerfStats,
+    max_nodes: usize,
 }
 
 impl FutureGraph {
@@ -127,6 +147,7 @@ impl FutureGraph {
             edge_count: 0,
             forecast_policy,
             perf_stats: GraphPerfStats::default(),
+            max_nodes: configured_max_nodes(),
         }
     }
 
@@ -176,6 +197,10 @@ impl FutureGraph {
 
     pub(crate) fn node_count(&self) -> usize {
         self.nodes.len()
+    }
+
+    pub(crate) fn max_nodes(&self) -> usize {
+        self.max_nodes
     }
 
     pub(crate) fn edge_count(&self) -> u32 {
@@ -413,6 +438,10 @@ impl FutureGraph {
         if budget.expired() {
             return Ok(ResponseLookup::Deadline);
         }
+        if self.nodes.len() >= self.max_nodes {
+            self.perf_stats.node_budget_hits = self.perf_stats.node_budget_hits.saturating_add(1);
+            return Ok(ResponseLookup::ResourceLimit);
+        }
         if !self.nodes[node_id]
             .pending_by_direction
             .contains_key(&direction)
@@ -481,7 +510,7 @@ impl FutureGraph {
                 match self.next_response(node_id, direction, index, budget)? {
                     ResponseLookup::Edge(_) => index += 1,
                     ResponseLookup::Exhausted => break,
-                    ResponseLookup::Deadline => return Ok(false),
+                    ResponseLookup::Deadline | ResponseLookup::ResourceLimit => return Ok(false),
                 }
             }
         }
@@ -621,7 +650,9 @@ mod tests {
             match graph.next_response(root, direction, next, &budget).unwrap() {
                 ResponseLookup::Edge(_) => next += 1,
                 ResponseLookup::Exhausted => break,
-                ResponseLookup::Deadline => panic!("small fixture should exhaust replies"),
+                ResponseLookup::Deadline | ResponseLookup::ResourceLimit => {
+                    panic!("small fixture should exhaust replies")
+                }
             }
         }
         assert!(next > 1);
@@ -689,6 +720,32 @@ mod tests {
             partial.next_response(root, first, count, &budget).unwrap(),
             ResponseLookup::Exhausted
         ));
+    }
+
+    #[test]
+    fn graph_node_limit_keeps_cached_edges_and_does_not_claim_full_coverage() {
+        let mut graph = FutureGraph::new_beam(state());
+        let budget = SearchBudget::for_duration(Duration::from_secs(3));
+        let root = graph.root();
+        let direction = graph.available_directions(root)[0];
+        let first = graph.next_response(root, direction, 0, &budget).unwrap();
+        assert!(matches!(first, ResponseLookup::Edge(_)));
+        let nodes_before = graph.node_count();
+        graph.max_nodes = nodes_before;
+        assert!(matches!(
+            graph.next_response(root, direction, 0, &budget).unwrap(),
+            ResponseLookup::Edge(_)
+        ));
+        assert!(matches!(
+            graph.next_response(root, direction, 1, &budget).unwrap(),
+            ResponseLookup::ResourceLimit
+        ));
+        assert_eq!(graph.node_count(), nodes_before);
+        assert_eq!(graph.performance().node_budget_hits, 1);
+        assert_eq!(
+            graph.response_coverage(root, direction),
+            ResponseCoverage::Partial
+        );
     }
 
     #[test]
