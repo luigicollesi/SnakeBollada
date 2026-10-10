@@ -54,7 +54,8 @@ jobs:
                       state = json.loads(raw)
                   except json.JSONDecodeError:
                       continue
-                  if isinstance(state, dict) and "board" in state and "turn" in state:
+                  if (isinstance(state, dict) and "board" in state
+                          and start <= state.get("turn", -1) <= end):
                       states[state["turn"]] = our_perspective(state)
               assert all(turn in states for turn in range(start, end + 1)), f"{seed}: incomplete interval"
               for turn in range(start, end + 1):
