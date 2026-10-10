@@ -463,8 +463,14 @@ mod tests {
             TerritorialMode::parse(" Ordering "),
             TerritorialMode::Ordering
         );
-        assert_eq!(TerritorialMode::parse("ordering_v2"), TerritorialMode::OrderingV2);
-        assert_eq!(TerritorialMode::parse(" Ordering_V2 "), TerritorialMode::OrderingV2);
+        assert_eq!(
+            TerritorialMode::parse("ordering_v2"),
+            TerritorialMode::OrderingV2
+        );
+        assert_eq!(
+            TerritorialMode::parse(" Ordering_V2 "),
+            TerritorialMode::OrderingV2
+        );
         assert_eq!(TerritorialMode::parse("shadow"), TerritorialMode::Shadow);
         assert_eq!(TerritorialMode::parse(" Shadow "), TerritorialMode::Shadow);
     }

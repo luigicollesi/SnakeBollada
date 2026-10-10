@@ -63,7 +63,9 @@ pub(crate) fn reorder_root_v2(
 ) -> bool {
     if directions.len() < 2
         || common_horizon == 0
-        || !directions.iter().all(|direction| hints.contains_key(direction))
+        || !directions
+            .iter()
+            .all(|direction| hints.contains_key(direction))
     {
         return false;
     }
@@ -117,9 +119,18 @@ mod tests {
         let mut directions = vec![Direction::Left, Direction::Up, Direction::Right];
         let before = directions.clone();
         let hints = HashMap::from([
-            (Direction::Left, hint(AdversarialEscapeVerdict::Unknown, None, 3, None)),
-            (Direction::Up, hint(AdversarialEscapeVerdict::Unknown, None, 3, None)),
-            (Direction::Right, hint(AdversarialEscapeVerdict::Unknown, None, 3, None)),
+            (
+                Direction::Left,
+                hint(AdversarialEscapeVerdict::Unknown, None, 3, None),
+            ),
+            (
+                Direction::Up,
+                hint(AdversarialEscapeVerdict::Unknown, None, 3, None),
+            ),
+            (
+                Direction::Right,
+                hint(AdversarialEscapeVerdict::Unknown, None, 3, None),
+            ),
         ]);
         assert!(!reorder_root_v2(&mut directions, &hints, 3));
         assert_eq!(directions, before);
@@ -129,20 +140,53 @@ mod tests {
     fn proven_loss_is_deprioritized_without_punishing_unknown_routes() {
         let mut directions = vec![Direction::Left, Direction::Up, Direction::Right];
         let hints = HashMap::from([
-            (Direction::Left, hint(AdversarialEscapeVerdict::ForcedLossWithinHorizon, Some(ForecastCertainty::Deterministic), 2, None)),
-            (Direction::Up, hint(AdversarialEscapeVerdict::Unknown, None, 2, None)),
-            (Direction::Right, hint(AdversarialEscapeVerdict::SurvivesHorizon, Some(ForecastCertainty::Deterministic), 2, None)),
+            (
+                Direction::Left,
+                hint(
+                    AdversarialEscapeVerdict::ForcedLossWithinHorizon,
+                    Some(ForecastCertainty::Deterministic),
+                    2,
+                    None,
+                ),
+            ),
+            (
+                Direction::Up,
+                hint(AdversarialEscapeVerdict::Unknown, None, 2, None),
+            ),
+            (
+                Direction::Right,
+                hint(
+                    AdversarialEscapeVerdict::SurvivesHorizon,
+                    Some(ForecastCertainty::Deterministic),
+                    2,
+                    None,
+                ),
+            ),
         ]);
         assert!(reorder_root_v2(&mut directions, &hints, 2));
-        assert_eq!(directions, vec![Direction::Right, Direction::Up, Direction::Left]);
+        assert_eq!(
+            directions,
+            vec![Direction::Right, Direction::Up, Direction::Left]
+        );
     }
 
     #[test]
     fn provisional_food_never_supplies_a_proven_priority() {
         let mut directions = vec![Direction::Left, Direction::Right];
         let hints = HashMap::from([
-            (Direction::Left, hint(AdversarialEscapeVerdict::SurvivesHorizon, Some(ForecastCertainty::FoodProvisional), 2, Some(999))),
-            (Direction::Right, hint(AdversarialEscapeVerdict::Unknown, None, 2, None)),
+            (
+                Direction::Left,
+                hint(
+                    AdversarialEscapeVerdict::SurvivesHorizon,
+                    Some(ForecastCertainty::FoodProvisional),
+                    2,
+                    Some(999),
+                ),
+            ),
+            (
+                Direction::Right,
+                hint(AdversarialEscapeVerdict::Unknown, None, 2, None),
+            ),
         ]);
         assert!(!reorder_root_v2(&mut directions, &hints, 2));
         assert_eq!(directions, vec![Direction::Left, Direction::Right]);
@@ -152,8 +196,24 @@ mod tests {
     fn mixed_horizons_cannot_promote_incomparable_evidence() {
         let mut directions = vec![Direction::Left, Direction::Right];
         let hints = HashMap::from([
-            (Direction::Left, hint(AdversarialEscapeVerdict::SurvivesHorizon, Some(ForecastCertainty::Deterministic), 2, Some(10))),
-            (Direction::Right, hint(AdversarialEscapeVerdict::SurvivesHorizon, Some(ForecastCertainty::Deterministic), 3, Some(100))),
+            (
+                Direction::Left,
+                hint(
+                    AdversarialEscapeVerdict::SurvivesHorizon,
+                    Some(ForecastCertainty::Deterministic),
+                    2,
+                    Some(10),
+                ),
+            ),
+            (
+                Direction::Right,
+                hint(
+                    AdversarialEscapeVerdict::SurvivesHorizon,
+                    Some(ForecastCertainty::Deterministic),
+                    3,
+                    Some(100),
+                ),
+            ),
         ]);
         assert!(!reorder_root_v2(&mut directions, &hints, 2));
         assert_eq!(directions, vec![Direction::Left, Direction::Right]);
@@ -163,8 +223,24 @@ mod tests {
     fn same_horizon_certified_safe_paths_can_use_margin_as_tiebreak() {
         let mut directions = vec![Direction::Left, Direction::Right];
         let hints = HashMap::from([
-            (Direction::Left, hint(AdversarialEscapeVerdict::SurvivesHorizon, Some(ForecastCertainty::Deterministic), 2, Some(-200))),
-            (Direction::Right, hint(AdversarialEscapeVerdict::SurvivesHorizon, Some(ForecastCertainty::Deterministic), 2, Some(-100))),
+            (
+                Direction::Left,
+                hint(
+                    AdversarialEscapeVerdict::SurvivesHorizon,
+                    Some(ForecastCertainty::Deterministic),
+                    2,
+                    Some(-200),
+                ),
+            ),
+            (
+                Direction::Right,
+                hint(
+                    AdversarialEscapeVerdict::SurvivesHorizon,
+                    Some(ForecastCertainty::Deterministic),
+                    2,
+                    Some(-100),
+                ),
+            ),
         ]);
         assert!(reorder_root_v2(&mut directions, &hints, 2));
         assert_eq!(directions, vec![Direction::Right, Direction::Left]);
@@ -174,8 +250,24 @@ mod tests {
     fn partial_margin_sample_never_outranks_baseline() {
         let mut directions = vec![Direction::Left, Direction::Right];
         let hints = HashMap::from([
-            (Direction::Left, hint(AdversarialEscapeVerdict::SurvivesHorizon, Some(ForecastCertainty::Deterministic), 2, None)),
-            (Direction::Right, hint(AdversarialEscapeVerdict::SurvivesHorizon, Some(ForecastCertainty::Deterministic), 2, Some(999))),
+            (
+                Direction::Left,
+                hint(
+                    AdversarialEscapeVerdict::SurvivesHorizon,
+                    Some(ForecastCertainty::Deterministic),
+                    2,
+                    None,
+                ),
+            ),
+            (
+                Direction::Right,
+                hint(
+                    AdversarialEscapeVerdict::SurvivesHorizon,
+                    Some(ForecastCertainty::Deterministic),
+                    2,
+                    Some(999),
+                ),
+            ),
         ]);
         assert!(!reorder_root_v2(&mut directions, &hints, 2));
     }
@@ -184,7 +276,15 @@ mod tests {
     fn absent_evidence_is_full_fallback_not_a_partial_sort() {
         let mut directions = vec![Direction::Left, Direction::Right];
         let mut hints = HashMap::new();
-        hints.insert(Direction::Left, hint(AdversarialEscapeVerdict::ForcedLossWithinHorizon, Some(ForecastCertainty::Deterministic), 1, None));
+        hints.insert(
+            Direction::Left,
+            hint(
+                AdversarialEscapeVerdict::ForcedLossWithinHorizon,
+                Some(ForecastCertainty::Deterministic),
+                1,
+                None,
+            ),
+        );
         assert!(!reorder_root_v2(&mut directions, &hints, 1));
         assert_eq!(directions, vec![Direction::Left, Direction::Right]);
     }

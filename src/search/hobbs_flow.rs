@@ -301,9 +301,9 @@ fn conservative_v2_root_order(
             }
         }
         if margins.len() == directions.len()
-            && margins.values().all(|(_, count)| {
-                *count == margins[&baseline[0]].1
-            })
+            && margins
+                .values()
+                .all(|(_, count)| *count == margins[&baseline[0]].1)
         {
             for (direction, (margin, _)) in margins {
                 if let Some(hint) = hints.get_mut(&direction) {
@@ -312,8 +312,7 @@ fn conservative_v2_root_order(
             }
         }
     }
-    let changed = Instant::now() < deadline
-        && reorder_root_v2(directions, &hints, horizon);
+    let changed = Instant::now() < deadline && reorder_root_v2(directions, &hints, horizon);
     cache.v2_spent = cache.v2_spent.saturating_add(start.elapsed());
     log::debug!(
         target: "territorial_control",
@@ -612,10 +611,9 @@ fn evaluate_minimax(
         // Missing/pruned replies give only partial territorial information.
         // Use the new heuristic only when every root direction has a sample;
         // otherwise keep the previous total, transitive ordering intact.
-        let all_directions_sampled =
-            ordering_mode == RootSearchOrdering::Legacy
-                && !territorial.is_empty()
-                && territorial.len() == directions.len();
+        let all_directions_sampled = ordering_mode == RootSearchOrdering::Legacy
+            && !territorial.is_empty()
+            && territorial.len() == directions.len();
         if all_directions_sampled {
             directions.sort_by(|left, right| {
                 let a = *left;
