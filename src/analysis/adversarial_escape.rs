@@ -143,7 +143,8 @@ impl<'a> AdversarialEscapeAnalyzer<'a> {
         for direction in directions {
             match self.action_proof(node_id, direction, remaining, certainty) {
                 Proof::Survives(ForecastCertainty::Deterministic) => {
-                    self.memo.insert(key, Proof::Survives(ForecastCertainty::Deterministic));
+                    self.memo
+                        .insert(key, Proof::Survives(ForecastCertainty::Deterministic));
                     return Proof::Survives(ForecastCertainty::Deterministic);
                 }
                 Proof::Survives(food) => {
@@ -190,8 +191,8 @@ impl<'a> AdversarialEscapeAnalyzer<'a> {
         if replies.is_empty() {
             return Proof::Unknown;
         }
-        let complete = self.graph.response_coverage(node_id, direction)
-            == ResponseCoverage::Complete;
+        let complete =
+            self.graph.response_coverage(node_id, direction) == ResponseCoverage::Complete;
         let mut all_survive = complete;
         let mut survival_food_uncertain = certainty.is_provisional();
         let mut conditional_loss = None;
@@ -324,11 +325,7 @@ mod tests {
         }
     }
 
-    fn populate(
-        graph: &mut FutureGraph,
-        direction: Direction,
-        number_of_replies: Option<usize>,
-    ) {
+    fn populate(graph: &mut FutureGraph, direction: Direction, number_of_replies: Option<usize>) {
         let root = graph.root();
         let budget = SearchBudget::for_duration(Duration::from_secs(2));
         let mut index = 0;
@@ -336,7 +333,10 @@ mod tests {
             if number_of_replies.is_some_and(|cap| index >= cap) {
                 break;
             }
-            match graph.next_response(root, direction, index, &budget).unwrap() {
+            match graph
+                .next_response(root, direction, index, &budget)
+                .unwrap()
+            {
                 ResponseLookup::Edge(_) => index += 1,
                 ResponseLookup::Exhausted => break,
                 ResponseLookup::Deadline => panic!("fixture response generation timed out"),
@@ -388,7 +388,10 @@ mod tests {
         let mut analyzer =
             AdversarialEscapeAnalyzer::new(&graph, Instant::now() + Duration::from_secs(2));
         let result = analyzer.analyze_root_direction(Direction::Left, 1);
-        assert_eq!(result.verdict, AdversarialEscapeVerdict::ForcedLossWithinHorizon);
+        assert_eq!(
+            result.verdict,
+            AdversarialEscapeVerdict::ForcedLossWithinHorizon
+        );
         assert!(result.observed_losing_root_replies >= 1);
         assert_eq!(result.certainty, Some(ForecastCertainty::Deterministic));
     }

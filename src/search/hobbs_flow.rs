@@ -11,8 +11,8 @@ use std::time::{Duration, Instant};
 
 use crate::analysis::{
     adversarial_order, AdversarialCorridorOrder, AdversarialEscapeAnalyzer, CorridorOutlook,
-    EscapeEvidence,
-    TemporalTerritory, TerritoryDirectionSample, TerritorySnapshot, TerritoryTrajectory,
+    EscapeEvidence, TemporalTerritory, TerritoryDirectionSample, TerritorySnapshot,
+    TerritoryTrajectory,
 };
 use crate::direction::Direction;
 use crate::evaluation::{
