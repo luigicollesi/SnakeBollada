@@ -1616,7 +1616,7 @@ mod tests {
             let edge = match graph.next_response(root, direction, next_index, budget)? {
                 ResponseLookup::Edge(edge) => edge,
                 ResponseLookup::Exhausted => break,
-                ResponseLookup::Deadline => return Ok(None),
+                ResponseLookup::Deadline | ResponseLookup::ResourceLimit => return Ok(None),
             };
             next_index += 1;
             let Some(mut candidate) = evaluate_minimax(
