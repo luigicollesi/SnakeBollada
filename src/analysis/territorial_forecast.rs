@@ -481,7 +481,7 @@ mod tests {
         // A later, larger drop must keep its own opponent gain and ply.
         let multiple = TerritorialDrop::from_snapshots(&[
             snapshot(35, 15),
-            snapshot(22, 23),
+            snapshot(20, 23),
             snapshot(32, 17),
             snapshot(7, 38),
             snapshot(6, 40),
