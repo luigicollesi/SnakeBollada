@@ -11,7 +11,8 @@ use crate::search::budget::SearchBudget;
 use crate::search::forecast::ForecastCertainty;
 use crate::search::graph::FutureGraph;
 use crate::search::hobbs_flow::{
-    search_hobbs, search_hobbs_baseline, search_hobbs_ordering_v2, search_hobbs_ordering_v3,
+    search_hobbs, search_hobbs_baseline, search_hobbs_bestfirst, search_hobbs_ordering_v2,
+    search_hobbs_ordering_v3,
 };
 use crate::search::path::FuturePath;
 use crate::simulation::state::{SimulatedGameState, SimulationSupport};
@@ -68,6 +69,7 @@ impl DecisionEngine {
         let mode = TerritorialMode::configured();
         let hobbs = match mode {
             TerritorialMode::Ordering => search_hobbs(graph, &budget),
+            TerritorialMode::HobbsBestFirst => search_hobbs_bestfirst(graph, &budget),
             TerritorialMode::OrderingV3 => search_hobbs_ordering_v3(graph, &budget),
             TerritorialMode::OrderingV2 => search_hobbs_ordering_v2(graph, &budget),
             TerritorialMode::Off | TerritorialMode::Shadow => search_hobbs_baseline(graph, &budget),
@@ -94,6 +96,17 @@ impl DecisionEngine {
         let mobility = crate::simulation::mobility::MobilityAnalysis::from_state(root);
         let reachable_cells = mobility.reachable_space(root, &root.our_snake_id, hobbs.direction);
         let perf = graph.performance();
+        if perf.node_budget_hits > 0 {
+            log::warn!(
+                target: "search_diagnostics",
+                "graph_node_limit turn={} nodes={} limit={} hits={} completed_depth={}",
+                state.turn,
+                graph.node_count(),
+                graph.max_nodes(),
+                perf.node_budget_hits,
+                hobbs.completed_depth,
+            );
+        }
         log::debug!(
             target: "search_diagnostics",
             "hobbs_selected turn={} direction={:?} score={:?} guard={:?} depth={} root_directions={} provisional={}",
@@ -157,6 +170,7 @@ enum TerritorialMode {
     Ordering,
     OrderingV2,
     OrderingV3,
+    HobbsBestFirst,
 }
 
 impl TerritorialMode {
@@ -166,6 +180,7 @@ impl TerritorialMode {
             "shadow" => Self::Shadow,
             "ordering_v2" => Self::OrderingV2,
             "ordering_v3" => Self::OrderingV3,
+            "hobbs_bestfirst" => Self::HobbsBestFirst,
             "ordering" | "" => Self::Ordering,
             // A misspelled mode must not silently replace the primary policy.
             _ => Self::Ordering,
