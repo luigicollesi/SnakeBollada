@@ -33,7 +33,6 @@ fn configured_max_nodes() -> usize {
     })
 }
 
-
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub(crate) struct GraphPerfStats {
     pub(crate) action_batches: u32,
@@ -440,8 +439,7 @@ impl FutureGraph {
             return Ok(ResponseLookup::Deadline);
         }
         if self.nodes.len() >= self.max_nodes {
-            self.perf_stats.node_budget_hits =
-                self.perf_stats.node_budget_hits.saturating_add(1);
+            self.perf_stats.node_budget_hits = self.perf_stats.node_budget_hits.saturating_add(1);
             return Ok(ResponseLookup::ResourceLimit);
         }
         if !self.nodes[node_id]
