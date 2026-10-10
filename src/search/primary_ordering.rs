@@ -2,8 +2,13 @@
 use std::cmp::Ordering;
 use std::collections::HashMap;
 
-use crate::analysis::TerritoryDirectionSample;
+use crate::analysis::{TerritorialDrop, TerritoryDirectionSample};
 use crate::direction::Direction;
+
+fn risky_drop(drop: Option<TerritorialDrop>, continuations: Option<u8>) -> bool {
+    drop.is_some_and(|signal| signal.significant())
+        && continuations.is_some_and(|count| count <= 2)
+}
 
 /// Stable winning comparator is retained when experimental_drop is false.
 /// V3 only uses a sharp drop as a tiebreak inside a 50-milli margin bucket.
@@ -36,8 +41,7 @@ pub(crate) fn sort_primary_root(
                         .then_with(|| {
                             let risk = |hint: &TerritoryDirectionSample, direction: Direction| {
                                 let continuations = tactical.get(&direction).map(|(ours, _)| *ours);
-                                hint.territorial_drop.is_some_and(|drop| drop.significant())
-                                    && continuations.is_some_and(|ours| ours <= 2)
+                                risky_drop(hint.territorial_drop, continuations)
                             };
                             risk(left_hint, a).cmp(&risk(right_hint, b))
                         })
@@ -58,7 +62,6 @@ pub(crate) fn sort_primary_root(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::analysis::TerritorialDrop;
     use crate::search::forecast::ForecastCertainty;
     use crate::search::graph::ResponseCoverage;
 
