@@ -1473,16 +1473,31 @@ mod tests {
             return;
         };
         let targets = [
+            "20261002-570",
+            "20261002-575",
             "20261002-578",
             "20261011-299",
             "20261011-300",
+            "20261011-302",
+            "20261011-304",
             "20261011-305",
+            "20261014-416",
+            "20261014-418",
             "20261014-420",
             "20261014-421",
+            "20261015-458",
+            "20261015-462",
+            "20261015-464",
             "20261015-466",
         ];
         for target in targets {
-            let path = std::path::Path::new(&folder).join(format!("{target}.json"));
+            let file = format!("{target}.json");
+            let pinned = std::path::Path::new(&folder).join(&file);
+            let path = if pinned.exists() {
+                pinned
+            } else {
+                std::path::Path::new(&folder).join("backtrack").join(file)
+            };
             let raw = std::fs::read_to_string(&path).expect("read pinned state");
             let state: crate::GameState =
                 serde_json::from_str(&raw).expect("deserialize pinned state");
@@ -1494,7 +1509,7 @@ mod tests {
                 let mut graph = FutureGraph::new_beam(initial.clone());
                 // Only the compact self-trap case receives a longer horizon.
                 // Each candidate still gets its own identical time budget.
-                let long_horizon = target == "20261015-466";
+                let long_horizon = target.starts_with("20261015-");
                 let budget = SearchBudget::for_duration(Duration::from_millis(if long_horizon {
                     1500
                 } else {
