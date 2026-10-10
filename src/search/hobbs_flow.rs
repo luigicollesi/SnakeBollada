@@ -171,6 +171,35 @@ impl ScoredCache {
     }
 }
 
+/// Ordering copied exactly from the last 2/3-winning revision (3fcb6a1).
+/// Keep the original comparison available as a true fallback: cached
+/// territorial evidence must never change this path when disabled.
+fn baseline_root_key(
+    direction: Direction,
+    preferred: Option<Direction>,
+    hints: &HashMap<Direction, (u8, u8)>,
+) -> (bool, bool, std::cmp::Reverse<u8>, u8, u8) {
+    let (our_exits, their_exits) = hints
+        .get(&direction)
+        .copied()
+        .unwrap_or((0, u8::MAX));
+    (
+        our_exits == 0,
+        Some(direction) != preferred,
+        std::cmp::Reverse(our_exits),
+        their_exits,
+        direction.rank(),
+    )
+}
+
+fn baseline_root_order(
+    directions: &mut [Direction],
+    preferred: Option<Direction>,
+    hints: &HashMap<Direction, (u8, u8)>,
+) {
+    directions.sort_by_key(|&direction| baseline_root_key(direction, preferred, hints));
+}
+
 fn alpha_cuts_reply(incumbent: &Route, worst_so_far: &Route) -> bool {
     // MIN cannot improve its value by inspecting additional replies. Once its
     // upper bound is <= this MAX incumbent, the action cannot win the MAX.
@@ -316,6 +345,9 @@ fn evaluate_minimax(
             }
             corridor_by_direction.insert(*direction, (worst_ours, best_enemy));
         }
+        // Restore the exact successful 3fcb6a1 priority before any
+        // experimental territorial-ordering changes.
+        baseline_root_order(&mut directions, preferred, &corridor_by_direction);
         // Sample at most 24 unique cached states per search. All snapshots
         // are shared between iterative depths; no new actions are generated.
         // A 2ms deadline bounds overhead and leaves the normal search reserve.
@@ -339,8 +371,11 @@ fn evaluate_minimax(
         // Missing/pruned replies give only partial territorial information.
         // Use the new heuristic only when every root direction has a sample;
         // otherwise keep the previous total, transitive ordering intact.
-        let all_directions_sampled = territorial.len() == directions.len();
-        directions.sort_by(|left, right| {
+        let all_directions_sampled = territory_ordering
+            && !territorial.is_empty()
+            && territorial.len() == directions.len();
+        if all_directions_sampled {
+            directions.sort_by(|left, right| {
             let a = *left;
             let b = *right;
             let (left_exits, left_enemy) = corridor_by_direction
@@ -369,7 +404,8 @@ fn evaluate_minimax(
                 .then_with(|| right_exits.cmp(&left_exits))
                 .then_with(|| left_enemy.cmp(&right_enemy))
                 .then_with(|| a.rank().cmp(&b.rank()))
-        });
+            });
+        }
     } else {
         directions.sort_by_key(|direction| (Some(*direction) != preferred, direction.rank()));
     }
@@ -965,6 +1001,47 @@ mod tests {
                 pressure: 0,
             } > threatening
         );
+    }
+
+    #[test]
+    fn legacy_root_order_matches_winning_revision_for_complete_and_missing_hints() {
+        let cases = [
+            (None, HashMap::new()),
+            (
+                Some(Direction::Right),
+                HashMap::from([
+                    (Direction::Up, (2, 1)),
+                    (Direction::Right, (2, 3)),
+                    (Direction::Left, (0, 0)),
+                ]),
+            ),
+            (
+                Some(Direction::Down),
+                HashMap::from([
+                    (Direction::Up, (0, 1)),
+                    (Direction::Right, (3, 3)),
+                    (Direction::Down, (1, 1)),
+                    (Direction::Left, (4, 2)),
+                ]),
+            ),
+        ];
+        for (preferred, hints) in cases {
+            let mut actual = Direction::ALL.to_vec();
+            baseline_root_order(&mut actual, preferred, &hints);
+            let mut expected = Direction::ALL.to_vec();
+            expected.sort_by_key(|direction| {
+                let (our_exits, their_exits) =
+                    hints.get(direction).copied().unwrap_or((0, u8::MAX));
+                (
+                    our_exits == 0,
+                    Some(*direction) != preferred,
+                    std::cmp::Reverse(our_exits),
+                    their_exits,
+                    direction.rank(),
+                )
+            });
+            assert_eq!(actual, expected);
+        }
     }
 
     #[test]
