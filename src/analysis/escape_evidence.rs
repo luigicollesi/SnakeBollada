@@ -80,9 +80,10 @@ impl EscapeSnapshot {
     }
 
     fn suggested_horizon(self) -> u8 {
-        if self.observed_dead || self.immediate_exits == 0 {
-            MAX_ESCAPE_HORIZON
-        } else if self.immediate_exits == 1 && self.contested_exits > 0 {
+        if self.observed_dead
+            || self.immediate_exits == 0
+            || (self.immediate_exits == 1 && self.contested_exits > 0)
+        {
             MAX_ESCAPE_HORIZON
         } else if self.contested_exits > 0 {
             CONTESTED_ESCAPE_HORIZON
