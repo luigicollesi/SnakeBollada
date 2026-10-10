@@ -83,6 +83,7 @@ then benchmark against the pinned primary revision before accepting changes.
 | `off` | Original baseline tactical ordering, without shadow diagnostics |
 | `shadow` | Original baseline with post-search diagnostics |
 | `ordering_v2` | Conservative experimental reordering, opt-in only |
+| `ordering_v3` | Experimental territorial-drop tiebreak, using cached consecutive snapshots |
 
 The default above is implemented on `dev`; this change does not merge to
 `main` or deploy a new production build.
@@ -139,3 +140,21 @@ Regression tests include recorded Hovering Hobbs positions, territory release/ti
 ## Attribution
 
 The project began from the MIT-licensed [Battlesnake Rust Starter Project](https://github.com/BattlesnakeOfficial/starter-snake-rust). The decision evaluator is independently adapted from ideas used in Hovering Hobbs.
+
+### Experimental territorial-collapse hint (`ordering_v3`)
+
+`ordering` remains the validated default. V3 compares raw Hobbs `claimed_cells`
+between consecutive states of the **same cached reply chain**, recording absolute
+and relative drops, opponent gain, first drop ply, and whether control recovers
+on the next observed ply. This is a diagnostic of lost *predicted* control, not
+a proof of a blocked gateway or an exhaustive MIN forecast. Only large drops
+(at least 8 cells and 40%) without observed recovery, combined with at most
+two cached continuations, affect ordering, and only inside a fixed
+50-milli territorial-margin bucket. Missing evidence preserves the original
+tactical ordering. This feature is opt-in; `HobbsScore`, `RouteRank`, opponent
+replies, and iterative-deepening search are unchanged.
+
+Production `ordering` no longer runs post-decision Shadow or V2 verification.
+Hobbs leaf territory snapshots are reused by the root ordering sampler, avoiding
+a second flood-fill when the state was already evaluated. The diagnostic
+`shadow` and `ordering_v2` modes remain explicit comparison options.

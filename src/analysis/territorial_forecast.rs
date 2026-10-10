@@ -150,6 +150,64 @@ impl TerritoryTrajectory {
     }
 }
 
+/// Observed change in raw Hobbs-claimed cells along ONE cached reply chain.
+/// A sharp drop indicates lost predicted control, not a proven closed gateway.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) struct TerritorialDrop {
+    pub(crate) max_absolute_drop: u32,
+    pub(crate) max_relative_drop_milli: u16,
+    pub(crate) first_drop_ply: Option<u8>,
+    pub(crate) opponent_gain: i32,
+    /// None means the sampled chain ended before a recovery could be checked.
+    pub(crate) recovered_next_ply: Option<bool>,
+}
+
+impl TerritorialDrop {
+    const MIN_ABSOLUTE: u32 = 8;
+    const MIN_RELATIVE_MILLI: u16 = 400;
+
+    pub(crate) fn significant(self) -> bool {
+        self.max_absolute_drop >= Self::MIN_ABSOLUTE
+            && self.max_relative_drop_milli >= Self::MIN_RELATIVE_MILLI
+            && self.recovered_next_ply != Some(true)
+    }
+
+    fn from_snapshots(states: &[TerritorySnapshot]) -> Option<Self> {
+        if states.len() < 2 {
+            return None;
+        }
+        let mut result = Self::default();
+        for (index, pair) in states.windows(2).enumerate() {
+            let previous = pair[0];
+            let current = pair[1];
+            let lost = previous.our_claimed_cells.saturating_sub(current.our_claimed_cells);
+            let relative = lost
+                .saturating_mul(1000)
+                .saturating_div(previous.our_claimed_cells.max(1))
+                .min(1000) as u16;
+            if lost >= Self::MIN_ABSOLUTE
+                && relative >= Self::MIN_RELATIVE_MILLI
+                && result.first_drop_ply.is_none()
+            {
+                result.first_drop_ply = Some(u8::try_from(index + 1).unwrap_or(u8::MAX));
+            }
+            if (relative, lost) > (result.max_relative_drop_milli, result.max_absolute_drop) {
+                result.max_absolute_drop = lost;
+                result.max_relative_drop_milli = relative;
+                result.opponent_gain = (i64::from(current.opponent_claimed_cells)
+                    - i64::from(previous.opponent_claimed_cells))
+                    .clamp(i64::from(i32::MIN), i64::from(i32::MAX))
+                    as i32;
+                result.recovered_next_ply = states.get(index + 2).map(|next| {
+                    next.our_claimed_cells.saturating_mul(10)
+                        >= previous.our_claimed_cells.saturating_mul(8)
+                });
+            }
+        }
+        Some(result)
+    }
+}
+
 /// Small, explicitly sampled ranking hint for a root move. It is NOT a
 /// certificate: alpha-beta may have left other enemy responses unexplored.
 /// MAX/MIN still evaluates every reply required to finish a search depth.
@@ -166,6 +224,8 @@ pub(crate) struct TerritoryDirectionSample {
     /// False for cached preferred-reply chains: preferences may originate
     /// from separate, partially-pruned iterative-deepening horizons.
     pub(crate) adversarially_complete: bool,
+    /// Largest loss observed between adjacent states of a sampled reply.
+    pub(crate) territorial_drop: Option<TerritorialDrop>,
 }
 
 impl TerritoryDirectionSample {
@@ -239,6 +299,7 @@ impl TerritoryDirectionSample {
                 snapshots.push(snapshot);
             }
             let trajectory = TerritoryTrajectory::summarize(&snapshots, chain_certainty)?;
+            let drop = TerritorialDrop::from_snapshots(&snapshots);
             let depth = trajectory.samples.saturating_sub(1);
             let sample = result.get_or_insert(Self {
                 worst_mean_margin_milli: trajectory.mean_margin_milli,
@@ -249,7 +310,16 @@ impl TerritoryDirectionSample {
                 coverage: graph.response_coverage(root, direction),
                 certainty: ForecastCertainty::Deterministic,
                 adversarially_complete: false,
+                territorial_drop: drop,
             });
+            if let Some(candidate) = drop {
+                if sample.territorial_drop.is_none_or(|previous| {
+                    (candidate.max_relative_drop_milli, candidate.max_absolute_drop)
+                        > (previous.max_relative_drop_milli, previous.max_absolute_drop)
+                }) {
+                    sample.territorial_drop = Some(candidate);
+                }
+            }
             sample.examined_replies = sample.examined_replies.saturating_add(1);
             sample.max_sampled_depth = sample.max_sampled_depth.max(depth);
             sample.min_sampled_depth = sample.min_sampled_depth.min(depth);
@@ -331,6 +401,39 @@ mod tests {
             snapshot.margin_milli,
             snapshot.our_control_milli - snapshot.opponent_control_milli
         );
+    }
+
+    #[test]
+    fn territorial_drop_only_compares_consecutive_states_in_one_chain() {
+        let snapshot = |ours, theirs| TerritorySnapshot {
+            our_control_milli: 500,
+            opponent_control_milli: 500,
+            margin_milli: 0,
+            our_claimed_cells: ours,
+            opponent_claimed_cells: theirs,
+        };
+        let loss = TerritorialDrop::from_snapshots(&[
+            snapshot(30, 20),
+            snapshot(8, 39),
+            snapshot(9, 38),
+        ])
+        .unwrap();
+        assert_eq!(loss.max_absolute_drop, 22);
+        assert_eq!(loss.max_relative_drop_milli, 733);
+        assert_eq!(loss.first_drop_ply, Some(1));
+        assert_eq!(loss.opponent_gain, 19);
+        assert_eq!(loss.recovered_next_ply, Some(false));
+        assert!(loss.significant());
+
+        let recovered = TerritorialDrop::from_snapshots(&[
+            snapshot(30, 20),
+            snapshot(8, 39),
+            snapshot(29, 23),
+        ])
+        .unwrap();
+        assert_eq!(recovered.recovered_next_ply, Some(true));
+        assert!(!recovered.significant());
+        assert!(TerritorialDrop::from_snapshots(&[snapshot(30, 20)]).is_none());
     }
 
     #[test]

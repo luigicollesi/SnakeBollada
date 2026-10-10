@@ -10,7 +10,9 @@ use crate::evaluation::StateScore;
 use crate::search::budget::SearchBudget;
 use crate::search::forecast::ForecastCertainty;
 use crate::search::graph::FutureGraph;
-use crate::search::hobbs_flow::{search_hobbs, search_hobbs_baseline, search_hobbs_ordering_v2};
+use crate::search::hobbs_flow::{
+    search_hobbs, search_hobbs_baseline, search_hobbs_ordering_v2, search_hobbs_ordering_v3,
+};
 use crate::search::path::FuturePath;
 use crate::simulation::state::{SimulatedGameState, SimulationSupport};
 use crate::strategy::{
@@ -66,6 +68,7 @@ impl DecisionEngine {
         let mode = TerritorialMode::configured();
         let hobbs = match mode {
             TerritorialMode::Ordering => search_hobbs(graph, &budget),
+            TerritorialMode::OrderingV3 => search_hobbs_ordering_v3(graph, &budget),
             TerritorialMode::OrderingV2 => search_hobbs_ordering_v2(graph, &budget),
             TerritorialMode::Off | TerritorialMode::Shadow => search_hobbs_baseline(graph, &budget),
         }
@@ -153,6 +156,7 @@ enum TerritorialMode {
     Shadow,
     Ordering,
     OrderingV2,
+    OrderingV3,
 }
 
 impl TerritorialMode {
@@ -161,6 +165,7 @@ impl TerritorialMode {
             "off" => Self::Off,
             "shadow" => Self::Shadow,
             "ordering_v2" => Self::OrderingV2,
+            "ordering_v3" => Self::OrderingV3,
             "ordering" | "" => Self::Ordering,
             // A misspelled mode must not silently replace the primary policy.
             _ => Self::Ordering,
@@ -479,6 +484,7 @@ mod tests {
             TerritorialMode::parse(" Ordering_V2 "),
             TerritorialMode::OrderingV2
         );
+        assert_eq!(TerritorialMode::parse("ordering_v3"), TerritorialMode::OrderingV3);
         assert_eq!(TerritorialMode::parse("shadow"), TerritorialMode::Shadow);
         assert_eq!(TerritorialMode::parse(" Shadow "), TerritorialMode::Shadow);
     }
