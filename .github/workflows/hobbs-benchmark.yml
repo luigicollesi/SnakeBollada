@@ -2,6 +2,7 @@ name: Hovering Hobbs Benchmark (manual, localhost only)
 # Run pinned three-seed native localhost duels (no Docker Hub, no Vercel).
 # Compare territory modes against the SAME pinned Hobbs and 3 fixed seeds.
 # Runs at the integration-tested code commit; each matrix job has separate evidence.
+# Validation checkpoint: Ordering V2 pre-activation (source revision d6eaa94), three pinned seeds.
 on:
   push:
     branches: [dev]
