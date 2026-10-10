@@ -16,7 +16,7 @@ struct GameSession {
 
 #[derive(Debug)]
 pub(crate) struct GameRuntime {
-    sessions: RwLock<HashMap<(String, String), Arc<GameSession>>,
+    sessions: RwLock<HashMap<(String, String), Arc<GameSession>>>,
     // Bound heavy CPU jobs. An overloaded process returns a valid fallback
     // instead of queueing unlimited searches behind the HTTP executor.
     search_slots: Arc<Semaphore>,
