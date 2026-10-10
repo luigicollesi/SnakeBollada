@@ -2,7 +2,7 @@ name: Hovering Hobbs Benchmark (manual, localhost only)
 # Run pinned three-seed native localhost duels (no Docker Hub, no Vercel).
 # Compare territory modes against the SAME pinned Hobbs and 3 fixed seeds.
 # Runs at the integration-tested code commit; each matrix job has separate evidence.
-# Validation checkpoint: adaptive escape evidence (source revision 13fa78c), three pinned seeds.
+# Validation checkpoint: Ordering V2 (source revision 2a72bb8), same 3 fixed seeds.
 on:
   push:
     branches: [dev]
@@ -26,7 +26,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        territory_mode: [shadow, ordering]
+        territory_mode: [shadow, ordering, ordering_v2]
     env:
       TERRITORY_MODE: ${{ matrix.territory_mode }}
     steps:
@@ -137,6 +137,13 @@ jobs:
               escape_completed_logs=sum('escape_completed_line turn=' in line for line in logs.splitlines())
               escape_horizon_complete_logs=sum('escape_completed_line turn=' in line and 'horizon_complete=true' in line for line in logs.splitlines())
               escape_contested_logs=sum('escape_completed_line turn=' in line and 'contested_at=Some(' in line for line in logs.splitlines())
+              v2_order_events=[line for line in logs.splitlines() if 'root_ordering_v2 turn=' in line]
+              v2_reorders=sum('changed=true' in line for line in v2_order_events)
+              v2_fallbacks=sum('fallback=' in line for line in v2_order_events)
+              adversarial_logs=[line for line in logs.splitlines() if 'escape_adversarial_line turn=' in line]
+              adversarial_losses=sum('verdict=ForcedLossWithinHorizon' in line for line in adversarial_logs)
+              adversarial_survivals=sum('verdict=SurvivesHorizon' in line for line in adversarial_logs)
+              adversarial_unknown=sum('verdict=Unknown' in line for line in adversarial_logs)
               territory_root_logs=sum('territory_shadow' in line and 'scope=root' in line for line in logs.splitlines())
               territory_direction_logs=sum('territory_shadow' in line and 'known_replies=' in line for line in logs.splitlines())
               territory_return_logs=sum('territory_return turn=' in line for line in logs.splitlines())
@@ -146,7 +153,7 @@ jobs:
               cli_path=d/"cli-exit-code.txt"
               cli_exit=int(cli_path.read_text().strip()) if cli_path.exists() else None
               console=(d/"game-console.log").read_text(errors="replace") if (d/"game-console.log").exists() else ""
-              output.append(dict(seed=d.name,mode=os.environ.get('TERRITORY_MODE'),territory_compares=territory_compares,escape_completed_logs=escape_completed_logs,escape_horizon_complete_logs=escape_horizon_complete_logs,escape_contested_logs=escape_contested_logs,cli_exit=cli_exit,network_errors=sum(("EOF" in line or "connection refused" in line.lower()) for line in console.splitlines()),winner=survivors[0] if len(survivors)==1 else ("draw" if not survivors else "undetermined"),
+              output.append(dict(seed=d.name,mode=os.environ.get('TERRITORY_MODE'),territory_compares=territory_compares,escape_completed_logs=escape_completed_logs,escape_horizon_complete_logs=escape_horizon_complete_logs,escape_contested_logs=escape_contested_logs,v2_order_events=len(v2_order_events),v2_reorders=v2_reorders,v2_fallbacks=v2_fallbacks,adversarial_logs=len(adversarial_logs),adversarial_losses=adversarial_losses,adversarial_survivals=adversarial_survivals,adversarial_unknown=adversarial_unknown,cli_exit=cli_exit,network_errors=sum(("EOF" in line or "connection refused" in line.lower()) for line in console.splitlines()),winner=survivors[0] if len(survivors)==1 else ("draw" if not survivors else "undetermined"),
                   turns=states[-1]["turn"],max_ours=max(our),max_hobbs=max(their),
                   first_growth=next((s["turn"] for s,n in zip(states,our) if n>our[0]),None),
                   smaller_turns=sum(length(s,"SnakeBollada")<length(s,"Hovering Hobbs") for s in alive),
