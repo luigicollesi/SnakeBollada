@@ -193,10 +193,7 @@ fn baseline_root_key(
     preferred: Option<Direction>,
     hints: &HashMap<Direction, (u8, u8)>,
 ) -> (bool, bool, std::cmp::Reverse<u8>, u8, u8) {
-    let (our_exits, their_exits) = hints
-        .get(&direction)
-        .copied()
-        .unwrap_or((0, u8::MAX));
+    let (our_exits, their_exits) = hints.get(&direction).copied().unwrap_or((0, u8::MAX));
     (
         our_exits == 0,
         Some(direction) != preferred,
@@ -417,39 +414,38 @@ fn evaluate_minimax(
         // Missing/pruned replies give only partial territorial information.
         // Use the new heuristic only when every root direction has a sample;
         // otherwise keep the previous total, transitive ordering intact.
-        let all_directions_sampled = territory_ordering
-            && !territorial.is_empty()
-            && territorial.len() == directions.len();
+        let all_directions_sampled =
+            territory_ordering && !territorial.is_empty() && territorial.len() == directions.len();
         if all_directions_sampled {
             directions.sort_by(|left, right| {
-            let a = *left;
-            let b = *right;
-            let (left_exits, left_enemy) = corridor_by_direction
-                .get(&a)
-                .copied()
-                .unwrap_or((0, u8::MAX));
-            let (right_exits, right_enemy) = corridor_by_direction
-                .get(&b)
-                .copied()
-                .unwrap_or((0, u8::MAX));
-            (left_exits == 0)
-                .cmp(&(right_exits == 0))
-                .then_with(|| {
-                    if all_directions_sampled {
-                        match (territorial.get(&a), territorial.get(&b)) {
-                            (Some(left_hint), Some(right_hint)) => {
-                                right_hint.ordering_key().cmp(&left_hint.ordering_key())
+                let a = *left;
+                let b = *right;
+                let (left_exits, left_enemy) = corridor_by_direction
+                    .get(&a)
+                    .copied()
+                    .unwrap_or((0, u8::MAX));
+                let (right_exits, right_enemy) = corridor_by_direction
+                    .get(&b)
+                    .copied()
+                    .unwrap_or((0, u8::MAX));
+                (left_exits == 0)
+                    .cmp(&(right_exits == 0))
+                    .then_with(|| {
+                        if all_directions_sampled {
+                            match (territorial.get(&a), territorial.get(&b)) {
+                                (Some(left_hint), Some(right_hint)) => {
+                                    right_hint.ordering_key().cmp(&left_hint.ordering_key())
+                                }
+                                _ => Ordering::Equal,
                             }
-                            _ => Ordering::Equal,
+                        } else {
+                            Ordering::Equal
                         }
-                    } else {
-                        Ordering::Equal
-                    }
-                })
-                .then_with(|| (Some(a) != preferred).cmp(&(Some(b) != preferred)))
-                .then_with(|| right_exits.cmp(&left_exits))
-                .then_with(|| left_enemy.cmp(&right_enemy))
-                .then_with(|| a.rank().cmp(&b.rank()))
+                    })
+                    .then_with(|| (Some(a) != preferred).cmp(&(Some(b) != preferred)))
+                    .then_with(|| right_exits.cmp(&left_exits))
+                    .then_with(|| left_enemy.cmp(&right_enemy))
+                    .then_with(|| a.rank().cmp(&b.rank()))
             });
         }
     } else {
