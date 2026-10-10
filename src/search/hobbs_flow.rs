@@ -1523,17 +1523,29 @@ mod tests {
                     true,
                     Instant::now() + Duration::from_millis(70),
                 );
-                assert_eq!(graph.node_count(), nodes_before, "trial must not expand nodes");
-                assert_eq!(graph.edge_count(), edges_before, "trial must not expand edges");
+                assert_eq!(
+                    graph.node_count(),
+                    nodes_before,
+                    "trial must not expand nodes"
+                );
+                assert_eq!(
+                    graph.edge_count(),
+                    edges_before,
+                    "trial must not expand edges"
+                );
                 println!(
                     "V3_SAMPLING_TRIAL state={:?} direction={:?} baseline={:?} extended={:?}",
                     path.file_stem(),
                     direction,
                     sample.map(|hint| (
-                        hint.examined_replies, hint.max_sampled_depth, hint.territorial_drop,
+                        hint.examined_replies,
+                        hint.max_sampled_depth,
+                        hint.territorial_drop,
                     )),
                     extended.map(|hint| (
-                        hint.examined_replies, hint.max_sampled_depth, hint.territorial_drop,
+                        hint.examined_replies,
+                        hint.max_sampled_depth,
+                        hint.territorial_drop,
                     )),
                 );
             }
