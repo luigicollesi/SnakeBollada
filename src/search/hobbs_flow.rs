@@ -28,6 +28,7 @@ use super::graph::{
     CachedSearchValue, FutureGraph, NodeId, ResponseLookup, SearchEdge, SearchError,
 };
 use super::path::{FuturePath, FutureStep, MAX_SEARCH_DEPTH};
+use super::root_ordering::{reorder_root_v2, RootV2Hint};
 
 #[derive(Debug, Clone)]
 pub(crate) struct HobbsSearchResult {
@@ -156,6 +157,7 @@ struct ScoredCache {
     /// Root directions from ONE completed iterative-deepening depth only.
     /// Replaced atomically after a successful depth (never on deadline).
     completed_root_lines: HashMap<Direction, CompletedRootLine>,
+    v2_spent: Duration,
 }
 
 #[derive(Debug, Clone)]
@@ -213,26 +215,168 @@ fn baseline_root_order(
     directions.sort_by_key(|&direction| baseline_root_key(direction, preferred, hints));
 }
 
+/// Conservative V2 only consumes prior, fully finished iterative-deepening
+/// results. No graph expansion; no adjustments to scores or MIN responses.
+/// The total analysis allowance across depths is 3 ms per decision.
+fn conservative_v2_root_order(
+    graph: &FutureGraph,
+    directions: &mut [Direction],
+    depth: u8,
+    cache: &mut ScoredCache,
+    budget: &SearchBudget,
+) {
+    const TOTAL_OVERHEAD: Duration = Duration::from_millis(3);
+    let available = TOTAL_OVERHEAD.saturating_sub(cache.v2_spent);
+    if depth < 2 || directions.len() < 2 || available.is_zero() || budget.expired() {
+        return;
+    }
+    let previous_depth = depth - 1;
+    if !directions.iter().all(|direction| {
+        cache
+            .completed_root_lines
+            .get(direction)
+            .is_some_and(|line| line.depth == previous_depth)
+    }) {
+        log::debug!(
+            target: "territorial_control",
+            "root_ordering_v2 turn={} depth={} fallback=incomplete_previous_depth",
+            graph.node(graph.root()).state.turn,
+            depth,
+        );
+        return;
+    }
+    let horizon = previous_depth.min(4);
+    let start = Instant::now();
+    let deadline = start + available;
+    let mut analyzer = AdversarialEscapeAnalyzer::new(graph, deadline);
+    let mut hints = HashMap::<Direction, RootV2Hint>::new();
+    let baseline = directions.to_vec();
+    for &direction in baseline.iter() {
+        if Instant::now() >= deadline {
+            break;
+        }
+        let risk = analyzer.analyze_root_direction(direction, horizon);
+        if risk.budget_truncated {
+            break;
+        }
+        hints.insert(
+            direction,
+            RootV2Hint {
+                verdict: risk.verdict,
+                certainty: risk.certainty,
+                horizon: risk.requested_horizon,
+                comparable_margin: None,
+            },
+        );
+    }
+
+    // Territory is a selected-path heuristic, never a worst-case MIN bound.
+    // Only compare it when every direction is fully certified safe in the
+    // same fixed-food horizon and every line has exhaustive MIN coverage.
+    let territorial_eligible = hints.len() == directions.len()
+        && directions.iter().all(|direction| {
+            let hint = hints[direction];
+            let line = &cache.completed_root_lines[direction];
+            hint.verdict == crate::analysis::AdversarialEscapeVerdict::SurvivesHorizon
+                && hint.certainty == Some(ForecastCertainty::Deterministic)
+                && line.adversarially_complete
+                && !line.certainty.is_provisional()
+        });
+    if territorial_eligible {
+        let mut margins = HashMap::<Direction, (i64, u8)>::new();
+        for &direction in baseline.iter() {
+            if let Some(trajectory) = TerritoryTrajectory::from_graph_path(
+                graph,
+                &cache.completed_root_lines[&direction].path,
+                ForecastCertainty::Deterministic,
+                deadline,
+                &mut cache.territory_snapshots,
+            ) {
+                margins.insert(
+                    direction,
+                    (trajectory.mean_margin_milli, trajectory.samples),
+                );
+            } else {
+                break;
+            }
+        }
+        if margins.len() == directions.len()
+            && margins.values().all(|(_, count)| {
+                *count == margins[&baseline[0]].1
+            })
+        {
+            for (direction, (margin, _)) in margins {
+                if let Some(hint) = hints.get_mut(&direction) {
+                    hint.comparable_margin = Some(margin);
+                }
+            }
+        }
+    }
+    let changed = Instant::now() < deadline
+        && reorder_root_v2(directions, &hints, horizon);
+    cache.v2_spent = cache.v2_spent.saturating_add(start.elapsed());
+    log::debug!(
+        target: "territorial_control",
+        "root_ordering_v2 turn={} depth={} source_depth={} horizon={} changed={} before={:?} after={:?} hints={:?} overhead_us={} evidence=certified_fixed_food_or_baseline",
+        graph.node(graph.root()).state.turn,
+        depth,
+        previous_depth,
+        horizon,
+        changed,
+        baseline,
+        directions,
+        hints,
+        cache.v2_spent.as_micros(),
+    );
+}
+
 fn alpha_cuts_reply(incumbent: &Route, worst_so_far: &Route) -> bool {
     // MIN cannot improve its value by inspecting additional replies. Once its
     // upper bound is <= this MAX incumbent, the action cannot win the MAX.
     !compare_routes(worst_so_far, incumbent).is_gt()
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RootSearchOrdering {
+    Baseline,
+    Legacy,
+    ConservativeV2,
+}
+
 pub(crate) fn search_hobbs(
     graph: &mut FutureGraph,
     budget: &SearchBudget,
 ) -> Result<Option<HobbsSearchResult>, SearchError> {
-    search_hobbs_with_territory_ordering(graph, budget, false)
+    search_hobbs_with_ordering(graph, budget, RootSearchOrdering::Baseline)
 }
 
-/// Experimental: only change which cached root directions are searched first.
-/// Completed Minimax depths still enumerate every required enemy reply and
-/// compare the exact same RouteRank as the default Hobbs flow.
+/// Legacy experimental ordering is preserved for A/B comparisons.
 pub(crate) fn search_hobbs_with_territory_ordering(
     graph: &mut FutureGraph,
     budget: &SearchBudget,
     territory_ordering: bool,
+) -> Result<Option<HobbsSearchResult>, SearchError> {
+    let mode = if territory_ordering {
+        RootSearchOrdering::Legacy
+    } else {
+        RootSearchOrdering::Baseline
+    };
+    search_hobbs_with_ordering(graph, budget, mode)
+}
+
+/// Only opt-in ordering_v2 changes root exploration order. All MIN responses
+/// and the original RouteRank / compare_routes semantics are retained.
+pub(crate) fn search_hobbs_ordering_v2(
+    graph: &mut FutureGraph,
+    budget: &SearchBudget,
+) -> Result<Option<HobbsSearchResult>, SearchError> {
+    search_hobbs_with_ordering(graph, budget, RootSearchOrdering::ConservativeV2)
+}
+
+fn search_hobbs_with_ordering(
+    graph: &mut FutureGraph,
+    budget: &SearchBudget,
+    ordering_mode: RootSearchOrdering,
 ) -> Result<Option<HobbsSearchResult>, SearchError> {
     // The soft deadline leaves headroom for serialization and runtime jitter.
     let search_budget = budget.limited_to_soft_deadline();
@@ -250,7 +394,7 @@ pub(crate) fn search_hobbs_with_territory_ordering(
             ForecastCertainty::Deterministic,
             &search_budget,
             &mut scored,
-            territory_ordering,
+            ordering_mode,
         )?
         else {
             break;
@@ -310,7 +454,7 @@ pub(crate) fn search_hobbs_with_territory_ordering(
     // Completed root lines are comparable only at an identical horizon.
     // Keep these diagnostics out of MAX/MIN route comparison until ordering
     // V2 has validated coverage and food certainty against the baseline.
-    if territory_ordering {
+    if ordering_mode != RootSearchOrdering::Baseline {
         let deadline = Instant::now() + Duration::from_millis(2);
         // Stable iteration makes limited-budget diagnostics reproducible.
         let mut adversarial = AdversarialEscapeAnalyzer::new(graph, deadline);
@@ -400,7 +544,7 @@ fn evaluate_minimax(
     certainty: ForecastCertainty,
     budget: &SearchBudget,
     cache: &mut ScoredCache,
-    territory_ordering: bool,
+    ordering_mode: RootSearchOrdering,
 ) -> Result<Option<Route>, SearchError> {
     if budget.expired() {
         return Ok(None);
@@ -449,7 +593,7 @@ fn evaluate_minimax(
         // are shared between iterative depths; no new actions are generated.
         // A 2ms deadline bounds overhead and leaves the normal search reserve.
         let mut territorial = HashMap::<Direction, TerritoryDirectionSample>::new();
-        if territory_ordering && depth >= 2 && !budget.expired() {
+        if ordering_mode == RootSearchOrdering::Legacy && depth >= 2 && !budget.expired() {
             let expires = Instant::now() + Duration::from_millis(2);
             for direction in &directions {
                 if Instant::now() >= expires {
@@ -469,7 +613,9 @@ fn evaluate_minimax(
         // Use the new heuristic only when every root direction has a sample;
         // otherwise keep the previous total, transitive ordering intact.
         let all_directions_sampled =
-            territory_ordering && !territorial.is_empty() && territorial.len() == directions.len();
+            ordering_mode == RootSearchOrdering::Legacy
+                && !territorial.is_empty()
+                && territorial.len() == directions.len();
         if all_directions_sampled {
             directions.sort_by(|left, right| {
                 let a = *left;
@@ -501,6 +647,9 @@ fn evaluate_minimax(
                     .then_with(|| left_enemy.cmp(&right_enemy))
                     .then_with(|| a.rank().cmp(&b.rank()))
             });
+        }
+        if ordering_mode == RootSearchOrdering::ConservativeV2 {
+            conservative_v2_root_order(graph, &mut directions, depth, cache, budget);
         }
     } else {
         directions.sort_by_key(|direction| (Some(*direction) != preferred, direction.rank()));
@@ -589,7 +738,7 @@ fn evaluate_minimax(
                 child_certainty,
                 budget,
                 cache,
-                territory_ordering,
+                ordering_mode,
             )?
             else {
                 return Ok(None);
