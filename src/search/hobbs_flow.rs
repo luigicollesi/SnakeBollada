@@ -1484,7 +1484,7 @@ mod tests {
             let state: crate::GameState =
                 serde_json::from_str(&raw).expect("deserialize pinned state");
             let initial = crate::simulation::state::SimulatedGameState::from(&state);
-            let candidate_graph = FutureGraph::new_beam(initial.clone());
+            let mut candidate_graph = FutureGraph::new_beam(initial.clone());
             let directions = candidate_graph.available_directions(candidate_graph.root());
             assert!(directions.len() >= 2, "{target}: expected alternative");
             for direction in directions {
