@@ -6,8 +6,7 @@ use crate::analysis::{TerritorialDrop, TerritoryDirectionSample};
 use crate::direction::Direction;
 
 fn risky_drop(drop: Option<TerritorialDrop>, continuations: Option<u8>) -> bool {
-    drop.is_some_and(|signal| signal.significant())
-        && continuations.is_some_and(|count| count <= 2)
+    drop.is_some_and(|signal| signal.significant()) && continuations.is_some_and(|count| count <= 2)
 }
 
 /// Stable winning comparator is retained when experimental_drop is false.
