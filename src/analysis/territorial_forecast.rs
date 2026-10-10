@@ -260,8 +260,7 @@ impl TerritoryDirectionSample {
             cached_leaf,
             collect_drop,
             deadline,
-            Self::MAX_REPLIES_PER_DIRECTION,
-            Self::MAX_CACHED_PLIES,
+            (Self::MAX_REPLIES_PER_DIRECTION, Self::MAX_CACHED_PLIES),
         )
     }
 
@@ -283,8 +282,7 @@ impl TerritoryDirectionSample {
             cached_leaf,
             collect_drop,
             deadline,
-            3,
-            6,
+            (3, 6),
         )
     }
 
@@ -295,8 +293,7 @@ impl TerritoryDirectionSample {
         cached_leaf: impl Fn(NodeId) -> Option<TerritorySnapshot>,
         collect_drop: bool,
         deadline: Instant,
-        reply_limit: usize,
-        chain_limit: usize,
+        limits: (usize, usize),
     ) -> Option<Self> {
         let root = graph.root();
         let mut edges = graph.known_responses(root, direction);
@@ -308,11 +305,11 @@ impl TerritoryDirectionSample {
         }
         let mut result: Option<Self> = None;
         let mut terminal_reply_seen = false;
-        for edge in edges.iter().take(reply_limit) {
+        for edge in edges.iter().take(limits.0) {
             let mut chain = vec![root, edge.child];
             let mut chain_certainty = ForecastCertainty::Deterministic.after(edge.forecast_delta);
             let mut current = edge.child;
-            for _ in 1..chain_limit {
+            for _ in 1..limits.1 {
                 let node = graph.node(current);
                 let Some(preferred) = node.preferred_direction else {
                     break;
