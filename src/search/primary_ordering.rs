@@ -128,10 +128,7 @@ mod tests {
             opponent_gain: 14,
             recovered_next_ply: Some(false),
         });
-        let tactical = HashMap::from([
-            (Direction::Right, (4, 4)),
-            (Direction::Up, (3, 4)),
-        ]);
+        let tactical = HashMap::from([(Direction::Right, (4, 4)), (Direction::Up, (3, 4))]);
         let territorial = HashMap::from([
             (Direction::Right, hint(300, drop)),
             (Direction::Up, hint(299, None)),
@@ -145,14 +142,17 @@ mod tests {
 
     #[test]
     fn v3_does_not_penalize_unknown_or_recovered_or_terminal_drops() {
-        let mut sample = hint(320, Some(TerritorialDrop {
-            max_absolute_drop: 22,
-            max_relative_drop_milli: 733,
-            first_drop_ply: Some(2),
-            max_drop_ply: Some(2),
-            opponent_gain: 12,
-            recovered_next_ply: None,
-        }));
+        let mut sample = hint(
+            320,
+            Some(TerritorialDrop {
+                max_absolute_drop: 22,
+                max_relative_drop_milli: 733,
+                first_drop_ply: Some(2),
+                max_drop_ply: Some(2),
+                opponent_gain: 12,
+                recovered_next_ply: None,
+            }),
+        );
         assert_eq!(drop_adjustment(&sample), 0);
         sample.territorial_drop.as_mut().unwrap().recovered_next_ply = Some(true);
         assert_eq!(drop_adjustment(&sample), 0);
@@ -180,24 +180,24 @@ mod tests {
         sort_primary_root(&mut directions, None, &HashMap::new(), &territorial, true);
         assert_eq!(directions[0], Direction::Right);
 
-        let tactical = HashMap::from([
-            (Direction::Right, (0, 4)),
-            (Direction::Up, (2, 4)),
-        ]);
+        let tactical = HashMap::from([(Direction::Right, (0, 4)), (Direction::Up, (2, 4))]);
         sort_primary_root(&mut directions, None, &tactical, &territorial, true);
         assert_eq!(directions[0], Direction::Up);
     }
 
     #[test]
     fn v3_drop_requires_observation_inside_sampled_horizon() {
-        let mut sample = hint(300, Some(TerritorialDrop {
-            max_absolute_drop: 20,
-            max_relative_drop_milli: 700,
-            first_drop_ply: Some(1),
-            max_drop_ply: Some(3),
-            opponent_gain: 15,
-            recovered_next_ply: Some(false),
-        }));
+        let mut sample = hint(
+            300,
+            Some(TerritorialDrop {
+                max_absolute_drop: 20,
+                max_relative_drop_milli: 700,
+                first_drop_ply: Some(1),
+                max_drop_ply: Some(3),
+                opponent_gain: 15,
+                recovered_next_ply: Some(false),
+            }),
+        );
         sample.min_sampled_depth = 2;
         assert_eq!(drop_adjustment(&sample), 0);
         sample.min_sampled_depth = 3;

@@ -470,8 +470,8 @@ mod tests {
         assert_eq!(recovered.recovered_next_ply, Some(true));
         assert!(!recovered.significant());
 
-        let unknown = TerritorialDrop::from_snapshots(&[snapshot(30, 20), snapshot(8, 39)])
-            .unwrap();
+        let unknown =
+            TerritorialDrop::from_snapshots(&[snapshot(30, 20), snapshot(8, 39)]).unwrap();
         assert_eq!(unknown.recovered_next_ply, None);
         assert!(!unknown.significant());
 
