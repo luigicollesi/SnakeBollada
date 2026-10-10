@@ -1495,9 +1495,11 @@ mod tests {
                 // Only the compact self-trap case receives a longer horizon.
                 // Each candidate still gets its own identical time budget.
                 let long_horizon = target == "20261015-466";
-                let budget = SearchBudget::for_duration(Duration::from_millis(
-                    if long_horizon { 1500 } else { 600 },
-                ));
+                let budget = SearchBudget::for_duration(Duration::from_millis(if long_horizon {
+                    1500
+                } else {
+                    600
+                }));
                 let mut last_complete: Option<(u8, Route, bool)> = None;
                 let depth_limit = if long_horizon { 20 } else { 7 };
                 for depth in 1..=depth_limit {
