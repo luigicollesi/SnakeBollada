@@ -127,7 +127,10 @@ pub(crate) fn choose_move_baseline(state: &GameState) -> Decision {
     let uncontested = legal_moves
         .iter()
         .copied()
-        .filter(|direction| !map.lethal_head_danger.contains(direction.apply(state.you.head)))
+        .filter(|direction| {
+            !map.lethal_head_danger
+                .contains(direction.apply(state.you.head))
+        }
         .collect::<Vec<_>>();
     let candidates = if uncontested.is_empty() {
         &legal_moves
@@ -143,11 +146,8 @@ pub(crate) fn choose_move_baseline(state: &GameState) -> Decision {
         .copied()
         .map(|direction| {
             let destination = direction.apply(state.you.head);
-            let reachable = mobility.reachable_space(
-                &simulated,
-                &simulated.our_snake_id,
-                direction,
-            );
+            let reachable =
+                mobility.reachable_space(&simulated, &simulated.our_snake_id, direction);
             let cramped = reachable < state.you.length;
             let food_distance = state
                 .board
@@ -156,7 +156,13 @@ pub(crate) fn choose_move_baseline(state: &GameState) -> Decision {
                 .map(|food| destination.x.abs_diff(food.x) + destination.y.abs_diff(food.y))
                 .min()
                 .unwrap_or(u32::MAX);
-            (direction, reachable, cramped, map.is_hazard(destination), food_distance)
+            (
+                direction,
+                reachable,
+                cramped,
+                map.is_hazard(destination),
+                food_distance,
+            )
         })
         .min_by_key(|(direction, reachable, cramped, hazard, food_distance)| {
             (
