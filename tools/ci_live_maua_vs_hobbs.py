@@ -147,7 +147,8 @@ def make_relay(base_url: str, snake_name: str):
                 except (ValueError, UnicodeDecodeError):
                     pass
             req = urllib.request.Request(
-                base_url + route, data=payload, method="POST" if payload is not None else "GET",
+                base_url if route == "/" else base_url + route,
+                data=payload, method="POST" if payload is not None else "GET",
                 headers={"Content-Type": "application/json", "User-Agent": "SnakeBollada-live-benchmark"}
             )
             started = time.monotonic()
