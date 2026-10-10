@@ -53,9 +53,7 @@ impl EscapeSnapshot {
                 .snakes
                 .iter()
                 .filter(|enemy| {
-                    enemy.alive
-                        && enemy.id != state.our_snake_id
-                        && enemy.length() >= ours.length()
+                    enemy.alive && enemy.id != state.our_snake_id && enemy.length() >= ours.length()
                 })
                 .filter_map(|enemy| enemy.head().map(|enemy_head| (enemy, enemy_head)))
                 .any(|(enemy, enemy_head)| {

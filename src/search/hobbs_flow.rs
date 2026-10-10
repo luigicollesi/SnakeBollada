@@ -10,8 +10,8 @@ use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
 use crate::analysis::{
-    adversarial_order, AdversarialCorridorOrder, CorridorOutlook, EscapeEvidence, TemporalTerritory,
-    TerritoryDirectionSample, TerritorySnapshot, TerritoryTrajectory,
+    adversarial_order, AdversarialCorridorOrder, CorridorOutlook, EscapeEvidence,
+    TemporalTerritory, TerritoryDirectionSample, TerritorySnapshot, TerritoryTrajectory,
 };
 use crate::direction::Direction;
 use crate::evaluation::{

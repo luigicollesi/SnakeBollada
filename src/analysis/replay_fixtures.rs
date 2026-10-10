@@ -382,7 +382,9 @@ pub(crate) fn late_seed_20261003(turn: i32) -> SimulatedGameState {
             _ => panic!("invalid replay coordinate"),
         };
         bytes
-            .chunks_exact(2)
+            .as_chunks::<2>()
+            .0
+            .iter()
             .map(|pair| Coord {
                 x: digit(pair[0]),
                 y: digit(pair[1]),
