@@ -68,6 +68,17 @@ impl RouteRank {
         }
     }
 
+    // Bounded risk premium (milli-points). A credible edge/corridor threat
+    // matters when Hobbs scores are close, without categorically vetoing a
+    // substantially stronger territory position.
+    fn risk_penalty_milli(self) -> i64 {
+        match self.safety {
+            TrapAssessment::Constrained => 180,
+            TrapAssessment::ForcedCorridor => 280,
+            TrapAssessment::Viable | TrapAssessment::Unknown | TrapAssessment::ProvenTrap => 0,
+        }
+    }
+
     fn safety_rank(self) -> u8 {
         match self.safety {
             TrapAssessment::Viable => 4,
@@ -83,10 +94,22 @@ impl Ord for RouteRank {
     fn cmp(&self, other: &Self) -> Ordering {
         self.tier()
             .cmp(&other.tier())
-            // Match Hobbs: territory, length and food/health determine
-            // strategic preference, even when a route looks constrained.
-            .then_with(|| self.score.cmp(&other.score))
-            // Soft safety and tactical pressure may only break equal scores.
+            // Preserve Hobbs' health mode and territorial value. A small,
+            // bounded penalty prevents edge-pin regressions when the territory
+            // gap is marginal; no unproven warning is a hard veto.
+            .then_with(|| match (self.score, other.score) {
+                (
+                    StateScore::Normal {
+                        utility_milli: left,
+                    },
+                    StateScore::Normal {
+                        utility_milli: right,
+                    },
+                ) => left
+                    .saturating_sub(self.risk_penalty_milli())
+                    .cmp(&right.saturating_sub(other.risk_penalty_milli())),
+                _ => self.score.cmp(&other.score),
+            })
             .then_with(|| self.safety_rank().cmp(&other.safety_rank()))
             .then_with(|| self.pressure.cmp(&other.pressure))
     }
@@ -1219,7 +1242,7 @@ mod tests {
     }
 
     #[test]
-    fn soft_safety_only_breaks_equal_hobbs_scores() {
+    fn soft_safety_is_bounded_and_cannot_veto_large_territory_advantage() {
         let unconstrained = RouteRank {
             score: StateScore::Normal { utility_milli: 500 },
             safety: TrapAssessment::Viable,
@@ -1232,7 +1255,7 @@ mod tests {
         assert!(unconstrained > constrained);
         assert!(
             RouteRank {
-                score: StateScore::Normal { utility_milli: 501 },
+                score: StateScore::Normal { utility_milli: 900 },
                 ..constrained
             } > unconstrained
         );
