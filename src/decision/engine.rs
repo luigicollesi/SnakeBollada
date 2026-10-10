@@ -11,7 +11,7 @@ use crate::search::budget::SearchBudget;
 use crate::search::forecast::ForecastCertainty;
 use crate::search::graph::FutureGraph;
 use crate::search::hobbs_flow::{
-    search_hobbs, search_hobbs_ordering_v2, search_hobbs_with_territory_ordering,
+    search_hobbs, search_hobbs_baseline, search_hobbs_ordering_v2,
 };
 use crate::search::path::FuturePath;
 use crate::simulation::state::{SimulatedGameState, SimulationSupport};
@@ -67,9 +67,9 @@ impl DecisionEngine {
         graph.reset_performance();
         let mode = TerritorialMode::configured();
         let hobbs = match mode {
-            TerritorialMode::Ordering => search_hobbs_with_territory_ordering(graph, &budget, true),
+            TerritorialMode::Ordering => search_hobbs(graph, &budget),
             TerritorialMode::OrderingV2 => search_hobbs_ordering_v2(graph, &budget),
-            TerritorialMode::Off | TerritorialMode::Shadow => search_hobbs(graph, &budget),
+            TerritorialMode::Off | TerritorialMode::Shadow => search_hobbs_baseline(graph, &budget),
         }
         .ok()
         .flatten()?;
@@ -143,8 +143,10 @@ impl DecisionEngine {
     }
 }
 
-/// Gradual activation: opt-in territorial move ordering is experimental.
-/// Scoring modes remain disabled; unknown configuration defaults to Off.
+/// The 3/3 Hobbs-benchmark ordering is the primary search policy on dev.
+/// Explicit `off` preserves the former baseline, `shadow` adds diagnostic
+/// tracing, and `ordering_v2` remains an experimental opt-in comparison.
+/// All modes share the same state scoring, MIN replies and FutureGraph.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum TerritorialMode {
     Off,
@@ -156,10 +158,12 @@ enum TerritorialMode {
 impl TerritorialMode {
     fn parse(value: &str) -> Self {
         match value.trim().to_ascii_lowercase().as_str() {
+            "off" => Self::Off,
             "shadow" => Self::Shadow,
-            "ordering" => Self::Ordering,
             "ordering_v2" => Self::OrderingV2,
-            _ => Self::Off,
+            "ordering" | "" => Self::Ordering,
+            // A misspelled mode must not silently replace the primary policy.
+            _ => Self::Ordering,
         }
     }
 
@@ -452,9 +456,12 @@ mod tests {
     }
 
     #[test]
-    fn territorial_mode_requires_explicit_shadow_or_ordering() {
-        assert_eq!(TerritorialMode::parse(""), TerritorialMode::Off);
-        assert_eq!(TerritorialMode::parse("guarded"), TerritorialMode::Off);
+    fn default_mode_uses_the_proven_primary_ordering() {
+        assert_eq!(TerritorialMode::parse(""), TerritorialMode::Ordering);
+        assert_eq!(TerritorialMode::parse("guarded"), TerritorialMode::Ordering);
+        assert_eq!(TerritorialMode::parse("unknown"), TerritorialMode::Ordering);
+        assert_eq!(TerritorialMode::parse("off"), TerritorialMode::Off);
+        assert_eq!(TerritorialMode::parse(" Off "), TerritorialMode::Off);
         assert_eq!(
             TerritorialMode::parse("ordering"),
             TerritorialMode::Ordering
