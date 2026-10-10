@@ -149,3 +149,36 @@ async fn ci_selfplay_limited_match() {
     runtime.end(&first_a).await;
     runtime.end(&first_b).await;
 }
+
+
+/// Exercise the actual Lambda HTTP handler: parse the API Gateway-style JSON,
+/// run the tactical precheck, select a move, and serialize the response.
+async fn lambda_route(route: &str, state: &GameState) -> serde_json::Value {
+    use lambda_http::{http, Body};
+    let request = http::Request::builder()
+        .method("POST")
+        .uri(format!("https://lambda.example/dev/{route}"))
+        .header("Content-Type", "application/json")
+        .body(Body::from(serde_json::to_string(state).unwrap()))
+        .unwrap();
+    let response = crate::handler(request).await.expect("Lambda handler");
+    assert_eq!(response.status(), 200, "POST /{route}");
+    serde_json::from_slice(response.body().as_ref())
+        .unwrap_or_else(|_| serde_json::json!({"body": "ok"}))
+}
+
+#[tokio::test]
+async fn ci_lambda_http_handler_selfplay_isolated() {
+    let position = initial();
+    let a = view(&position, "left-snake");
+    let b = view(&position, "right-snake");
+    lambda_route("start", &a).await;
+    lambda_route("start", &b).await;
+    let first = lambda_route("move", &a).await;
+    let second = lambda_route("move", &b).await;
+    println!("HTTP_SESSION_CHECK A={} B={}", first["move"], second["move"]);
+    assert_eq!(first["move"], "right", "first handler chooses legal Right");
+    assert_eq!(second["move"], "left", "second handler must not reuse first move");
+    lambda_route("end", &a).await;
+    lambda_route("end", &b).await;
+}
