@@ -100,6 +100,29 @@ jobs:
                   dest = Path("fixtures") / f"{seed}-{turn}.json"
                   dest.write_text(json.dumps(state))
           assert len(list(Path("fixtures").glob("*.json"))) == 12
+          # Earlier states remain separate so the pinned 12-case replay
+          # regression is unchanged. Only the forced-root experiment uses them.
+          backtrack = {
+              "20261002": [570, 575],
+              "20261011": [302, 304],
+              "20261014": [416, 418],
+              "20261015": [458, 462, 464],
+          }
+          Path("fixtures/backtrack").mkdir(exist_ok=True)
+          for seed, turns in backtrack.items():
+              source = next(Path("evidence").rglob(f"runs/{seed}/game.jsonl"))
+              wanted = set(turns)
+              found = {}
+              for raw in source.read_text().splitlines():
+                  try: state = json.loads(raw)
+                  except json.JSONDecodeError: continue
+                  if isinstance(state, dict) and state.get("turn") in wanted:
+                      found[state["turn"]] = state
+              assert set(found) == wanted, f"{seed}: missing pre-trap snapshots"
+              for turn, state in found.items():
+                  (Path("fixtures/backtrack") / f"{seed}-{turn}.json").write_text(
+                      json.dumps(state))
+          assert len(list(Path("fixtures/backtrack").glob("*.json"))) == 9
           print("Captured",len(report),"historical states")
           for seed in cases:
               rows = [r for r in report if r["seed"] == seed]
