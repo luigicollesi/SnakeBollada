@@ -1,0 +1,47 @@
+name: Live Maua Lambda vs Hovering Hobbs
+
+on:
+  push:
+    branches:
+      - ci/live-maua-vs-hobbs
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  real-aws-versus-hobbs:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Record runner and sources
+        run: |
+          mkdir -p results-live
+          echo "LIVE public endpoint duel; no Docker, no AWS secrets, no deployment" > results-live/readme.txt
+          echo "Runner: $(uname -a)" >> results-live/readme.txt
+          echo "Maua source: https://github.com/Maua-Dev/battlesnake_luigi/tree/dev" >> results-live/readme.txt
+          echo "Hobbs source: https://github.com/coreyja/battlesnake-rs" >> results-live/readme.txt
+          git rev-parse HEAD >> results-live/readme.txt
+      - name: Install Go (official Battlesnake CLI)
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.23'
+      - name: Install real Battlesnake engine CLI
+        run: go install github.com/BattlesnakeOfficial/rules/cli/battlesnake@latest
+      - name: Execute up to 3 standard 11x11 real API games
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -o pipefail
+          python3 -u tools/ci_live_maua_vs_hobbs.py | tee results-live/stdout.txt
+      - name: Preserve all duel diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: live-maua-vs-hobbs
+          path: results-live/
+          if-no-files-found: warn
