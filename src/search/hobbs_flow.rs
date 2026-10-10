@@ -11,7 +11,7 @@ use std::time::{Duration, Instant};
 
 use crate::analysis::{
     adversarial_order, AdversarialCorridorOrder, CorridorOutlook, TemporalTerritory,
-    TerritoryDirectionSample, TerritorySnapshot,
+    TerritoryDirectionSample, TerritorySnapshot, TerritoryTrajectory,
 };
 use crate::direction::Direction;
 use crate::evaluation::{
@@ -306,6 +306,37 @@ pub(crate) fn search_hobbs_with_territory_ordering(
             && !route.certainty.is_provisional()
         {
             break;
+        }
+    }
+    // Completed root lines are comparable only at an identical horizon.
+    // Keep these diagnostics out of MAX/MIN route comparison until ordering
+    // V2 has validated coverage and food certainty against the baseline.
+    if territory_ordering {
+        let deadline = Instant::now() + Duration::from_millis(2);
+        for (direction, line) in &scored.completed_root_lines {
+            if Instant::now() >= deadline {
+                break;
+            }
+            if let Some(trajectory) = TerritoryTrajectory::from_graph_path(
+                graph,
+                &line.path,
+                line.certainty,
+                deadline,
+                &mut scored.territory_snapshots,
+            ) {
+                log::debug!(
+                    target: "territorial_control",
+                    "territory_completed_line turn={} direction={:?} depth={} samples={} complete={} provisional={} mean={} minimum={} evidence=one_completed_minimax_depth",
+                    graph.node(root).state.turn,
+                    direction,
+                    line.depth,
+                    trajectory.samples,
+                    line.adversarially_complete,
+                    trajectory.certainty.is_provisional(),
+                    trajectory.mean_margin_milli,
+                    trajectory.minimum_margin_milli,
+                );
+            }
         }
     }
     Ok(last_complete)
@@ -1086,6 +1117,37 @@ mod tests {
                 )
             });
             assert_eq!(actual, expected);
+        }
+    }
+
+    #[test]
+    fn root_direction_evidence_comes_from_one_completed_depth() {
+        let mut graph = FutureGraph::new_beam(state());
+        let root = graph.root();
+        let budget = SearchBudget::for_duration(Duration::from_secs(4));
+        let mut scored = ScoredCache::new();
+        let result = evaluate_minimax(
+            &mut graph,
+            root,
+            2,
+            ForecastCertainty::Deterministic,
+            &budget,
+            &mut scored,
+            false,
+        )
+        .unwrap()
+        .unwrap();
+        assert!(!result.path.is_empty());
+        assert!(!scored.completed_root_lines.is_empty());
+        assert!(scored.completed_root_lines.values().all(|line| line.depth == 2));
+        for (direction, line) in &scored.completed_root_lines {
+            assert_eq!(line.path.len(), 2);
+            if line.adversarially_complete {
+                assert_eq!(
+                    graph.response_coverage(root, *direction),
+                    super::super::graph::ResponseCoverage::Complete
+                );
+            }
         }
     }
 
