@@ -1195,12 +1195,16 @@ mod tests {
     #[test]
     fn proven_trap_is_worse_than_a_territorially_weak_escape() {
         let trapped = RouteRank {
-            score: StateScore::Normal { utility_milli: 1000 },
+            score: StateScore::Normal {
+                utility_milli: 1000,
+            },
             safety: TrapAssessment::ProvenTrap,
             pressure: 0,
         };
         let escape = RouteRank {
-            score: StateScore::Normal { utility_milli: -1000 },
+            score: StateScore::Normal {
+                utility_milli: -1000,
+            },
             safety: TrapAssessment::Constrained,
             pressure: 0,
         };
@@ -1330,8 +1334,14 @@ mod tests {
             pressure: 2,
         };
         assert!(safe > threatening);
-        assert!(safe > reckless, "corridor pressure cannot override Hobbs territory");
-        assert!(unsafe_attack > safe, "unproven corridor risk is not a hard veto");
+        assert!(
+            safe > reckless,
+            "corridor pressure cannot override Hobbs territory"
+        );
+        assert!(
+            unsafe_attack > safe,
+            "unproven corridor risk is not a hard veto"
+        );
         assert!(
             RouteRank {
                 score: StateScore::Win,
