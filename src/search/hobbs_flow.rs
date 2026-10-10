@@ -818,7 +818,7 @@ fn evaluate_minimax(
                         new_edge
                     }
                     ResponseLookup::Exhausted => break,
-                    ResponseLookup::Deadline => return Ok(None),
+                    ResponseLookup::Deadline | ResponseLookup::ResourceLimit => return Ok(None),
                 }
             };
             if budget.expired() {
