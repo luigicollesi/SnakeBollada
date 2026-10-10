@@ -10,7 +10,9 @@ use crate::evaluation::StateScore;
 use crate::search::budget::SearchBudget;
 use crate::search::forecast::ForecastCertainty;
 use crate::search::graph::FutureGraph;
-use crate::search::hobbs_flow::{search_hobbs, search_hobbs_with_territory_ordering};
+use crate::search::hobbs_flow::{
+    search_hobbs, search_hobbs_ordering_v2, search_hobbs_with_territory_ordering,
+};
 use crate::search::path::FuturePath;
 use crate::simulation::state::{SimulatedGameState, SimulationSupport};
 use crate::strategy::{
@@ -64,10 +66,10 @@ impl DecisionEngine {
         );
         graph.reset_performance();
         let mode = TerritorialMode::configured();
-        let hobbs = if mode == TerritorialMode::Ordering {
-            search_hobbs_with_territory_ordering(graph, &budget, true)
-        } else {
-            search_hobbs(graph, &budget)
+        let hobbs = match mode {
+            TerritorialMode::Ordering => search_hobbs_with_territory_ordering(graph, &budget, true),
+            TerritorialMode::OrderingV2 => search_hobbs_ordering_v2(graph, &budget),
+            TerritorialMode::Off | TerritorialMode::Shadow => search_hobbs(graph, &budget),
         }
         .ok()
         .flatten()?;
@@ -148,6 +150,7 @@ enum TerritorialMode {
     Off,
     Shadow,
     Ordering,
+    OrderingV2,
 }
 
 impl TerritorialMode {
@@ -155,6 +158,7 @@ impl TerritorialMode {
         match value.trim().to_ascii_lowercase().as_str() {
             "shadow" => Self::Shadow,
             "ordering" => Self::Ordering,
+            "ordering_v2" => Self::OrderingV2,
             _ => Self::Off,
         }
     }
@@ -459,6 +463,8 @@ mod tests {
             TerritorialMode::parse(" Ordering "),
             TerritorialMode::Ordering
         );
+        assert_eq!(TerritorialMode::parse("ordering_v2"), TerritorialMode::OrderingV2);
+        assert_eq!(TerritorialMode::parse(" Ordering_V2 "), TerritorialMode::OrderingV2);
         assert_eq!(TerritorialMode::parse("shadow"), TerritorialMode::Shadow);
         assert_eq!(TerritorialMode::parse(" Shadow "), TerritorialMode::Shadow);
     }

@@ -7,7 +7,7 @@ mod temporal_return;
 mod temporal_territory;
 mod territorial_control;
 mod territorial_forecast;
-pub(crate) use adversarial_escape::AdversarialEscapeAnalyzer;
+pub(crate) use adversarial_escape::{AdversarialEscapeAnalyzer, AdversarialEscapeVerdict};
 pub(crate) use escape_evidence::{EscapeEvidence, EscapeSnapshot};
 pub(crate) use temporal_corridors::{adversarial_order, AdversarialCorridorOrder, CorridorOutlook};
 pub(crate) use temporal_return::{
