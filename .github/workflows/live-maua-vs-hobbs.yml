@@ -40,6 +40,7 @@ jobs:
       - name: Execute up to 3 standard 11x11 real API games
         env:
           GITHUB_TOKEN: ${{ github.token }}
+          MAUA_SNAKE_URL: https://7qmd5n7ia2.execute-api.us-east-1.amazonaws.com/dev
         run: |
           set -o pipefail
           python3 -u tools/ci_live_maua_vs_hobbs.py | tee results-live/stdout.txt
