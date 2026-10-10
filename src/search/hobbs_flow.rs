@@ -656,7 +656,11 @@ fn evaluate_minimax(
         if let Some(reference) = primary_reference {
             let significant_drops = territorial
                 .values()
-                .filter(|sample| sample.territorial_drop.is_some_and(|drop| drop.significant()))
+                .filter(|sample| {
+                    sample
+                        .territorial_drop
+                        .is_some_and(|drop| drop.significant())
+                })
                 .count();
             log::debug!(
                 target: "territorial_control",
