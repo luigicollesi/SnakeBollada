@@ -10,7 +10,8 @@ use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
 use crate::analysis::{
-    adversarial_order, AdversarialCorridorOrder, CorridorOutlook, EscapeEvidence,
+    adversarial_order, AdversarialCorridorOrder, AdversarialEscapeAnalyzer, CorridorOutlook,
+    EscapeEvidence,
     TemporalTerritory, TerritoryDirectionSample, TerritorySnapshot, TerritoryTrajectory,
 };
 use crate::direction::Direction;
@@ -312,6 +313,7 @@ pub(crate) fn search_hobbs_with_territory_ordering(
     if territory_ordering {
         let deadline = Instant::now() + Duration::from_millis(2);
         // Stable iteration makes limited-budget diagnostics reproducible.
+        let mut adversarial = AdversarialEscapeAnalyzer::new(graph, deadline);
         for direction in Direction::ALL {
             let Some(line) = scored.completed_root_lines.get(&direction) else {
                 continue;
@@ -348,6 +350,22 @@ pub(crate) fn search_hobbs_with_territory_ordering(
                     escape.first_no_exit_ply,
                     escape.first_observed_death_ply,
                     escape.quality,
+                );
+                let risk = adversarial.analyze_root_direction(direction, escape.requested_horizon);
+                log::debug!(
+                    target: "territorial_control",
+                    "escape_adversarial_line turn={} direction={:?} horizon={} verdict={:?} certainty={:?} reply_coverage={:?} known_replies={} terminal_loss_replies={} inspected_states={} inspected_replies={} budget_truncated={} evidence=cached_minimax_replies_only",
+                    graph.node(root).state.turn,
+                    direction,
+                    risk.requested_horizon,
+                    risk.verdict,
+                    risk.certainty,
+                    risk.root_coverage,
+                    risk.known_root_replies,
+                    risk.observed_losing_root_replies,
+                    risk.checked_states,
+                    risk.checked_replies,
+                    risk.budget_truncated,
                 );
             }
             if let Some(trajectory) = TerritoryTrajectory::from_graph_path(
