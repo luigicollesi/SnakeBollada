@@ -25,7 +25,9 @@ jobs:
           git clone https://github.com/Maua-Dev/battlesnake_luigi.git ../battlesnake_luigi
           cd ../battlesnake_luigi
           git switch -c fix/v3-adversarial-head-safety-test
-          python3 ../SnakeBollada/scripts/stage_maua_v3_root_tactics.py .
+          if [ ! -f src/analysis/immediate_tactics.rs ]; then
+            python3 ../SnakeBollada/scripts/stage_maua_v3_root_tactics.py .
+          fi
           python3 ../SnakeBollada/scripts/cleanup_maua_v3_navigation.py .
           cargo fmt --all
           RUSTFLAGS='-D warnings' cargo test --locked --all-features
