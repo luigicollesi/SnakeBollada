@@ -1135,7 +1135,10 @@ mod tests {
         .unwrap();
         assert!(!result.path.is_empty());
         assert!(!scored.completed_root_lines.is_empty());
-        assert!(scored.completed_root_lines.values().all(|line| line.depth == 2));
+        assert!(scored
+            .completed_root_lines
+            .values()
+            .all(|line| line.depth == 2));
         for (direction, line) in &scored.completed_root_lines {
             assert_eq!(line.path.len(), 2);
             if line.adversarially_complete {
