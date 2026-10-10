@@ -54,15 +54,28 @@ struct RouteRank {
 }
 
 impl RouteRank {
+    // Only terminal outcomes and proven traps may override Hobbs' strategic
+    // score. Unproven corridor risk belongs strictly in the tiebreakers:
+    // otherwise a nominally Viable 20% territory route beats a Constrained
+    // 70% route even when the alleged trap was never demonstrated.
     fn tier(self) -> u8 {
         match (self.score, self.safety) {
-            (StateScore::Win, _) => 6,
-            (StateScore::Loss, _) | (_, TrapAssessment::ProvenTrap) => 0,
-            (StateScore::Tie, _) => 1,
-            (_, TrapAssessment::Viable) => 5,
-            (_, TrapAssessment::Unknown) => 4,
-            (_, TrapAssessment::Constrained) => 3,
-            (_, TrapAssessment::ForcedCorridor) => 2,
+            (StateScore::Win, _) => 4,
+            (StateScore::Loss, _) => 0,
+            (_, TrapAssessment::ProvenTrap) => 1,
+            (StateScore::Tie, _) => 2,
+            _ => 3,
+        }
+    }
+
+    // Bounded risk premium (milli-points). A credible edge/corridor threat
+    // matters when Hobbs scores are close, without categorically vetoing a
+    // substantially stronger territory position.
+    fn risk_penalty_milli(self) -> i64 {
+        match self.safety {
+            TrapAssessment::Constrained => 180,
+            TrapAssessment::ForcedCorridor => 280,
+            TrapAssessment::Viable | TrapAssessment::Unknown | TrapAssessment::ProvenTrap => 0,
         }
     }
 
@@ -81,6 +94,9 @@ impl Ord for RouteRank {
     fn cmp(&self, other: &Self) -> Ordering {
         self.tier()
             .cmp(&other.tier())
+            // Preserve Hobbs' health mode and territorial value. A small,
+            // bounded penalty prevents edge-pin regressions when the territory
+            // gap is marginal; no unproven warning is a hard veto.
             .then_with(|| match (self.score, other.score) {
                 (
                     StateScore::Normal {
@@ -90,12 +106,12 @@ impl Ord for RouteRank {
                         utility_milli: right,
                     },
                 ) => left
-                    .saturating_add(i64::from(self.pressure) * 20)
-                    .cmp(&right.saturating_add(i64::from(other.pressure) * 20)),
+                    .saturating_sub(self.risk_penalty_milli())
+                    .cmp(&right.saturating_sub(other.risk_penalty_milli())),
                 _ => self.score.cmp(&other.score),
             })
-            .then_with(|| self.pressure.cmp(&other.pressure))
             .then_with(|| self.safety_rank().cmp(&other.safety_rank()))
+            .then_with(|| self.pressure.cmp(&other.pressure))
     }
 }
 
@@ -1200,6 +1216,52 @@ mod tests {
     }
 
     #[test]
+    fn proven_trap_is_worse_than_a_territorially_weak_escape() {
+        let trapped = RouteRank {
+            score: StateScore::Normal {
+                utility_milli: 1000,
+            },
+            safety: TrapAssessment::ProvenTrap,
+            pressure: 0,
+        };
+        let escape = RouteRank {
+            score: StateScore::Normal {
+                utility_milli: -1000,
+            },
+            safety: TrapAssessment::Constrained,
+            pressure: 0,
+        };
+        assert!(escape > trapped);
+        assert!(
+            RouteRank {
+                score: StateScore::Win,
+                safety: TrapAssessment::Unknown,
+                pressure: 0,
+            } > trapped
+        );
+    }
+
+    #[test]
+    fn soft_safety_is_bounded_and_cannot_veto_large_territory_advantage() {
+        let unconstrained = RouteRank {
+            score: StateScore::Normal { utility_milli: 500 },
+            safety: TrapAssessment::Viable,
+            pressure: 0,
+        };
+        let constrained = RouteRank {
+            safety: TrapAssessment::Constrained,
+            ..unconstrained
+        };
+        assert!(unconstrained > constrained);
+        assert!(
+            RouteRank {
+                score: StateScore::Normal { utility_milli: 900 },
+                ..constrained
+            } > unconstrained
+        );
+    }
+
+    #[test]
     fn loss_tie_prefers_less_restricted_escape() {
         let less_restricted = RouteRank {
             score: StateScore::Loss,
@@ -1244,7 +1306,7 @@ mod tests {
     }
 
     #[test]
-    fn constrained_exit_loses_to_viable_alternative_without_score_weight() {
+    fn higher_hobbs_territory_beats_unproven_corridor_risk() {
         let constrained = RouteRank {
             score: StateScore::Normal {
                 utility_milli: 1000,
@@ -1259,7 +1321,7 @@ mod tests {
             safety: TrapAssessment::Viable,
             pressure: 0,
         };
-        assert!(viable > constrained);
+        assert!(constrained > viable);
         assert!(
             constrained
                 > RouteRank {
@@ -1294,12 +1356,15 @@ mod tests {
             safety: TrapAssessment::ForcedCorridor,
             pressure: 2,
         };
-        assert!(threatening > safe);
+        assert!(safe > threatening);
         assert!(
             safe > reckless,
-            "small corridor hints cannot override strong territory"
+            "corridor pressure cannot override Hobbs territory"
         );
-        assert!(safe > unsafe_attack);
+        assert!(
+            unsafe_attack > safe,
+            "unproven corridor risk is not a hard veto"
+        );
         assert!(
             RouteRank {
                 score: StateScore::Win,
