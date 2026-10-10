@@ -116,6 +116,38 @@ def main():
     start = raw.index("pub(crate) fn choose_move_baseline(state: &GameState) -> Decision {")
     end = raw.index("\n#[cfg(test)]\nmod tests {", start)
     files[strategy] = raw[:start] + FALLBACK + raw[end:]
+    files[strategy] = files[strategy].replace(
+        "use crate::navigation::{reachable_after_move, NavigationMap};",
+        "use crate::navigation::NavigationMap;", 1)
+    strategy_test = r'''
+    #[test]
+    fn lambda_fallback_rejects_food_in_one_cell_body_trap() {
+        let ours = snake(
+            "ours",
+            vec![
+                Coord { x: 3, y: 3 }, Coord { x: 3, y: 2 },
+                Coord { x: 3, y: 1 }, Coord { x: 2, y: 1 },
+                Coord { x: 1, y: 1 },
+            ],
+        );
+        // (4,3) is a one-cell pocket; food must not outweigh a free region.
+        let enemy = snake(
+            "enemy",
+            vec![
+                Coord { x: 5, y: 3 }, Coord { x: 5, y: 4 },
+                Coord { x: 4, y: 4 }, Coord { x: 4, y: 2 },
+            ],
+        );
+        let board = state(ours, vec![enemy], vec![Coord { x: 4, y: 3 }]);
+        let decision = choose_move_baseline(&board);
+        assert_ne!(decision.direction, Direction::Right);
+        assert!(matches!(decision.direction, Direction::Up | Direction::Left));
+    }
+'''
+    if not files[strategy].rstrip().endswith("}"):
+        raise RuntimeError("Unexpected strategy test-module ending")
+    last = files[strategy].rfind("\n}")
+    files[strategy] = files[strategy][:last] + "\n" + strategy_test + files[strategy][last:]
 
     runtime = "src/runtime.rs"
     apply(runtime,
@@ -148,6 +180,20 @@ def main():
             )
         };
 ''')
+    runtime_test = r'''
+    #[tokio::test]
+    async fn lambda_move_without_start_creates_reusable_warm_session() {
+        let runtime = GameRuntime::new();
+        let board = state("lazy-game");
+        let _first = runtime.decide(&board, Instant::now()).await;
+        assert_eq!(runtime.active_game_ids().await, vec!["lazy-game"]);
+    }
+'''
+    if not files[runtime].rstrip().endswith("}"):
+        raise RuntimeError("Unexpected runtime test-module ending")
+    last = files[runtime].rfind("\n}")
+    files[runtime] = files[runtime][:last] + "\n" + runtime_test + files[runtime][last:]
+
     logic = "src/logic.rs"
     apply(logic,
           '''pub async fn get_move(input: &RequestGameState) -> Value {
