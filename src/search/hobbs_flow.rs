@@ -1464,6 +1464,14 @@ mod tests {
             for direction in legal.iter().copied() {
                 let replies = graph.known_responses(root, direction);
                 let coverage = graph.response_coverage(root, direction);
+                let mut tactical_cache = ScoredCache::new();
+                let mut min_our_exits = u8::MAX;
+                let mut max_enemy_exits = 0_u8;
+                for edge in &replies {
+                    let tactical = tactical_cache.corridor(&graph, edge.child);
+                    min_our_exits = min_our_exits.min(tactical.our_continuations());
+                    max_enemy_exits = max_enemy_exits.max(tactical.enemy_continuations());
+                }
                 let terminal_count = replies
                     .iter()
                     .filter(|edge| {
@@ -1484,12 +1492,14 @@ mod tests {
                     Instant::now() + Duration::from_millis(70),
                 );
                 println!(
-                    "V3_COUNTERFACTUAL state={:?} direction={:?} selected={} coverage={:?} replies={} immediate_deaths={} territory={:?}",
+                    "V3_COUNTERFACTUAL state={:?} direction={:?} selected={} coverage={:?} replies={} tactical_our_exits={} tactical_enemy_exits={} immediate_deaths={} territory={:?}",
                     path.file_stem(),
                     direction,
                     direction == decision.direction,
                     coverage,
                     replies.len(),
+                    min_our_exits,
+                    max_enemy_exits,
                     terminal_count,
                     sample.map(|hint| (
                         hint.examined_replies,
