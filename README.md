@@ -11,6 +11,8 @@ The active strategy does **not** include separate Food or Hunting modes, strateg
 - In-memory independent sessions keyed by game ID, cleared on `/end`
 - No database, file persistence, or outbound telemetry in the move path
 - **Primary on `dev`: cached territorial root ordering** (`ordering`), selected automatically when no mode is specified
+- Experimental `hobbs_bestfirst` option to isolate previous-depth BestFirst behavior without replacing the production ordering
+- FutureGraph expansion cap: default 16,000 nodes per active graph (`SNAKE_GRAPH_MAX_NODES`, clamped to 1,000–40,000), with last-completed-depth fallback
 
 ## Active move pipeline
 
@@ -36,7 +38,7 @@ POST /move
 - Territory ratio plus relative length bonus `160 milli × clamp(our length − longest enemy, −3, 3)`.
 - Critical-health policy prioritizes access to known food (health below 60 in duels, 85 with 3+ living snakes).
 - Terminal wins/losses take priority over ordinary territorial score.
-- The **Survival Guard** is a categorical check for trapped/contested escape routes, **not** a Food/Hunting/Survival point budget.
+- Only proven traps and terminal losses are categorical vetoes. Estimated corridor risks receive bounded nonterminal penalties (180/280 milli), without overriding a much stronger Hobbs territorial score.
 - Future unknown food spawns are marked provisional rather than fabricated.
 
 The search is an iterative, budgeted paranoid minimax on the FutureGraph, **not an exact copy of Hobbs' complete minimax implementation**. The standard ruleset uses this flow exclusively. Unsupported rulesets or exhausted search budgets use the simple safety-oriented fallback.
@@ -61,7 +63,7 @@ The decision path for `ordering` is:
 4. Beginning at depth two, `TerritoryDirectionSample::from_cached_replies`
    samples at most two cached opponent replies per direction, following up
    to four cached states; the search-scoped `TerritorySnapshot` cache caps
-   new snapshots at 24. A 2 ms budget limits sampling **per eligible depth**.
+   new snapshots at 24. Sampling is limited to **2 ms per eligible depth and 6 ms total per request**; once depleted, no more ordering samples are computed.
 5. Only if **every** root direction has a sample, order primarily by the
    *minimum sampled mean territorial margin* and *minimum sampled margin*,
    then tactical tie-breaks. Otherwise the original tactical order is kept.
@@ -84,6 +86,7 @@ then benchmark against the pinned primary revision before accepting changes.
 | `shadow` | Original baseline with post-search diagnostics |
 | `ordering_v2` | Conservative experimental reordering, opt-in only |
 | `ordering_v3` | Experimental territorial-drop tiebreak, using cached consecutive snapshots |
+| `hobbs_bestfirst` | Experimental previous-completed-depth root BestFirst ordering; no extra territorial root sampling |
 
 The default above is implemented on `dev`; this change does not merge to
 `main` or deploy a new production build.
@@ -94,6 +97,12 @@ cargo run --release
 
 # Explicitly compare against the historical baseline:
 SNAKE_TERRITORY_MODE=off cargo run --release
+
+# Reference mode: only compare with the same 500 ms timeout and same seeds:
+SNAKE_TERRITORY_MODE=hobbs_bestfirst cargo run --release
+
+# Optional memory guard (new graph nodes never exceed this limit):
+SNAKE_GRAPH_MAX_NODES=16000 cargo run --release
 ```
 
 ## Run locally
@@ -158,3 +167,26 @@ Production `ordering` no longer runs post-decision Shadow or V2 verification.
 Hobbs leaf territory snapshots are reused by the root ordering sampler, avoiding
 a second flood-fill when the state was already evaluated. The diagnostic
 `shadow` and `ordering_v2` modes remain explicit comparison options.
+
+
+### Resource and fallback guarantees
+
+The search reuses already-materialized nodes and only materializes new nodes
+while below its `SNAKE_GRAPH_MAX_NODES` guard. When the cap is reached,
+`ResponseLookup::ResourceLimit` aborts the **current incomplete deepening
+iteration**, retaining the previous fully completed iteration if available.
+No partial root reply coverage may be certified as complete. If no search
+depth finishes, the simulator-legal emergency fallback prioritizes reachable
+territory when healthy and food in critical health.
+
+The root-ordering sampler has a separate, request-wide 6 ms cost ceiling.
+This ceiling is not an additional allowance beyond the request's 60%
+soft search budget.
+
+The `hobbs_bestfirst` mode is an **ordering reference**, not a bit-for-bit
+port of Hovering Hobbs: it still uses the FutureGraph simulator and the bounded
+safety penalty. It caches scores from only the last fully completed depth,
+prefers high-scoring root moves next, and does not compute the primary
+cached-territorial samples. Compare it against `ordering` and `ordering_v3`
+before changing the production mode. No Lambda deployment is performed by
+these repository edits.
