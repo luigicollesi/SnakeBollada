@@ -105,7 +105,9 @@ jobs:
           set -o pipefail
           (cd maua && cargo test --locked --release --bin battlesnake \
             ci_selfplay -- --nocapture --test-threads=1) 2>&1 | tee results/patched-selfplay.log
-          echo "PATCHED SELFPLAY PASSED (within GitHub runner limits)" | tee -a results/comparison.txt
+          (cd maua && cargo test --locked --release --bin battlesnake \
+            ci_lambda_http_handler -- --nocapture --test-threads=1) 2>&1 | tee -a results/patched-selfplay.log
+          echo "PATCHED SELFPLAY + LAMBDA HTTP HANDLER PASSED (within GitHub runner limits)" | tee -a results/comparison.txt
 
       - name: Run production release tests and build
         shell: bash
