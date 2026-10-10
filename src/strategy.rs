@@ -679,7 +679,10 @@ mod tests {
             ],
         );
         state.turn = 81;
-        state.game.timeout = 500;
+        // This fixture checks the deeper-search preference, not the 500 ms
+        // production latency limit. Allow enough time to finish the relevant
+        // Minimax depth on slower CI runners.
+        state.game.timeout = 3_000;
         state.game.ruleset.insert(
             "settings".to_string(),
             json!({
