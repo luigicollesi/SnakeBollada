@@ -5,6 +5,9 @@ on:
     branches: [dev]
     paths:
       - .github/workflows/v3-regression.yml
+      - src/search/hobbs_flow.rs
+      - src/search/primary_ordering.rs
+      - src/analysis/territorial_forecast.rs
 permissions:
   contents: read
   actions: read
@@ -105,6 +108,10 @@ jobs:
                     "single_exit",sum(len(r["free_non_tail_moves"])==1 for r in rows))
           # Characterization phase only: do not assert an unproven best move.
           PY
+      - name: Rust formatting and focused V3 tests
+        run: |
+          cargo fmt --all -- --check
+          cargo test v3_ -- --nocapture
       - name: Reproduce real scenarios with Rust FutureGraph
         env:
           SNAKE_V3_REGRESSION_FIXTURES: fixtures
