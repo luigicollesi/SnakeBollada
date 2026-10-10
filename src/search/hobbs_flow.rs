@@ -1424,9 +1424,8 @@ mod tests {
             let raw = std::fs::read_to_string(&path).expect("read real match state");
             let state: crate::GameState =
                 serde_json::from_str(&raw).expect("deserialize real Battlesnake request");
-            let mut graph = FutureGraph::new_beam(
-                crate::simulation::state::SimulatedGameState::from(&state),
-            );
+            let mut graph =
+                FutureGraph::new_beam(crate::simulation::state::SimulatedGameState::from(&state));
             let root = graph.root();
             let legal = graph.available_directions(root);
             assert!(!legal.is_empty(), "{path:?}: no candidate actions");
@@ -1438,14 +1437,23 @@ mod tests {
                 legal.contains(&decision.direction),
                 "{path:?}: selected an unavailable direction"
             );
-            let actor = graph.node(root).state.actor_index(&state.you.id)
+            let actor = graph
+                .node(root)
+                .state
+                .actor_index(&state.you.id)
                 .expect("our snake is present");
             let cached_replies = graph.known_responses(root, decision.direction);
             let sampled = cached_replies.len();
-            let immediate_terminal_replies = cached_replies.iter().filter(|edge| {
-                !graph.node(edge.child).state.snake_at(actor)
-                    .is_some_and(|snake| snake.alive)
-            }).count();
+            let immediate_terminal_replies = cached_replies
+                .iter()
+                .filter(|edge| {
+                    !graph
+                        .node(edge.child)
+                        .state
+                        .snake_at(actor)
+                        .is_some_and(|snake| snake.alive)
+                })
+                .count();
             println!(
                 "V3_HISTORICAL seed_turn={:?} chosen={:?} depth={} legal={:?} cached_replies={} terminal_replies={}",
                 path.file_stem(), decision.direction, decision.completed_depth,
@@ -1461,22 +1469,28 @@ mod tests {
                 {
                     return None;
                 }
-                let deaths = replies.iter().filter(|edge| {
-                    !graph.node(edge.child).state.snake_at(actor)
-                        .is_some_and(|snake| snake.alive)
-                }).count();
+                let deaths = replies
+                    .iter()
+                    .filter(|edge| {
+                        !graph
+                            .node(edge.child)
+                            .state
+                            .snake_at(actor)
+                            .is_some_and(|snake| snake.alive)
+                    })
+                    .count();
                 Some((deaths, replies.len()))
             };
-            let proven_forced_death = classified(decision.direction)
-                .is_some_and(|(deaths, total)| deaths == total);
-            let proven_immediate_survivor = legal.iter().copied().find(|direction| {
-                classified(*direction).is_some_and(|(deaths, _)| deaths == 0)
-            });
+            let proven_forced_death =
+                classified(decision.direction).is_some_and(|(deaths, total)| deaths == total);
+            let proven_immediate_survivor = legal
+                .iter()
+                .copied()
+                .find(|direction| classified(*direction).is_some_and(|(deaths, _)| deaths == 0));
             assert!(
                 !proven_forced_death || proven_immediate_survivor.is_none(),
                 "{path:?}: forced immediate death chosen despite fully covered survivor {proven_immediate_survivor:?}"
             );
         }
     }
-
 }
