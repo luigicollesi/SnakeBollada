@@ -33,21 +33,17 @@ jobs:
         uses: dtolnay/rust-toolchain@1.98.1
         with:
           components: rustfmt, clippy
-      - name: Prepare Maua Lambda port without pushing
-        env:
-          CARGO_TERM_COLOR: always
+      - name: Checkout deployed Maua V3 into an isolated local branch
         run: |
-          git config --global user.name "v3-port-check"
-          git config --global user.email "v3-port-check@users.noreply.github.com"
-          python3 scripts/prepare_maua_v3_port.py ../battlesnake_luigi
+          git clone https://github.com/Maua-Dev/battlesnake_luigi.git ../battlesnake_luigi
           cd ../battlesnake_luigi
+          git switch -c fix/v3-lambda-256mb-local-preflight
           git log -1 --oneline
 
       - name: Validate Lambda code-only CPU-safety adaptations
         run: |
           set -euo pipefail
           cd ../battlesnake_luigi
-          git switch -c fix/v3-lambda-256mb-local-preflight
           python3 ../SnakeBollada/scripts/tune_maua_v3_lambda.py .
           cargo fmt --all
           cargo test --locked --all-features
