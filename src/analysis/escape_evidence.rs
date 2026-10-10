@@ -67,7 +67,7 @@ impl EscapeSnapshot {
             }
         }
         Some(Self {
-            immediate_exits: u8::try_from(legal.len()).unwrap_or(u8::MAX),
+            immediate_exits: legal.len(),
             contested_exits: contested,
             observed_dead: false,
         })
