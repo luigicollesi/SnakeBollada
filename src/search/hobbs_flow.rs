@@ -150,7 +150,7 @@ fn compare_routes(left: &Route, right: &Route) -> Ordering {
 /// Search-scoped caches stay valid across iterative-deepening iterations.
 #[derive(Default)]
 struct ScoredCache {
-    leaf_ranks: HashMap<NodeId, RouteRank>,
+    leaf_ranks: HashMap<NodeId, ScoredLeaf>,
     corridor_orders: HashMap<NodeId, AdversarialCorridorOrder>,
     territory_snapshots: HashMap<NodeId, TerritorySnapshot>,
     escape_snapshots: HashMap<NodeId, crate::analysis::EscapeSnapshot>,
@@ -158,6 +158,12 @@ struct ScoredCache {
     /// Replaced atomically after a successful depth (never on deadline).
     completed_root_lines: HashMap<Direction, CompletedRootLine>,
     v2_spent: Duration,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct ScoredLeaf {
+    rank: RouteRank,
+    territory: Option<TerritorySnapshot>,
 }
 
 #[derive(Debug, Clone)]
@@ -173,12 +179,17 @@ impl ScoredCache {
         Self::default()
     }
 
-    fn entry(&mut self, id: NodeId) -> std::collections::hash_map::Entry<'_, NodeId, RouteRank> {
-        self.leaf_ranks.entry(id)
+    fn leaf(&mut self, graph: &FutureGraph, id: NodeId) -> RouteRank {
+        if let Some(leaf) = self.leaf_ranks.get(&id) {
+            return leaf.rank;
+        }
+        let leaf = evaluate_leaf(graph, id);
+        self.leaf_ranks.insert(id, leaf);
+        leaf.rank
     }
 
     fn get(&self, id: &NodeId) -> Option<&RouteRank> {
-        self.leaf_ranks.get(id)
+        self.leaf_ranks.get(id).map(|leaf| &leaf.rank)
     }
 
     fn corridor(&mut self, graph: &FutureGraph, node: NodeId) -> AdversarialCorridorOrder {
@@ -547,9 +558,7 @@ fn evaluate_minimax(
         return Ok(None);
     }
     if graph.node(node_id).is_terminal() || depth == 0 {
-        let rank = *cache
-            .entry(node_id)
-            .or_insert_with(|| evaluate_leaf(graph, node_id));
+        let rank = cache.leaf(graph, node_id);
         return Ok(Some(Route {
             rank,
             path: FuturePath::empty(),
@@ -601,6 +610,7 @@ fn evaluate_minimax(
                     graph,
                     *direction,
                     &mut cache.territory_snapshots,
+                    |id| cache.leaf_ranks.get(&id).and_then(|leaf| leaf.territory),
                     expires,
                 ) {
                     territorial.insert(*direction, sample);
@@ -652,9 +662,7 @@ fn evaluate_minimax(
         directions.sort_by_key(|direction| (Some(*direction) != preferred, direction.rank()));
     }
     if directions.is_empty() {
-        let rank = *cache
-            .entry(node_id)
-            .or_insert_with(|| evaluate_leaf(graph, node_id));
+        let rank = cache.leaf(graph, node_id);
         return Ok(Some(Route {
             rank,
             path: FuturePath::empty(),
@@ -839,24 +847,31 @@ fn direction_of_first(graph: &FutureGraph, node: NodeId, path: &FuturePath) -> O
     path.first()?.joint_action.direction_for(our_actor)
 }
 
-fn evaluate_leaf(graph: &FutureGraph, node_id: NodeId) -> RouteRank {
+fn evaluate_leaf(graph: &FutureGraph, node_id: NodeId) -> ScoredLeaf {
     let state = &graph.node(node_id).state;
     let Some(actor) = state.actor_index(&state.our_snake_id) else {
-        return RouteRank {
-            score: StateScore::Loss,
-            safety: TrapAssessment::Unknown,
-            pressure: 0,
+        return ScoredLeaf {
+            rank: RouteRank {
+                score: StateScore::Loss,
+                safety: TrapAssessment::Unknown,
+                pressure: 0,
+            },
+            territory: None,
         };
     };
     let params = HobbsScoreParams::STANDARD;
     let territory = TemporalTerritory::from_state(state, params.fill_cycles, params.cell_weights);
     let score = evaluate_hobbs_state(state, &territory, actor, params).score;
+    let snapshot = TerritorySnapshot::from_territory(state, &territory);
     let survival = assess_survival_state(state);
     let (safety, pressure) = corridor_tactics(state, score, survival);
-    RouteRank {
-        score,
-        safety,
-        pressure,
+    ScoredLeaf {
+        rank: RouteRank {
+            score,
+            safety,
+            pressure,
+        },
+        territory: snapshot,
     }
 }
 

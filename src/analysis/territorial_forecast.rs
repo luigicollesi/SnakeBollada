@@ -38,6 +38,18 @@ impl TerritorySnapshot {
         }
         let territory =
             TemporalTerritory::from_state(state, params.fill_cycles, params.cell_weights);
+        Self::from_territory(state, &territory)
+    }
+
+    /// Reuses the Hobbs leaf flood-fill without computing another forecast.
+    pub(crate) fn from_territory(
+        state: &SimulatedGameState,
+        territory: &TemporalTerritory,
+    ) -> Option<Self> {
+        let ours = state.actor_index(&state.our_snake_id)?;
+        if !state.snake_at(ours)?.alive {
+            return None;
+        }
         let our_control_milli = territory.territory_ratio_milli(ours);
         let (opponent_control_milli, opponent_claimed_cells) = state
             .snakes
@@ -168,6 +180,7 @@ impl TerritoryDirectionSample {
         graph: &FutureGraph,
         direction: Direction,
         cache: &mut HashMap<NodeId, TerritorySnapshot>,
+        cached_leaf: impl Fn(NodeId) -> Option<TerritorySnapshot>,
         deadline: Instant,
     ) -> Option<Self> {
         let root = graph.root();
@@ -213,6 +226,8 @@ impl TerritoryDirectionSample {
                 }
                 let snapshot = if let Some(&cached) = cache.get(&id) {
                     cached
+                } else if let Some(snapshot) = cached_leaf(id) {
+                    snapshot
                 } else {
                     if cache.len() >= Self::MAX_NEW_SNAPSHOTS {
                         return result;
@@ -361,6 +376,7 @@ mod tests {
             &graph,
             directions[0],
             &mut cache,
+            |_| None,
             deadline,
         )
         .unwrap();
@@ -368,6 +384,7 @@ mod tests {
             &graph,
             directions[1],
             &mut cache,
+            |_| None,
             deadline,
         )
         .unwrap();
@@ -380,6 +397,7 @@ mod tests {
             &graph,
             directions[0],
             &mut cache,
+            |_| None,
             deadline,
         )
         .unwrap();
@@ -401,6 +419,7 @@ mod tests {
             &graph,
             direction,
             &mut HashMap::new(),
+            |_| None,
             Instant::now() + Duration::from_secs(1),
         )
         .unwrap();
