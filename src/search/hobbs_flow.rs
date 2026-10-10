@@ -1405,6 +1405,120 @@ mod tests {
         let budget = SearchBudget::for_duration(Duration::ZERO);
         assert!(search_hobbs(&mut graph, &budget).unwrap().is_none());
     }
+
+    /// Re-evaluate a FIXED first move against all enemy replies reachable
+    /// within the same minimax rules. Never changes the production selector.
+    /// Only a completed horizon is comparable between candidate directions.
+    fn historical_forced_root_at_depth(
+        graph: &mut FutureGraph,
+        direction: Direction,
+        depth: u8,
+        budget: &SearchBudget,
+    ) -> Result<Option<(Route, bool)>, SearchError> {
+        let root = graph.root();
+        let mut scored = ScoredCache::new();
+        let mut next_index = 0;
+        let mut worst: Option<Route> = None;
+        let mut exhaustive = true;
+        loop {
+            let edge = match graph.next_response(root, direction, next_index, budget)? {
+                ResponseLookup::Edge(edge) => edge,
+                ResponseLookup::Exhausted => break,
+                ResponseLookup::Deadline => return Ok(None),
+            };
+            next_index += 1;
+            let Some(mut candidate) = evaluate_minimax(
+                graph,
+                edge.child,
+                depth.saturating_sub(1),
+                ForecastCertainty::Deterministic.after(edge.forecast_delta),
+                budget,
+                &mut scored,
+                RootSearchOrdering::PrimaryV3,
+            )? else {
+                return Ok(None);
+            };
+            exhaustive &= candidate.exhaustive;
+            candidate.terminal_plies = candidate
+                .terminal_plies
+                .map(|plies| plies.saturating_add(1));
+            candidate.rank.safety = worst_safety(
+                candidate.rank.safety,
+                assess_survival_state(&graph.node(edge.child).state),
+            );
+            candidate.path = candidate.path.prepend(FutureStep {
+                node: root,
+                joint_action: edge.joint_action,
+                child: edge.child,
+            });
+            if worst
+                .as_ref()
+                .is_none_or(|previous| compare_routes(&candidate, previous).is_lt())
+            {
+                worst = Some(candidate);
+            }
+        }
+        exhaustive &= graph.response_coverage(root, direction)
+            == super::super::graph::ResponseCoverage::Complete;
+        Ok(worst.map(|route| (route, exhaustive)))
+    }
+
+    /// Unlike a selected-line hint, this evaluates candidate first moves
+    /// independently under MAX/MIN, without root alpha cuts. It reports
+    /// incomplete horizons explicitly; it never labels them as winning.
+    #[test]
+    fn historical_v3_forced_root_alternatives() {
+        let Ok(folder) = std::env::var("SNAKE_V3_REGRESSION_FIXTURES") else {
+            return;
+        };
+        let targets = ["20261002-578", "20261011-305", "20261014-421", "20261015-466"];
+        for target in targets {
+            let path = std::path::Path::new(&folder).join(format!("{target}.json"));
+            let raw = std::fs::read_to_string(&path).expect("read pinned state");
+            let state: crate::GameState =
+                serde_json::from_str(&raw).expect("deserialize pinned state");
+            let initial = crate::simulation::state::SimulatedGameState::from(&state);
+            let candidate_graph = FutureGraph::new_beam(initial.clone());
+            let directions = candidate_graph.available_directions(candidate_graph.root());
+            assert!(directions.len() >= 2, "{target}: expected alternative");
+            for direction in directions {
+                let mut graph = FutureGraph::new_beam(initial.clone());
+                let budget = SearchBudget::for_duration(Duration::from_millis(600));
+                let mut last_complete: Option<(u8, Route, bool)> = None;
+                for depth in 1..=7 {
+                    if budget.expired() {
+                        break;
+                    }
+                    match historical_forced_root_at_depth(
+                        &mut graph,
+                        direction,
+                        depth,
+                        &budget,
+                    )
+                    .expect("forced root evaluation must not error")
+                    {
+                        Some((route, exhaustive)) => {
+                            last_complete = Some((depth, route, exhaustive));
+                        }
+                        None => break,
+                    }
+                }
+                if let Some((depth, route, exhaustive)) = last_complete {
+                    println!(
+                        "V3_FORCED_ROOT case={target} direction={direction:?} depth={depth} score={:?} safety={:?} terminal_plies={:?} exhaustive={exhaustive} certainty={:?} nodes={}",
+                        route.rank.score,
+                        route.rank.safety,
+                        route.terminal_plies,
+                        route.certainty,
+                        graph.node_count(),
+                    );
+                } else {
+                    println!("V3_FORCED_ROOT case={target} direction={direction:?} depth=0 inconclusive=true");
+                }
+            }
+        }
+    }
+
     /// Pinned historical game states: real Rust decision path, not a geometric
     /// approximation. Only runs when the GitHub regression workflow supplies
     /// fixtures from the immutable duel run.
