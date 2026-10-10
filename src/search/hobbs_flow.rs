@@ -1451,8 +1451,31 @@ mod tests {
                 path.file_stem(), decision.direction, decision.completed_depth,
                 legal, sampled, immediate_terminal_replies
             );
-            // Coverage is not guaranteed. Do not make an unsound
-            // 'safe alternative' assertion from a partially explored graph.
+            // Fail only for a fully proven one-ply mistake. Partial coverage
+            // is not evidence that a move is safe or inevitably fatal.
+            let classified = |direction: Direction| {
+                let replies = graph.known_responses(root, direction);
+                if replies.is_empty()
+                    || graph.response_coverage(root, direction)
+                        != super::super::graph::ResponseCoverage::Complete
+                {
+                    return None;
+                }
+                let deaths = replies.iter().filter(|edge| {
+                    !graph.node(edge.child).state.snake_at(actor)
+                        .is_some_and(|snake| snake.alive)
+                }).count();
+                Some((deaths, replies.len()))
+            };
+            let proven_forced_death = classified(decision.direction)
+                .is_some_and(|(deaths, total)| deaths == total);
+            let proven_immediate_survivor = legal.iter().copied().find(|direction| {
+                classified(*direction).is_some_and(|(deaths, _)| deaths == 0)
+            });
+            assert!(
+                !proven_forced_death || proven_immediate_survivor.is_none(),
+                "{path:?}: forced immediate death chosen despite fully covered survivor {proven_immediate_survivor:?}"
+            );
         }
     }
 
