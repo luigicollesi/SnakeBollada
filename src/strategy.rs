@@ -1,7 +1,9 @@
 use serde::{Deserialize, Serialize};
 
 use crate::direction::Direction;
-use crate::navigation::{reachable_after_move, NavigationMap};
+use crate::navigation::NavigationMap;
+use crate::simulation::mobility::MobilityAnalysis;
+use crate::simulation::state::SimulatedGameState;
 use crate::GameState;
 
 #[derive(Deserialize, Serialize, Debug, Clone, Copy, PartialEq, Eq)]
@@ -63,14 +65,25 @@ pub(crate) fn direction_stays_in_bounds(state: &GameState, direction: Direction)
         && target.y < state.board.height as i32
 }
 
+/// Bounded, deterministic emergency policy. This intentionally does not
+/// invoke FutureGraph, adversarial search or extra flood fills: it must still
+/// return on a CPU-starved 256 MB Lambda worker.
+///
+/// Use the same deterministic collision/health checks as the main search,
+/// exclude contested equal-or-larger head moves when an alternative exists,
+/// and prefer reachable territory while healthy. The Hobbs food policy only
+/// takes priority below the duel/crowded critical-health thresholds.
 pub(crate) fn choose_move_baseline(state: &GameState) -> Decision {
     let map = NavigationMap::from_state(state);
-    let legal_moves = Direction::ALL
-        .into_iter()
-        .filter(|direction| !map.is_blocked(direction.apply(state.you.head)))
+    let simulated = SimulatedGameState::from(state);
+    let mobility = MobilityAnalysis::from_state(&simulated);
+    let legal_moves = mobility
+        .deterministic_moves_for(&simulated, &simulated.our_snake_id)
+        .iter()
         .collect::<Vec<_>>();
 
     if legal_moves.is_empty() {
+        // No move survives deterministic rules; avoid emitting a wall move.
         let direction = Direction::ALL
             .into_iter()
             .filter(|direction| direction_stays_in_bounds(state, *direction))
@@ -100,18 +113,41 @@ pub(crate) fn choose_move_baseline(state: &GameState) -> Decision {
         return Decision {
             direction,
             reason: DecisionReason::OnlyLegalMove,
-            reachable_cells: reachable_after_move(&map, state, direction),
+            reachable_cells: mobility.reachable_space(
+                &simulated,
+                &simulated.our_snake_id,
+                direction,
+            ),
             search: SearchMetadata::default(),
         };
     }
 
-    let best = legal_moves
+    // Head-to-head exposure is not certain death: allow these directions
+    // when every deterministic legal move is contested.
+    let uncontested = legal_moves
+        .iter()
+        .copied()
+        .filter(|direction| !map.lethal_head_danger.contains(direction.apply(state.you.head)))
+        .collect::<Vec<_>>();
+    let candidates = if uncontested.is_empty() {
+        &legal_moves
+    } else {
+        &uncontested
+    };
+    let living_snakes = simulated.snakes.iter().filter(|snake| snake.alive).count();
+    let critical_health = if living_snakes >= 3 { 85 } else { 60 };
+    let needs_food = state.you.health < critical_health;
+
+    let (direction, reachable) = candidates
         .iter()
         .copied()
         .map(|direction| {
             let destination = direction.apply(state.you.head);
-            let reachable = reachable_after_move(&map, state, direction);
-            let hazard = map.is_hazard(destination);
+            let reachable = mobility.reachable_space(
+                &simulated,
+                &simulated.our_snake_id,
+                direction,
+            );
             let cramped = reachable < state.you.length;
             let food_distance = state
                 .board
@@ -120,24 +156,25 @@ pub(crate) fn choose_move_baseline(state: &GameState) -> Decision {
                 .map(|food| destination.x.abs_diff(food.x) + destination.y.abs_diff(food.y))
                 .min()
                 .unwrap_or(u32::MAX);
-
-            (direction, reachable, hazard, cramped, food_distance)
+            (direction, reachable, cramped, map.is_hazard(destination), food_distance)
         })
-        .min_by_key(|(direction, reachable, hazard, cramped, food_distance)| {
+        .min_by_key(|(direction, reachable, cramped, hazard, food_distance)| {
             (
                 *cramped,
+                if needs_food { *food_distance } else { 0 },
                 *hazard,
-                *food_distance,
                 std::cmp::Reverse(*reachable),
+                *food_distance,
                 direction.rank(),
             )
         })
-        .expect("legal moves are not empty");
+        .map(|(direction, reachable, _, _, _)| (direction, reachable))
+        .expect("one or more deterministic legal moves");
 
     Decision {
-        direction: best.0,
+        direction,
         reason: DecisionReason::BaselineFallback,
-        reachable_cells: best.1,
+        reachable_cells: reachable,
         search: SearchMetadata::default(),
     }
 }
@@ -820,6 +857,49 @@ mod tests {
 
         assert_eq!(decision.reason, DecisionReason::BaselineFallback);
         assert!(decision.reachable_cells > 0);
+    }
+
+    #[test]
+    fn fallback_avoids_losing_head_to_head_with_legal_alternatives() {
+        let ours = snake(
+            "ours",
+            vec![
+                Coord { x: 2, y: 2 },
+                Coord { x: 2, y: 1 },
+                Coord { x: 2, y: 0 },
+            ],
+        );
+        let enemy = snake(
+            "enemy",
+            vec![
+                Coord { x: 4, y: 2 },
+                Coord { x: 4, y: 1 },
+                Coord { x: 4, y: 0 },
+                Coord { x: 5, y: 0 },
+            ],
+        );
+        let board = state(ours, vec![enemy], vec![Coord { x: 3, y: 2 }]);
+        let chosen = choose_move_baseline(&board);
+        assert_ne!(chosen.direction, Direction::Right);
+        assert_eq!(chosen.reason, DecisionReason::BaselineFallback);
+    }
+
+    #[test]
+    fn fallback_survives_when_only_a_vacating_tail_is_available() {
+        let ours = snake(
+            "ours",
+            vec![
+                Coord { x: 0, y: 0 },
+                Coord { x: 0, y: 1 },
+                Coord { x: 1, y: 1 },
+                Coord { x: 1, y: 0 },
+            ],
+        );
+        let board = state(ours, vec![], vec![]);
+        let chosen = choose_move_baseline(&board);
+        assert_eq!(chosen.direction, Direction::Right);
+        assert_eq!(chosen.reason, DecisionReason::OnlyLegalMove);
+        assert!(chosen.reachable_cells > 0);
     }
 
     #[test]
