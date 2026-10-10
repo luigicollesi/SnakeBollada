@@ -1,0 +1,27 @@
+name: Maua V3 port preflight
+on:
+  push:
+    branches: [dev]
+    paths:
+      - scripts/prepare_maua_v3_port.py
+      - docs/migrations/maua-ordering-v3-lambda.md
+      - .github/workflows/maua-v3-port-preflight.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  preflight:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate migration script syntax
+        run: python3 -m py_compile scripts/prepare_maua_v3_port.py
+      - name: Validate command-line interface
+        run: python3 scripts/prepare_maua_v3_port.py --help
+      - name: Verify deployment guardrails
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -Fq 'BRANCH = "feature/ordering-v3-lambda-port"' scripts/prepare_maua_v3_port.py
+          grep -Fq 'git", "switch", "-c", BRANCH, "origin/dev"' scripts/prepare_maua_v3_port.py
+          grep -Fq 'SNAKE_TERRITORY_MODE' scripts/prepare_maua_v3_port.py
