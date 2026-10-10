@@ -44,7 +44,10 @@ impl GameRuntime {
 
         let key = (state.game.id.clone(), state.you.id.clone());
         if sessions.contains_key(&key) {
-            warn!("duplicate /start for game {} snake {}", state.game.id, state.you.id);
+            warn!(
+                "duplicate /start for game {} snake {}",
+                state.game.id, state.you.id
+            );
             return;
         }
 
@@ -246,7 +249,10 @@ mod tests {
         let two = sessions
             .get(&("shared-game".to_string(), "other-snake".to_string()))
             .unwrap();
-        assert!(!Arc::ptr_eq(one, two), "same game, independent search session");
+        assert!(
+            !Arc::ptr_eq(one, two),
+            "same game, independent search session"
+        );
         drop(sessions);
 
         runtime.end(&first).await;
