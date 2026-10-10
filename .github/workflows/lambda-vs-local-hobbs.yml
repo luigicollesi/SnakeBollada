@@ -1,0 +1,94 @@
+name: Real Maua Lambda vs Hobbs source (500ms)
+
+on:
+  push:
+    branches: [ci/live-maua-vs-hobbs]
+  workflow_dispatch:
+  pull_request:
+    branches: [dev]
+    paths:
+      - '.github/workflows/lambda-vs-local-hobbs.yml'
+      - 'tools/ci_live_maua_local_hobbs.py'
+
+permissions:
+  contents: read
+
+jobs:
+  live-lambda-vs-source:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - name: Checkout benchmark
+        uses: actions/checkout@v4
+        with:
+          path: harness
+          persist-credentials: false
+
+      - name: Checkout original Hovering Hobbs
+        uses: actions/checkout@v4
+        with:
+          repository: coreyja/battlesnake-rs
+          ref: 3775c70676a4add680a19eb810c196d1e4820665
+          path: hobbs
+          persist-credentials: false
+
+      - name: Prepare benchmark
+        run: |
+          mkdir -p harness/hobbs-local-results
+          echo "Maua Lambda: deployed AWS; Hobbs: original source compiled and run on GitHub Linux. No claim of identical CPU resources." | tee harness/hobbs-local-results/method.txt
+          git -C hobbs rev-parse HEAD | tee -a harness/hobbs-local-results/method.txt
+
+      - name: Install Hobbs Rust toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: nightly-2026-01-26
+
+      - name: Cache Hobbs build
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: hobbs
+
+      - name: Build real Hovering Hobbs release server
+        shell: bash
+        run: |
+          set -o pipefail
+          cd hobbs
+          cargo build --release --locked -p web-axum 2>&1 | tee ../harness/hobbs-local-results/build.log
+
+      - name: Start local Hovering Hobbs
+        shell: bash
+        run: |
+          cd hobbs
+          PORT=3080 RUST_LOG=warn ./target/release/web-axum >../harness/hobbs-local-results/hobbs-server.log 2>&1 &
+          echo $! >../harness/hobbs-local-results/hobbs.pid
+          for i in {1..20}; do
+            if curl -fsS --max-time 2 http://127.0.0.1:3080/hovering-hobbs >../harness/hobbs-local-results/hobbs-info.json; then
+              echo "LOCAL HOBBS READY on port 3080"
+              exit 0
+            fi
+            sleep 1
+          done
+          cat ../harness/hobbs-local-results/hobbs-server.log
+          exit 1
+
+      - name: Install official Battlesnake CLI
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.23'
+
+      - run: go install github.com/BattlesnakeOfficial/rules/cli/battlesnake@latest
+
+      - name: Execute 500ms standard duels against deployed Lambda
+        shell: bash
+        run: |
+          cd harness
+          set -o pipefail
+          python3 -u tools/ci_live_maua_local_hobbs.py | tee hobbs-local-results/stdout.txt
+
+      - name: Attach replay and source logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: live-lambda-vs-source-hobbs
+          path: harness/hobbs-local-results/
+          if-no-files-found: warn
