@@ -127,7 +127,7 @@ def main():
             vec![
                 Coord { x: 3, y: 3 }, Coord { x: 3, y: 2 },
                 Coord { x: 3, y: 1 }, Coord { x: 2, y: 1 },
-                Coord { x: 1, y: 1 },
+                Coord { x: 1, y: 1 }, Coord { x: 0, y: 1 },
             ],
         );
         // (4,3) is a one-cell pocket; food must not outweigh a free region.
@@ -136,6 +136,7 @@ def main():
             vec![
                 Coord { x: 5, y: 3 }, Coord { x: 5, y: 4 },
                 Coord { x: 4, y: 4 }, Coord { x: 4, y: 2 },
+                Coord { x: 5, y: 2 },
             ],
         );
         let board = state(ours, vec![enemy], vec![Coord { x: 4, y: 3 }]);
