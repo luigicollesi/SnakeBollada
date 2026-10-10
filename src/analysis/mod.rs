@@ -19,5 +19,5 @@ pub(crate) use territorial_control::{
     TerritorialControlAnalysis,
 };
 pub(crate) use territorial_forecast::{
-    TerritoryDirectionSample, TerritorySnapshot, TerritoryTrajectory,
+    TerritorialDrop, TerritoryDirectionSample, TerritorySnapshot, TerritoryTrajectory,
 };

@@ -180,7 +180,9 @@ impl TerritorialDrop {
         for (index, pair) in states.windows(2).enumerate() {
             let previous = pair[0];
             let current = pair[1];
-            let lost = previous.our_claimed_cells.saturating_sub(current.our_claimed_cells);
+            let lost = previous
+                .our_claimed_cells
+                .saturating_sub(current.our_claimed_cells);
             let relative = lost
                 .saturating_mul(1000)
                 .saturating_div(previous.our_claimed_cells.max(1))
@@ -196,7 +198,7 @@ impl TerritorialDrop {
                 result.max_relative_drop_milli = relative;
                 result.opponent_gain = (i64::from(current.opponent_claimed_cells)
                     - i64::from(previous.opponent_claimed_cells))
-                    .clamp(i64::from(i32::MIN), i64::from(i32::MAX))
+                .clamp(i64::from(i32::MIN), i64::from(i32::MAX))
                     as i32;
                 result.recovered_next_ply = states.get(index + 2).map(|next| {
                     next.our_claimed_cells.saturating_mul(10)
@@ -314,8 +316,10 @@ impl TerritoryDirectionSample {
             });
             if let Some(candidate) = drop {
                 if sample.territorial_drop.is_none_or(|previous| {
-                    (candidate.max_relative_drop_milli, candidate.max_absolute_drop)
-                        > (previous.max_relative_drop_milli, previous.max_absolute_drop)
+                    (
+                        candidate.max_relative_drop_milli,
+                        candidate.max_absolute_drop,
+                    ) > (previous.max_relative_drop_milli, previous.max_absolute_drop)
                 }) {
                     sample.territorial_drop = Some(candidate);
                 }
@@ -412,12 +416,9 @@ mod tests {
             our_claimed_cells: ours,
             opponent_claimed_cells: theirs,
         };
-        let loss = TerritorialDrop::from_snapshots(&[
-            snapshot(30, 20),
-            snapshot(8, 39),
-            snapshot(9, 38),
-        ])
-        .unwrap();
+        let loss =
+            TerritorialDrop::from_snapshots(&[snapshot(30, 20), snapshot(8, 39), snapshot(9, 38)])
+                .unwrap();
         assert_eq!(loss.max_absolute_drop, 22);
         assert_eq!(loss.max_relative_drop_milli, 733);
         assert_eq!(loss.first_drop_ply, Some(1));
@@ -425,12 +426,9 @@ mod tests {
         assert_eq!(loss.recovered_next_ply, Some(false));
         assert!(loss.significant());
 
-        let recovered = TerritorialDrop::from_snapshots(&[
-            snapshot(30, 20),
-            snapshot(8, 39),
-            snapshot(29, 23),
-        ])
-        .unwrap();
+        let recovered =
+            TerritorialDrop::from_snapshots(&[snapshot(30, 20), snapshot(8, 39), snapshot(29, 23)])
+                .unwrap();
         assert_eq!(recovered.recovered_next_ply, Some(true));
         assert!(!recovered.significant());
         assert!(TerritorialDrop::from_snapshots(&[snapshot(30, 20)]).is_none());

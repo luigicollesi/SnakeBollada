@@ -31,16 +31,17 @@ pub(crate) fn sort_primary_root(
                 (Some(left_hint), Some(right_hint)) if experimental_drop => {
                     let left_bucket = left_hint.worst_mean_margin_milli.div_euclid(50);
                     let right_bucket = right_hint.worst_mean_margin_milli.div_euclid(50);
-                    right_bucket.cmp(&left_bucket).then_with(|| {
-                        let risk = |hint: &TerritoryDirectionSample, direction: Direction| {
-                            let continuations = tactical.get(&direction).map(|(ours, _)| *ours);
-                            hint.territorial_drop
-                                .is_some_and(|drop| drop.significant())
-                                && continuations.is_some_and(|ours| ours <= 2)
-                        };
-                        risk(left_hint, a).cmp(&risk(right_hint, b))
-                    })
-                    .then_with(|| right_hint.ordering_key().cmp(&left_hint.ordering_key()))
+                    right_bucket
+                        .cmp(&left_bucket)
+                        .then_with(|| {
+                            let risk = |hint: &TerritoryDirectionSample, direction: Direction| {
+                                let continuations = tactical.get(&direction).map(|(ours, _)| *ours);
+                                hint.territorial_drop.is_some_and(|drop| drop.significant())
+                                    && continuations.is_some_and(|ours| ours <= 2)
+                            };
+                            risk(left_hint, a).cmp(&risk(right_hint, b))
+                        })
+                        .then_with(|| right_hint.ordering_key().cmp(&left_hint.ordering_key()))
                 }
                 (Some(left_hint), Some(right_hint)) => {
                     right_hint.ordering_key().cmp(&left_hint.ordering_key())
@@ -78,18 +79,21 @@ mod tests {
     #[test]
     fn primary_retains_territorial_priority_even_with_sharp_drop() {
         let mut directions = vec![Direction::Right, Direction::Up];
-        let tactical = HashMap::from([
-            (Direction::Right, (1, 2)),
-            (Direction::Up, (2, 1)),
-        ]);
+        let tactical = HashMap::from([(Direction::Right, (1, 2)), (Direction::Up, (2, 1))]);
         let territorial = HashMap::from([
-            (Direction::Right, hint(300, Some(TerritorialDrop {
-                max_absolute_drop: 22,
-                max_relative_drop_milli: 733,
-                first_drop_ply: Some(2),
-                opponent_gain: 15,
-                recovered_next_ply: Some(false),
-            }))),
+            (
+                Direction::Right,
+                hint(
+                    300,
+                    Some(TerritorialDrop {
+                        max_absolute_drop: 22,
+                        max_relative_drop_milli: 733,
+                        first_drop_ply: Some(2),
+                        opponent_gain: 15,
+                        recovered_next_ply: Some(false),
+                    }),
+                ),
+            ),
             (Direction::Up, hint(290, None)),
         ]);
         sort_primary_root(&mut directions, None, &tactical, &territorial, false);
