@@ -465,7 +465,7 @@ fn late_seed_20261003_final_contested_exit_is_a_losing_head_to_head() {
     assert!(state.snake("ours").unwrap().length() < state.snake("hobbs").unwrap().length());
     let action = JointAction::new()
         .with_move(us, Direction::Left)
-        .with_move(rival, Direction::Up);
+        .with_move(rival, Direction::Down);
     let next = resolve_turn(&state, &action).unwrap().state;
     assert!(!next.snake("ours").unwrap().alive);
     assert!(next.snake("hobbs").unwrap().alive);
