@@ -1,0 +1,125 @@
+name: Maua Lambda self-play (no Docker)
+
+on:
+  push:
+    branches:
+      - ci/lambda-selfplay-isolation-check
+  pull_request:
+    branches:
+      - dev
+    paths:
+      - '.github/workflows/maua-lambda-selfplay.yml'
+      - 'tools/ci_maua_selfplay.py'
+      - 'tools/ci_maua_selfplay_fixture.rs'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  lambda-selfplay:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    env:
+      RUST_LOG: info
+      SNAKE_TERRITORY_MODE: ordering_v3
+      CARGO_BUILD_JOBS: '2'
+    steps:
+      - name: Checkout isolated test harness
+        uses: actions/checkout@v4
+        with:
+          path: harness
+          persist-credentials: false
+
+      - name: Checkout Maua Lambda source (read-only)
+        uses: actions/checkout@v4
+        with:
+          repository: Maua-Dev/battlesnake_luigi
+          ref: dev
+          path: maua
+          persist-credentials: false
+
+      - name: Record exact code and machine
+        shell: bash
+        run: |
+          mkdir -p results
+          echo "Source: Maua-Dev/battlesnake_luigi" | tee results/environment.txt
+          echo "Maua commit: $(git -C maua rev-parse HEAD)" | tee -a results/environment.txt
+          echo "Harness commit: $(git -C harness rev-parse HEAD)" | tee -a results/environment.txt
+          echo "Machine: $(uname -a)" | tee -a results/environment.txt
+          echo "CI runtime: Ubuntu Linux x86_64, Rust production GameRuntime; NOT actual AWS AL2023 Lambda CPU/emulator" | tee -a results/environment.txt
+          grep -nE 'memory_size|SNAKE_TERRITORY_MODE' maua/terraform/app/main.tf | tee -a results/environment.txt
+
+      - name: Rust stable
+        uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: maua
+
+      - name: Add exact self-play fixture without modifying repository
+        run: |
+          python3 harness/tools/ci_maua_selfplay.py install \
+            --maua maua --fixture harness/tools/ci_maua_selfplay_fixture.rs
+
+      - name: Confirm original shared-session regression reproduces
+        shell: bash
+        run: |
+          set +e
+          (cd maua && cargo test --locked --release --bin battlesnake \
+            ci_selfplay_sessions_are_isolated -- --nocapture) >results/unpatched.log 2>&1
+          status=$?
+          set -e
+          cat results/unpatched.log
+          if [ "$status" -eq 0 ]; then
+            echo "::error::Unpatched code unexpectedly passes same-turn self-play test"
+            exit 1
+          fi
+          # Only the expected decision mismatch counts as reproduction.
+          if ! grep -q 'B must not reuse A' results/unpatched.log; then
+            echo "::error::Baseline failed for an unexpected reason"
+            exit 1
+          fi
+          echo "CONFIRMED: original game.id-only sessions reuse the wrong move" | tee results/comparison.txt
+
+      - name: Apply minimum session isolation patch to temporary checkout
+        run: |
+          python3 harness/tools/ci_maua_selfplay.py patch --maua maua
+          git -C maua diff -- src/runtime.rs > results/session_patch.diff
+          git -C maua status --short
+
+      - name: Validate formatting and static analysis
+        shell: bash
+        run: |
+          set -o pipefail
+          (
+            cd maua
+            cargo fmt --all
+            cargo fmt --all -- --check
+            cargo clippy --locked --all-targets --all-features -- -D warnings
+          ) 2>&1 | tee results/static-checks.log
+
+      - name: Run isolated sessions and full self-play through Lambda decision runtime
+        shell: bash
+        run: |
+          set -o pipefail
+          (cd maua && cargo test --locked --release --bin battlesnake \
+            ci_selfplay -- --nocapture --test-threads=1) 2>&1 | tee results/patched-selfplay.log
+          (cd maua && cargo test --locked --release --bin battlesnake \
+            ci_lambda_http_handler -- --nocapture --test-threads=1) 2>&1 | tee -a results/patched-selfplay.log
+          echo "PATCHED SELFPLAY + LAMBDA HTTP HANDLER PASSED (within GitHub runner limits)" | tee -a results/comparison.txt
+
+      - name: Run production release tests and build
+        shell: bash
+        run: |
+          set -o pipefail
+          (cd maua && cargo test --locked --release --bin battlesnake -- --test-threads=2 \
+            && cargo build --locked --release) 2>&1 | tee results/release-validation.log
+
+      - name: Publish diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: maua-lambda-selfplay-diagnostics
+          path: results/
+          if-no-files-found: warn
