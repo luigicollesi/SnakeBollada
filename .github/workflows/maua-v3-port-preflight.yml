@@ -25,3 +25,15 @@ jobs:
           grep -Fq 'BRANCH = "feature/ordering-v3-lambda-port"' scripts/prepare_maua_v3_port.py
           grep -Fq 'git", "switch", "-c", BRANCH, "origin/dev"' scripts/prepare_maua_v3_port.py
           grep -Fq 'SNAKE_TERRITORY_MODE' scripts/prepare_maua_v3_port.py
+
+      - name: Install Rust for offline port compilation
+        uses: dtolnay/rust-toolchain@1.98.1
+      - name: Prepare Maua Lambda port without pushing
+        env:
+          CARGO_TERM_COLOR: always
+        run: |
+          git config --global user.name "v3-port-check"
+          git config --global user.email "v3-port-check@users.noreply.github.com"
+          python3 scripts/prepare_maua_v3_port.py ../battlesnake_luigi
+          cd ../battlesnake_luigi
+          git log -1 --oneline
