@@ -25,7 +25,8 @@ jobs:
         run: cargo clippy --all-targets --all-features -- -D warnings
 
       - name: Test
-        run: cargo test --all-targets --all-features
+        # Time-budgeted search tests require isolated CPU time to avoid flaky depth changes.
+        run: cargo test --all-targets --all-features -- --test-threads=1
 
       - name: Build release
         run: cargo build --release
