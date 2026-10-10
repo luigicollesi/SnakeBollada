@@ -157,6 +157,8 @@ pub(crate) struct TerritorialDrop {
     pub(crate) max_absolute_drop: u32,
     pub(crate) max_relative_drop_milli: u16,
     pub(crate) first_drop_ply: Option<u8>,
+    /// Ply of the event supplying max_absolute_drop and max_relative_drop_milli.
+    pub(crate) max_drop_ply: Option<u8>,
     pub(crate) opponent_gain: i32,
     /// None means the sampled chain ended before a recovery could be checked.
     pub(crate) recovered_next_ply: Option<bool>,
@@ -169,7 +171,7 @@ impl TerritorialDrop {
     pub(crate) fn significant(self) -> bool {
         self.max_absolute_drop >= Self::MIN_ABSOLUTE
             && self.max_relative_drop_milli >= Self::MIN_RELATIVE_MILLI
-            && self.recovered_next_ply != Some(true)
+            && self.recovered_next_ply == Some(false)
     }
 
     fn from_snapshots(states: &[TerritorySnapshot]) -> Option<Self> {
@@ -183,6 +185,7 @@ impl TerritorialDrop {
             let lost = previous
                 .our_claimed_cells
                 .saturating_sub(current.our_claimed_cells);
+            let ply = u8::try_from(index + 1).unwrap_or(u8::MAX);
             let relative = lost
                 .saturating_mul(1000)
                 .saturating_div(previous.our_claimed_cells.max(1))
@@ -191,11 +194,12 @@ impl TerritorialDrop {
                 && relative >= Self::MIN_RELATIVE_MILLI
                 && result.first_drop_ply.is_none()
             {
-                result.first_drop_ply = Some(u8::try_from(index + 1).unwrap_or(u8::MAX));
+                result.first_drop_ply = Some(ply);
             }
             if (relative, lost) > (result.max_relative_drop_milli, result.max_absolute_drop) {
                 result.max_absolute_drop = lost;
                 result.max_relative_drop_milli = relative;
+                result.max_drop_ply = Some(ply);
                 result.opponent_gain = (i64::from(current.opponent_claimed_cells)
                     - i64::from(previous.opponent_claimed_cells))
                 .clamp(i64::from(i32::MIN), i64::from(i32::MAX))
@@ -228,6 +232,9 @@ pub(crate) struct TerritoryDirectionSample {
     pub(crate) adversarially_complete: bool,
     /// Largest loss observed between adjacent states of a sampled reply.
     pub(crate) territorial_drop: Option<TerritorialDrop>,
+    /// At least one sampled reply reached a terminal loss; do not infer
+    /// a safe trajectory from the surviving prefix alone.
+    pub(crate) terminal_reply_seen: bool,
 }
 
 impl TerritoryDirectionSample {
@@ -255,6 +262,7 @@ impl TerritoryDirectionSample {
             edges.sort_by_key(|edge| edge.joint_action != *reply);
         }
         let mut result: Option<Self> = None;
+        let mut terminal_reply_seen = false;
         for edge in edges.iter().take(Self::MAX_REPLIES_PER_DIRECTION) {
             let mut chain = vec![root, edge.child];
             let mut chain_certainty = ForecastCertainty::Deterministic.after(edge.forecast_delta);
@@ -283,9 +291,23 @@ impl TerritoryDirectionSample {
             }
 
             let mut snapshots = Vec::with_capacity(chain.len());
+            let mut terminated = false;
             for &id in &chain {
                 if Instant::now() >= deadline {
                     return result;
+                }
+                // Only V3 needs this explicit distinction. The validated
+                // primary policy retains its original sampling behavior.
+                if collect_drop
+                    && graph
+                        .node(id)
+                        .state
+                        .snake(&graph.node(id).state.our_snake_id)
+                        .is_some_and(|snake| !snake.alive)
+                {
+                    terminal_reply_seen = true;
+                    terminated = true;
+                    break;
                 }
                 let snapshot = if let Some(&cached) = cache.get(&id) {
                     cached
@@ -301,9 +323,14 @@ impl TerritoryDirectionSample {
                 };
                 snapshots.push(snapshot);
             }
+            // A terminal reply may supply a valid prefix but is never
+            // accepted as evidence of a persistent, survivable territory.
+            if snapshots.is_empty() {
+                continue;
+            }
             let trajectory = TerritoryTrajectory::summarize(&snapshots, chain_certainty)?;
             // No drop analysis at all in the validated primary mode.
-            let drop = if collect_drop {
+            let drop = if collect_drop && !terminated {
                 TerritorialDrop::from_snapshots(&snapshots)
             } else {
                 None
@@ -319,6 +346,7 @@ impl TerritoryDirectionSample {
                 certainty: ForecastCertainty::Deterministic,
                 adversarially_complete: false,
                 territorial_drop: drop,
+                terminal_reply_seen,
             });
             if let Some(candidate) = drop {
                 if sample.territorial_drop.is_none_or(|previous| {
@@ -342,6 +370,9 @@ impl TerritoryDirectionSample {
             sample.worst_minimum_margin_milli = sample
                 .worst_minimum_margin_milli
                 .min(trajectory.minimum_margin_milli);
+        }
+        if let Some(sample) = result.as_mut() {
+            sample.terminal_reply_seen |= terminal_reply_seen;
         }
         result
     }
@@ -428,6 +459,7 @@ mod tests {
         assert_eq!(loss.max_absolute_drop, 22);
         assert_eq!(loss.max_relative_drop_milli, 733);
         assert_eq!(loss.first_drop_ply, Some(1));
+        assert_eq!(loss.max_drop_ply, Some(1));
         assert_eq!(loss.opponent_gain, 19);
         assert_eq!(loss.recovered_next_ply, Some(false));
         assert!(loss.significant());
@@ -437,6 +469,27 @@ mod tests {
                 .unwrap();
         assert_eq!(recovered.recovered_next_ply, Some(true));
         assert!(!recovered.significant());
+
+        let unknown = TerritorialDrop::from_snapshots(&[snapshot(30, 20), snapshot(8, 39)])
+            .unwrap();
+        assert_eq!(unknown.recovered_next_ply, None);
+        assert!(!unknown.significant());
+
+        // A later, larger drop must keep its own opponent gain and ply.
+        let multiple = TerritorialDrop::from_snapshots(&[
+            snapshot(35, 15),
+            snapshot(22, 23),
+            snapshot(32, 17),
+            snapshot(7, 38),
+            snapshot(6, 40),
+        ])
+        .unwrap();
+        assert_eq!(multiple.first_drop_ply, Some(1));
+        assert_eq!(multiple.max_drop_ply, Some(3));
+        assert_eq!(multiple.max_absolute_drop, 25);
+        assert_eq!(multiple.opponent_gain, 21);
+        assert_eq!(multiple.recovered_next_ply, Some(false));
+        assert!(multiple.significant());
         assert!(TerritorialDrop::from_snapshots(&[snapshot(30, 20)]).is_none());
     }
 
