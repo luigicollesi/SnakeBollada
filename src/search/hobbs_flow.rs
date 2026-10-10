@@ -10,7 +10,7 @@ use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
 use crate::analysis::{
-    adversarial_order, AdversarialCorridorOrder, CorridorOutlook, TemporalTerritory,
+    adversarial_order, AdversarialCorridorOrder, CorridorOutlook, EscapeEvidence, TemporalTerritory,
     TerritoryDirectionSample, TerritorySnapshot, TerritoryTrajectory,
 };
 use crate::direction::Direction;
@@ -332,6 +332,28 @@ pub(crate) fn search_hobbs_with_territory_ordering(
                     trajectory.certainty.is_provisional(),
                     trajectory.mean_margin_milli,
                     trajectory.minimum_margin_milli,
+                );
+            }
+            if let Some(escape) = EscapeEvidence::from_graph_path(
+                graph,
+                &line.path,
+                line.certainty,
+                line.adversarially_complete,
+                deadline,
+            ) {
+                log::debug!(
+                    target: "territorial_control",
+                    "escape_completed_line turn={} direction={:?} depth={} states={} minimum_exits={} narrow_at={:?} contested_at={:?} closed_at={:?} death_at={:?} quality={:?} evidence=observed_minimax_path_only",
+                    graph.node(root).state.turn,
+                    direction,
+                    line.depth,
+                    escape.observed_states,
+                    escape.minimum_exits,
+                    escape.first_narrow_ply,
+                    escape.first_contested_ply,
+                    escape.first_no_exit_ply,
+                    escape.first_observed_death_ply,
+                    escape.quality,
                 );
             }
         }
