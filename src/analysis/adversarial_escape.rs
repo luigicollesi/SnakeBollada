@@ -339,7 +339,9 @@ mod tests {
             {
                 ResponseLookup::Edge(_) => index += 1,
                 ResponseLookup::Exhausted => break,
-                ResponseLookup::Deadline => panic!("fixture response generation timed out"),
+                ResponseLookup::Deadline | ResponseLookup::ResourceLimit => {
+                    panic!("fixture response generation stopped before coverage was complete")
+                },
             }
         }
     }
